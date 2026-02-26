@@ -171,6 +171,77 @@ def _spline_baseline(
 
 
 # ---------------------------------------------------------------------------
+# Standalone ALS baseline function (primary public API for DSC)
+# ---------------------------------------------------------------------------
+
+def als_baseline(
+    x: np.ndarray,
+    y: np.ndarray,
+    lam: float = 1e6,
+    p: float = 0.01,
+) -> np.ndarray:
+    """
+    Asymmetric Least Squares (ALS) baseline correction for DSC signals.
+
+    Fits a smooth baseline that hugs the lower envelope of the signal by
+    iteratively re-weighting a penalised least-squares fit.  Small *p* values
+    push the baseline below peaks (suitable for DSC where peaks protrude above
+    the background); large *lam* values enforce a smooth, slowly varying
+    baseline.
+
+    This function is the recommended entry point for the DSC "fully automatic"
+    baseline correction workflow.  It follows the exotherm-up / endotherm-down
+    convention: positive signal deviations above the baseline correspond to
+    exothermic events, negative deviations to endothermic events.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Temperature (or time) axis; used by pybaselines for polynomial methods
+        but does not affect the ALS fit directly.
+    y : np.ndarray
+        DSC heat-flow signal (same length as *x*).
+    lam : float, default 1e6
+        Smoothness penalty.  Larger values produce a smoother (less wiggly)
+        baseline.  Typical range: 1e3 – 1e8.
+    p : float, default 0.01
+        Asymmetry parameter.  Values close to 0 push the baseline below peaks;
+        values close to 1 push it above.  Typical DSC range: 0.001 – 0.1.
+
+    Returns
+    -------
+    np.ndarray
+        Baseline array of the same length as *y*.
+
+    Raises
+    ------
+    ValueError
+        If *x* and *y* have different lengths, or if *lam* or *p* are
+        out of valid range.
+
+    Examples
+    --------
+    >>> bl = als_baseline(temperature, heat_flow, lam=1e6, p=0.01)
+    >>> corrected = heat_flow - bl
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    if x.shape != y.shape:
+        raise ValueError(
+            f"x and y must have the same length, got {len(x)} and {len(y)}."
+        )
+    if lam <= 0:
+        raise ValueError(f"lam must be positive, got {lam}.")
+    if not (0 < p < 1):
+        raise ValueError(f"p must be in the open interval (0, 1), got {p}.")
+
+    fitter = Baseline(x_data=x)
+    baseline, _ = fitter.asls(y, lam=lam, p=p)
+    return baseline
+
+
+# ---------------------------------------------------------------------------
 # Main public function
 # ---------------------------------------------------------------------------
 
@@ -323,7 +394,7 @@ def _compute_baseline_array(
     if method == "asls":
         lam = kwargs.get("lam", 1e6)
         p   = kwargs.get("p",   0.01)
-        baseline, _ = fitter.asls(y, lam=lam, p=p)
+        baseline = als_baseline(x, y, lam=lam, p=p)
 
     elif method == "airpls":
         lam = kwargs.get("lam", 1e6)

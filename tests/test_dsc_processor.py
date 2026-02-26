@@ -22,6 +22,7 @@ if _ROOT not in sys.path:
 
 from core.dsc_processor import DSCProcessor, DSCResult, GlassTransition
 from core.peak_analysis import ThermalPeak
+from core.baseline import als_baseline
 
 
 # ---------------------------------------------------------------------------
@@ -314,3 +315,166 @@ class TestDSCResultStructure:
             assert pk.endset_temperature is not None, "endset_temperature is None"
             assert pk.area is not None, "area is None"
             assert pk.fwhm is not None, "fwhm is None"
+
+
+# ---------------------------------------------------------------------------
+# als_baseline standalone function
+# ---------------------------------------------------------------------------
+
+class TestALSBaseline:
+
+    def test_als_baseline_returns_correct_length(self, temperature_range, dsc_signal):
+        """als_baseline must return an array of the same length as the input."""
+        bl = als_baseline(temperature_range, dsc_signal)
+        assert len(bl) == len(temperature_range)
+
+    def test_als_baseline_is_finite(self, temperature_range, dsc_signal):
+        """All values returned by als_baseline must be finite."""
+        bl = als_baseline(temperature_range, dsc_signal)
+        assert np.all(np.isfinite(bl))
+
+    def test_als_baseline_below_peak(self, temperature_range):
+        """
+        The ALS baseline should sit below the peak maximum; with default
+        parameters (p=0.01) it tracks the lower envelope of the signal.
+        """
+        rng = np.random.default_rng(7)
+        peak = 3.0 * np.exp(-0.5 * ((temperature_range - 200.0) / 8.0) ** 2)
+        signal = peak + rng.normal(0.0, 0.01, size=len(temperature_range))
+        bl = als_baseline(temperature_range, signal)
+        peak_idx = int(np.argmax(signal))
+        assert bl[peak_idx] < signal[peak_idx], (
+            "ALS baseline should be below the peak maximum"
+        )
+
+    def test_als_baseline_mismatched_lengths_raises(self, temperature_range):
+        """Passing arrays of different lengths must raise ValueError."""
+        short_signal = np.ones(len(temperature_range) - 5)
+        with pytest.raises(ValueError, match="same length"):
+            als_baseline(temperature_range, short_signal)
+
+    def test_als_baseline_invalid_lam_raises(self, temperature_range, dsc_signal):
+        """Non-positive lam must raise ValueError."""
+        with pytest.raises(ValueError, match="lam"):
+            als_baseline(temperature_range, dsc_signal, lam=0)
+
+    def test_als_baseline_invalid_p_raises(self, temperature_range, dsc_signal):
+        """p outside (0, 1) must raise ValueError."""
+        with pytest.raises(ValueError, match="p must"):
+            als_baseline(temperature_range, dsc_signal, p=0.0)
+        with pytest.raises(ValueError, match="p must"):
+            als_baseline(temperature_range, dsc_signal, p=1.0)
+
+
+# ---------------------------------------------------------------------------
+# DSC pipeline with ALS baseline and enthalpy sign convention
+# ---------------------------------------------------------------------------
+
+class TestDSCPipelineALSAndConvention:
+
+    def test_pipeline_with_als_baseline_finds_exotherm(self, temperature_range):
+        """
+        Full DSC pipeline using ALS baseline should detect the synthetic
+        Gaussian exothermic peak and report a positive enthalpy area
+        (exotherm-up convention: positive heat flow above baseline).
+        """
+        rng = np.random.default_rng(21)
+        signal = (
+            2.0 * np.exp(-0.5 * ((temperature_range - 200.0) / 8.0) ** 2)
+            + rng.normal(0.0, 0.01, size=len(temperature_range))
+        )
+        result = (
+            DSCProcessor(temperature_range, signal)
+            .smooth(method="savgol", window_length=11, polyorder=3)
+            .correct_baseline(method="asls", lam=1e6, p=0.01)
+            .find_peaks(direction="up", prominence=0.05)
+            .get_result()
+        )
+
+        assert len(result.peaks) >= 1
+        peak = result.peaks[0]
+        assert peak.area is not None
+        assert peak.area > 0, (
+            f"Exotherm area should be positive (exotherm-up convention), "
+            f"got {peak.area:.4f}"
+        )
+
+    def test_pipeline_with_als_baseline_finds_endotherm(self, temperature_range):
+        """
+        Full DSC pipeline using ALS baseline should detect the synthetic
+        inverted Gaussian endothermic peak and report a negative enthalpy area
+        (endotherm-down convention: negative heat flow below baseline).
+        """
+        rng = np.random.default_rng(22)
+        signal = (
+            -2.0 * np.exp(-0.5 * ((temperature_range - 200.0) / 8.0) ** 2)
+            + rng.normal(0.0, 0.01, size=len(temperature_range))
+        )
+        result = (
+            DSCProcessor(temperature_range, signal)
+            .smooth(method="savgol", window_length=11, polyorder=3)
+            .correct_baseline(method="asls", lam=1e6, p=0.99)
+            .find_peaks(direction="down", prominence=0.05)
+            .get_result()
+        )
+
+        assert len(result.peaks) >= 1
+        peak = result.peaks[0]
+        assert peak.area is not None
+        assert peak.area < 0, (
+            f"Endotherm area should be negative (endotherm-down convention), "
+            f"got {peak.area:.4f}"
+        )
+
+    def test_als_baseline_onset_endset_populated(self, temperature_range):
+        """
+        Peaks detected after ALS baseline correction must have onset and
+        endset temperatures populated (not None) for DSC report generation.
+        """
+        rng = np.random.default_rng(23)
+        signal = (
+            2.0 * np.exp(-0.5 * ((temperature_range - 200.0) / 8.0) ** 2)
+            + rng.normal(0.0, 0.01, size=len(temperature_range))
+        )
+        result = (
+            DSCProcessor(temperature_range, signal)
+            .smooth(method="savgol", window_length=11, polyorder=3)
+            .correct_baseline(method="asls")
+            .find_peaks(direction="up", prominence=0.05)
+            .get_result()
+        )
+
+        assert len(result.peaks) >= 1
+        for pk in result.peaks:
+            assert pk.onset_temperature is not None, "onset_temperature is None"
+            assert pk.endset_temperature is not None, "endset_temperature is None"
+            assert pk.onset_temperature < pk.peak_temperature, (
+                f"onset ({pk.onset_temperature:.2f}) should be less than "
+                f"peak temperature ({pk.peak_temperature:.2f})"
+            )
+            assert pk.endset_temperature > pk.peak_temperature, (
+                f"endset ({pk.endset_temperature:.2f}) should be greater than "
+                f"peak temperature ({pk.peak_temperature:.2f})"
+            )
+
+    def test_process_method_uses_als_by_default(self, temperature_range):
+        """
+        DSCProcessor.process() should use ALS baseline by default and
+        return a DSCResult with a non-None baseline array.
+        """
+        rng = np.random.default_rng(24)
+        signal = (
+            2.0 * np.exp(-0.5 * ((temperature_range - 200.0) / 8.0) ** 2)
+            + rng.normal(0.0, 0.01, size=len(temperature_range))
+        )
+        result = DSCProcessor(temperature_range, signal).process()
+
+        assert result.baseline is not None
+        assert len(result.baseline) == len(temperature_range)
+        assert np.all(np.isfinite(result.baseline))
+        # Confirm 'asls' was recorded in metadata steps
+        bl_steps = [s for s in result.metadata.get("steps", []) if s.get("step") == "correct_baseline"]
+        step_methods = [s.get("method") for s in bl_steps]
+        assert "asls" in step_methods, (
+            "process() should use 'asls' baseline method by default"
+        )
