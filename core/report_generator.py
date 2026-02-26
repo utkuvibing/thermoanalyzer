@@ -26,6 +26,23 @@ except ImportError as exc:  # pragma: no cover
         "Install it with:  pip install python-docx"
     ) from exc
 
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        Image,
+        PageBreak,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet
+except ImportError:
+    A4 = None
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -409,3 +426,74 @@ def generate_csv_summary(
         file_path_or_buffer.seek(0)
 
     return csv_str
+
+
+def generate_dsc_pdf_report(
+    result: dict,
+    figures: Optional[dict] = None,
+    file_path_or_buffer: Optional[Union[str, io.BytesIO]] = None,
+) -> bytes:
+    """Generate a DSC-specific PDF report in English."""
+    if A4 is None:  # pragma: no cover
+        raise ImportError(
+            "reportlab is required for PDF report generation. "
+            "Install it with: pip install reportlab"
+        )
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    dataset_name = result.get("dataset_name") or result.get("dataset_key", "DSC Analysis")
+    peaks = result.get("peaks", []) or []
+    glass_transitions = result.get("glass_transitions", []) or []
+
+    tg = glass_transitions[0] if glass_transitions else None
+    summary_rows = [
+        ["Metric", "Value"],
+        ["Dataset", dataset_name],
+        ["Tg Onset (°C)", _format_float(getattr(tg, "tg_onset", None), 2)],
+        ["Tg Mid (°C)", _format_float(getattr(tg, "tg_midpoint", None), 2)],
+        ["Tg End (°C)", _format_float(getattr(tg, "tg_endset", None), 2)],
+        ["Peak T (°C)", _format_float(getattr(peaks[0], "peak_temperature", None) if peaks else None, 2)],
+        ["ΔH (J/g)", _format_float(getattr(peaks[0], "area", None) if peaks else None, 3)],
+        ["Onset (°C)", _format_float(getattr(peaks[0], "onset_temperature", None) if peaks else None, 2)],
+        ["Endset (°C)", _format_float(getattr(peaks[0], "endset_temperature", None) if peaks else None, 2)],
+    ]
+
+    story.append(Paragraph("DSC Analysis Report", styles["Title"]))
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(Paragraph(f"Generated: {timestamp}", styles["Normal"]))
+    story.append(PageBreak())
+    story.append(Paragraph("Summary", styles["Heading1"]))
+
+    summary_table = Table(summary_rows, colWidths=[2.4 * inch, 3.6 * inch])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4472C4")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.25 * inch))
+
+    if figures:
+        story.append(Paragraph("Figures", styles["Heading1"]))
+        for caption, png_bytes in figures.items():
+            story.append(Paragraph(caption, styles["Heading2"]))
+            story.append(Image(io.BytesIO(png_bytes), width=6.0 * inch, height=3.5 * inch))
+            story.append(Spacer(1, 0.15 * inch))
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+
+    if isinstance(file_path_or_buffer, str):
+        with open(file_path_or_buffer, "wb") as fh:
+            fh.write(pdf_bytes)
+    elif isinstance(file_path_or_buffer, io.BytesIO):
+        file_path_or_buffer.write(pdf_bytes)
+        file_path_or_buffer.seek(0)
+
+    return pdf_bytes

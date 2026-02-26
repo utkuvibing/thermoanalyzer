@@ -1,0 +1,12 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting reportlab
+  Downloading reportlab-4.4.10-py3-none-any.whl.metadata (1.7 kB)
+Requirement already satisfied: pillow>=9.0.0 in /home/runner/.local/lib/python3.12/site-packages (from reportlab) (12.1.1)
+Collecting charset-normalizer (from reportlab)
+  Downloading charset_normalizer-3.4.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (37 kB)
+Downloading reportlab-4.4.10-py3-none-any.whl (2.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 114.8 MB/s eta 0:00:00
+Downloading charset_normalizer-3.4.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (153 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 153.5/153.5 kB 48.7 MB/s eta 0:00:00
+Installing collected packages: charset-normalizer, reportlab
+Successfully installed charset-normalizer-3.4.4 reportlab-4.4.10

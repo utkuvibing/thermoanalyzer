@@ -2,11 +2,16 @@
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import io
 
 from core.data_io import export_results_csv, export_data_xlsx
-from core.report_generator import generate_docx_report, generate_csv_summary
-from ui.components.plot_builder import fig_to_bytes
+from core.report_generator import (
+    generate_docx_report,
+    generate_csv_summary,
+    generate_dsc_pdf_report,
+)
+from ui.components.plot_builder import fig_to_bytes, build_dsc_export_figures
 
 
 def render():
@@ -19,8 +24,8 @@ def render():
         st.warning("No data or results available. Upload data and run analyses first.")
         return
 
-    tab_data, tab_results, tab_report = st.tabs(
-        ["Export Data", "Export Results", "Generate Report"]
+    tab_data, tab_results, tab_report, tab_dsc = st.tabs(
+        ["Export Data", "Export Results", "Generate Report", "DSC Export"]
     )
 
     # ===================== EXPORT DATA TAB =====================
@@ -159,6 +164,64 @@ def render():
                 except Exception as e:
                     st.error(f"Report generation failed: {e}")
 
+    # ===================== DSC EXPORT TAB =====================
+    with tab_dsc:
+        st.subheader("DSC-specific Export")
+        dsc_keys = [k for k, v in results.items() if v.get("analysis_type") == "DSC"]
+        if not dsc_keys:
+            st.info("No DSC analysis results available.")
+        else:
+            selected_key = st.selectbox("Select DSC result", dsc_keys, key="dsc_export_select")
+            dsc_result = results[selected_key]
+            dataset_key = dsc_result.get("dataset_key")
+            dataset = datasets.get(dataset_key) if dataset_key else None
+            if dataset is None:
+                st.warning("Linked dataset not found for selected DSC result.")
+            else:
+                temp = dataset.data["temperature"].to_numpy()
+                raw_signal = dataset.data["signal"].to_numpy()
+                figures = build_dsc_export_figures(
+                    temperature=temp,
+                    raw_signal=raw_signal,
+                    baseline=dsc_result.get("baseline"),
+                    corrected=dsc_result.get("corrected"),
+                    peaks=dsc_result.get("peaks"),
+                    glass_transitions=dsc_result.get("glass_transitions"),
+                )
+                col1, col2 = st.columns(2)
+                with col1:
+                    pdf_bytes = generate_dsc_pdf_report(
+                        {**dsc_result, "dataset_name": selected_key},
+                        figures=figures,
+                    )
+                    st.download_button(
+                        label="Download DSC PDF",
+                        data=pdf_bytes,
+                        file_name=f"{selected_key}_dsc_report.pdf",
+                        mime="application/pdf",
+                        key="dl_dsc_pdf",
+                    )
+                with col2:
+                    buf = io.BytesIO()
+                    _dsc_result_to_xlsx(dsc_result, dataset, buf)
+                    buf.seek(0)
+                    st.download_button(
+                        label="Download DSC Excel",
+                        data=buf.getvalue(),
+                        file_name=f"{selected_key}_dsc_results.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_dsc_xlsx",
+                    )
+                for caption, png_bytes in figures.items():
+                    safe_caption = caption.lower().replace(" ", "_")
+                    st.download_button(
+                        label=f"Download figure: {caption}",
+                        data=png_bytes,
+                        file_name=f"{selected_key}_{safe_caption}.png",
+                        mime="image/png",
+                        key=f"dl_{selected_key}_{safe_caption}",
+                    )
+
 
 def _results_to_xlsx(results, buf):
     """Write results dict to an Excel file."""
@@ -191,6 +254,50 @@ def _results_to_xlsx(results, buf):
                         if not isinstance(v, (list, dict, np.ndarray))}
                 df = pd.DataFrame([flat])
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+
+def _dsc_result_to_xlsx(result, dataset, buf):
+    """Write DSC-specific sheets: Summary, Raw Data, Baseline, Corrected, Peaks."""
+    temp = dataset.data["temperature"].to_numpy()
+    raw_signal = dataset.data["signal"].to_numpy()
+    baseline = result.get("baseline")
+    corrected = result.get("corrected")
+    peaks = result.get("peaks", []) or []
+    tg_list = result.get("glass_transitions", []) or []
+    tg = tg_list[0] if tg_list else None
+
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        summary = pd.DataFrame([
+            {"Parameter": "Tg Onset (°C)", "Value": getattr(tg, "tg_onset", None)},
+            {"Parameter": "Tg Mid (°C)", "Value": getattr(tg, "tg_midpoint", None)},
+            {"Parameter": "Tg End (°C)", "Value": getattr(tg, "tg_endset", None)},
+            {"Parameter": "Peak T (°C)", "Value": getattr(peaks[0], "peak_temperature", None) if peaks else None},
+            {"Parameter": "ΔH (J/g)", "Value": getattr(peaks[0], "area", None) if peaks else None},
+            {"Parameter": "Onset (°C)", "Value": getattr(peaks[0], "onset_temperature", None) if peaks else None},
+            {"Parameter": "Endset (°C)", "Value": getattr(peaks[0], "endset_temperature", None) if peaks else None},
+        ])
+        summary.to_excel(writer, sheet_name="Summary", index=False)
+        pd.DataFrame({"Temperature (°C)": temp, "Signal": raw_signal}).to_excel(
+            writer, sheet_name="Raw Data", index=False
+        )
+        if baseline is not None:
+            pd.DataFrame({"Temperature (°C)": temp, "Baseline": baseline}).to_excel(
+                writer, sheet_name="Baseline", index=False
+            )
+        if corrected is not None:
+            pd.DataFrame({"Temperature (°C)": temp, "Corrected": corrected}).to_excel(
+                writer, sheet_name="Corrected", index=False
+            )
+        peak_rows = []
+        for i, p in enumerate(peaks):
+            peak_rows.append({
+                "Peak #": i + 1,
+                "Peak T (°C)": getattr(p, "peak_temperature", None),
+                "Onset (°C)": getattr(p, "onset_temperature", None),
+                "Endset (°C)": getattr(p, "endset_temperature", None),
+                "ΔH (J/g)": getattr(p, "area", None),
+            })
+        pd.DataFrame(peak_rows).to_excel(writer, sheet_name="Peaks", index=False)
 
 
 def _collect_figures():

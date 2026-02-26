@@ -104,7 +104,7 @@ def create_thermal_plot(
 
 def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
                     y_label="Heat Flow (mW/mg)", baseline=None,
-                    peaks=None, smoothed=None):
+                    peaks=None, smoothed=None, glass_transitions=None):
     """Create a DSC plot with optional baseline and peak markers."""
     fig = go.Figure()
 
@@ -160,6 +160,23 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
                     annotation_text=f"Onset {p.onset_temperature:.1f}°C",
                 )
 
+    if glass_transitions:
+        for tg in glass_transitions:
+            fig.add_vrect(
+                x0=tg.tg_onset,
+                x1=tg.tg_endset,
+                fillcolor="#3A86FF",
+                opacity=0.12,
+                line_width=0,
+            )
+            fig.add_vline(
+                x=tg.tg_midpoint,
+                line_dash="dash",
+                line_color="#3A86FF",
+                opacity=0.7,
+                annotation_text=f"Tg {tg.tg_midpoint:.1f}°C",
+            )
+
     fig.update_layout(
         title=title, xaxis_title="Temperature (°C)", yaxis_title=y_label,
         **DEFAULT_LAYOUT,
@@ -168,6 +185,48 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
     _add_exo_annotation(fig)
     apply_plotly_config(fig)
     return fig
+
+
+def build_dsc_export_figures(
+    temperature,
+    raw_signal,
+    baseline=None,
+    corrected=None,
+    peaks=None,
+    glass_transitions=None,
+):
+    """Build DSC export figures (raw, baseline, corrected with markers) as PNG bytes."""
+    figures = {}
+
+    raw_fig = create_dsc_plot(
+        temperature,
+        raw_signal,
+        title="DSC Raw",
+        y_label="Heat Flow (mW/mg)",
+    )
+    figures["DSC Raw"] = fig_to_bytes(raw_fig)
+
+    if baseline is not None:
+        baseline_fig = create_dsc_plot(
+            temperature,
+            raw_signal,
+            title="DSC Baseline",
+            y_label="Heat Flow (mW/mg)",
+            baseline=baseline,
+        )
+        figures["DSC Baseline"] = fig_to_bytes(baseline_fig)
+
+    corrected_signal = corrected if corrected is not None else raw_signal
+    corrected_fig = create_dsc_plot(
+        temperature,
+        corrected_signal,
+        title="DSC Corrected",
+        y_label="Corrected Heat Flow (mW/mg)",
+        peaks=peaks,
+        glass_transitions=glass_transitions,
+    )
+    figures["DSC Corrected"] = fig_to_bytes(corrected_fig)
+    return figures
 
 
 def create_tga_plot(temperature, mass, title="TGA Curve",

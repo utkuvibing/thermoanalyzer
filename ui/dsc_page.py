@@ -51,6 +51,7 @@ def render():
             "baseline": None,
             "corrected": None,
             "peaks": None,
+            "glass_transitions": [],
             "processor": None,
         }
     state = st.session_state[state_key]
@@ -272,6 +273,8 @@ def render():
                     baseline_for_peaks = state.get("baseline")
                     peaks = characterize_peaks(temperature, working, peaks, baseline=baseline_for_peaks)
                     state["peaks"] = peaks
+                    tg_result = DSCProcessor(temperature, working).detect_glass_transition().get_result()
+                    state["glass_transitions"] = tg_result.glass_transitions
                     _log_event("Peaks Detected", f"{len(peaks)} peak(s) found", "DSC Analysis")
                     st.success(f"Found {len(peaks)} peak(s)")
                 except Exception as e:
@@ -284,6 +287,7 @@ def render():
                 y_label=y_label,
                 baseline=state.get("baseline"),
                 peaks=state.get("peaks"),
+                glass_transitions=state.get("glass_transitions"),
             )
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
@@ -309,11 +313,14 @@ def render():
             # Store results for export
             if "results" not in st.session_state:
                 st.session_state.results = {}
-            st.session_state.results[f"dsc_{selected_key}"] = {
-                "peaks": state["peaks"],
-                "dataset_key": selected_key,
-                "analysis_type": "DSC",
-            }
+                st.session_state.results[f"dsc_{selected_key}"] = {
+                    "peaks": state["peaks"],
+                    "baseline": state.get("baseline"),
+                    "corrected": state.get("corrected"),
+                    "glass_transitions": state.get("glass_transitions", []),
+                    "dataset_key": selected_key,
+                    "analysis_type": "DSC",
+                }
 
     # ===================== RESULTS SUMMARY TAB =====================
     with tab_results:
@@ -349,6 +356,9 @@ def render():
                     st.session_state.results = {}
                 st.session_state.results[f"dsc_{selected_key}"] = {
                     "peaks": state["peaks"],
+                    "baseline": state.get("baseline"),
+                    "corrected": state.get("corrected"),
+                    "glass_transitions": state.get("glass_transitions", []),
                     "dataset_key": selected_key,
                     "analysis_type": "DSC",
                     "metadata": dataset.metadata,
@@ -363,6 +373,7 @@ def render():
                     title=f"DSC Peak Analysis - {selected_key}",
                     baseline=state.get("baseline"),
                     peaks=state.get("peaks"),
+                    glass_transitions=state.get("glass_transitions"),
                 )
                 try:
                     figures[f"DSC Peak Analysis - {selected_key}"] = fig_to_bytes(fig_save)
