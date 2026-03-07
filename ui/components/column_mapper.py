@@ -3,6 +3,8 @@
 import streamlit as st
 import pandas as pd
 
+from utils.i18n import tx
+
 
 def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="colmap"):
     """Render column mapping UI and return user-confirmed mapping.
@@ -27,10 +29,11 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         guessed_mapping = {}
 
     columns = list(df.columns)
-    none_option = ["-- None --"]
+    none_label = tx("-- Yok --", "-- None --")
+    none_option = [none_label]
     col_options = none_option + columns
 
-    st.subheader("Column Mapping")
+    st.subheader(tx("Kolon Eşleme", "Column Mapping"))
 
     detected_type = guessed_mapping.get("data_type", "unknown")
     type_options = ["DSC", "TGA", "DTA"]
@@ -41,7 +44,7 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         default_idx = type_options.index(detected_type)
 
     selected_type = st.selectbox(
-        "Data Type",
+        tx("Veri Tipi", "Data Type"),
         type_options,
         index=default_idx,
         key=f"{key_prefix}_type",
@@ -49,11 +52,11 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
 
     # Signal label depends on data type
     signal_labels = {
-        "DSC": "Heat Flow Column",
-        "TGA": "Mass / Weight Column",
-        "DTA": "ΔT / Signal Column",
+        "DSC": tx("Isı Akışı Kolonu", "Heat Flow Column"),
+        "TGA": tx("Kütle / Ağırlık Kolonu", "Mass / Weight Column"),
+        "DTA": tx("ΔT / Sinyal Kolonu", "ΔT / Signal Column"),
     }
-    signal_label = signal_labels.get(selected_type, "Signal Column")
+    signal_label = signal_labels.get(selected_type, tx("Sinyal Kolonu", "Signal Column"))
 
     col1, col2, col3 = st.columns(3)
 
@@ -62,7 +65,7 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         temp_guess = guessed_mapping.get("temperature")
         temp_default = col_options.index(temp_guess) if temp_guess in columns else 0
         temp_col = st.selectbox(
-            "Temperature Column",
+            tx("Sıcaklık Kolonu", "Temperature Column"),
             col_options,
             index=temp_default,
             key=f"{key_prefix}_temp",
@@ -84,36 +87,36 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         time_guess = guessed_mapping.get("time")
         time_default = col_options.index(time_guess) if time_guess in columns else 0
         time_col = st.selectbox(
-            "Time Column (optional)",
+            tx("Zaman Kolonu (opsiyonel)", "Time Column (optional)"),
             col_options,
             index=time_default,
             key=f"{key_prefix}_time",
         )
 
     # Metadata inputs
-    st.subheader("Sample Metadata")
+    st.subheader(tx("Numune Metadatası", "Sample Metadata"))
     meta_col1, meta_col2, meta_col3 = st.columns(3)
     with meta_col1:
-        sample_name = st.text_input("Sample Name", value="", key=f"{key_prefix}_name")
+        sample_name = st.text_input(tx("Numune Adı", "Sample Name"), value="", key=f"{key_prefix}_name")
     with meta_col2:
         sample_mass = st.number_input(
-            "Sample Mass (mg)", min_value=0.0, value=0.0,
+            tx("Numune Kütlesi (mg)", "Sample Mass (mg)"), min_value=0.0, value=0.0,
             step=0.1, format="%.2f", key=f"{key_prefix}_mass",
         )
     with meta_col3:
         heating_rate = st.number_input(
-            "Heating Rate (°C/min)", min_value=0.0, value=10.0,
+            tx("Isıtma Hızı (°C/dk)", "Heating Rate (°C/min)"), min_value=0.0, value=10.0,
             step=1.0, format="%.1f", key=f"{key_prefix}_rate",
         )
 
     # Validation
     errors = []
-    if temp_col == "-- None --":
-        errors.append("Temperature column is required.")
-    if sig_col == "-- None --":
-        errors.append("Signal column is required.")
-    if temp_col != "-- None --" and temp_col == sig_col:
-        errors.append("Temperature and signal columns must be different.")
+    if temp_col == none_label:
+        errors.append(tx("Sıcaklık kolonu zorunludur.", "Temperature column is required."))
+    if sig_col == none_label:
+        errors.append(tx("Sinyal kolonu zorunludur.", "Signal column is required."))
+    if temp_col != none_label and temp_col == sig_col:
+        errors.append(tx("Sıcaklık ve sinyal kolonları farklı olmalıdır.", "Temperature and signal columns must be different."))
 
     if errors:
         for e in errors:
@@ -121,12 +124,12 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         return None
 
     mapping = {
-        "temperature": temp_col if temp_col != "-- None --" else None,
-        "signal": sig_col if sig_col != "-- None --" else None,
-        "time": time_col if time_col != "-- None --" else None,
+        "temperature": temp_col if temp_col != none_label else None,
+        "signal": sig_col if sig_col != none_label else None,
+        "time": time_col if time_col != none_label else None,
         "data_type": selected_type,
         "metadata": {
-            "sample_name": sample_name or "Unknown",
+            "sample_name": sample_name or tx("Bilinmiyor", "Unknown"),
             "sample_mass": sample_mass if sample_mass > 0 else None,
             "heating_rate": heating_rate if heating_rate > 0 else None,
         },

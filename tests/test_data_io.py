@@ -27,6 +27,7 @@ if _ROOT not in sys.path:
 
 from core.data_io import (
     ThermalDataset,
+    detect_vendor,
     guess_columns,
     read_thermal_data,
     export_results_csv,
@@ -147,6 +148,11 @@ class TestGuessColumns:
         result = guess_columns(df)
         assert result["time"] is None
 
+    def test_detect_vendor_from_common_headers(self):
+        assert detect_vendor("netzsch_export.csv", ["Temp./°C", "DSC/(mW/mg)"]) == "NETZSCH"
+        assert detect_vendor("trios.csv", ["Temperature (°C)", "Heat Flow (W/g)"]) == "TA"
+        assert detect_vendor("generic.csv", ["Temperature", "Signal"]) == "Generic"
+
 
 # ---------------------------------------------------------------------------
 # read_thermal_data with a temporary CSV file
@@ -239,6 +245,7 @@ class TestReadCSV:
         ds = read_thermal_data(buf)
         assert isinstance(ds, ThermalDataset)
         assert len(ds.data) == 3
+        assert ds.metadata["vendor"] == "Generic"
 
     def test_read_csv_raises_on_missing_temperature(self):
         """read_thermal_data should raise ValueError when temperature cannot be identified."""

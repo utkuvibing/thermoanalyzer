@@ -170,8 +170,19 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
     return fig
 
 
-def create_tga_plot(temperature, mass, title="TGA Curve",
-                    dtg=None, steps=None):
+def create_tga_plot(
+    temperature,
+    mass,
+    title="TGA Curve",
+    dtg=None,
+    steps=None,
+    x_label="Temperature (°C)",
+    y_label="Mass (%)",
+    mass_name="TGA (Mass %)",
+    dtg_name="DTG",
+    dtg_label="DTG (%/°C)",
+    step_prefix="Step",
+):
     """Create a TGA plot with optional DTG overlay and step markers."""
     if dtg is not None:
         fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -179,16 +190,16 @@ def create_tga_plot(temperature, mass, title="TGA Curve",
         fig = go.Figure()
 
     fig.add_trace(go.Scatter(
-        x=temperature, y=mass, mode="lines", name="TGA (Mass %)",
+        x=temperature, y=mass, mode="lines", name=mass_name,
         line=dict(color=THERMAL_COLORS[0], width=2),
     ), secondary_y=False if dtg is not None else None)
 
     if dtg is not None:
         fig.add_trace(go.Scatter(
-            x=temperature, y=dtg, mode="lines", name="DTG",
+            x=temperature, y=dtg, mode="lines", name=dtg_name,
             line=dict(color=THERMAL_COLORS[1], width=1.5, dash="dash"),
         ), secondary_y=True)
-        fig.update_yaxes(title_text="DTG (%/°C)", secondary_y=True)
+        fig.update_yaxes(title_text=dtg_label, secondary_y=True)
 
     if steps:
         for i, step in enumerate(steps):
@@ -196,14 +207,14 @@ def create_tga_plot(temperature, mass, title="TGA Curve",
                 x0=step.onset_temperature, x1=step.endset_temperature,
                 fillcolor=THERMAL_COLORS[i % len(THERMAL_COLORS)],
                 opacity=0.1, line_width=0,
-                annotation_text=f"Step {i+1}: {step.mass_loss_percent:.1f}%",
+                annotation_text=f"{step_prefix} {i+1}: {step.mass_loss_percent:.1f}%",
                 annotation_position="top left",
             )
 
     fig.update_layout(
         title=title,
-        xaxis_title="Temperature (°C)",
-        yaxis_title="Mass (%)",
+        xaxis_title=x_label,
+        yaxis_title=y_label,
         **DEFAULT_LAYOUT,
     )
     _style_title(fig)
@@ -266,6 +277,35 @@ def create_multirate_overlay(temperature_list, signal_list, rate_labels,
         title=title,
         xaxis_title="Temperature (°C)",
         yaxis_title="Signal",
+        **DEFAULT_LAYOUT,
+    )
+    _style_title(fig)
+    apply_plotly_config(fig)
+    return fig
+
+
+def create_overlay_plot(series, title="Run Comparison", x_label="Temperature (°C)", y_label="Signal"):
+    """Overlay multiple thermal runs on the same axes."""
+    fig = go.Figure()
+    for i, item in enumerate(series):
+        fig.add_trace(
+            go.Scatter(
+                x=item["x"],
+                y=item["y"],
+                mode=item.get("mode", "lines"),
+                name=item.get("name", f"Run {i + 1}"),
+                line=dict(
+                    color=item.get("color", THERMAL_COLORS[i % len(THERMAL_COLORS)]),
+                    width=item.get("width", 2),
+                    dash=item.get("dash", "solid"),
+                ),
+                opacity=item.get("opacity", 1.0),
+            )
+        )
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_label,
+        yaxis_title=y_label,
         **DEFAULT_LAYOUT,
     )
     _style_title(fig)

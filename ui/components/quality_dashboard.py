@@ -8,6 +8,8 @@ colour-coded indicators (green / yellow / red).
 import numpy as np
 import streamlit as st
 
+from utils.i18n import tx
+
 
 def compute_quality_metrics(temperature: np.ndarray, signal: np.ndarray) -> dict:
     """Return a dict of quality metrics for a temperature/signal pair."""
@@ -136,6 +138,22 @@ def compute_quality_metrics(temperature: np.ndarray, signal: np.ndarray) -> dict
 
 _LEVEL_ICONS = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
 
+_METRIC_LABELS = {
+    "NaN Count": ("NaN Sayısı", "NaN Count"),
+    "Noise Level": ("Gürültü Seviyesi", "Noise Level"),
+    "Heating Rate CV": ("Isıtma Hızı CV", "Heating Rate CV"),
+    "Baseline Drift": ("Baseline Sürüklenmesi", "Baseline Drift"),
+    "Outliers (>3σ)": ("Aykırı Noktalar (>3σ)", "Outliers (>3σ)"),
+    "SNR": ("SNR", "SNR"),
+    "Overall Grade": ("Genel Not", "Overall Grade"),
+}
+
+_GRADE_LABELS = {
+    "Good": ("İyi", "Good"),
+    "Fair": ("Orta", "Fair"),
+    "Poor": ("Zayıf", "Poor"),
+}
+
 
 def render_quality_dashboard(
     temperature: np.ndarray,
@@ -149,13 +167,20 @@ def render_quality_dashboard(
 
     grade = metrics.get("Overall Grade", {})
     grade_icon = _LEVEL_ICONS.get(grade.get("level", "green"), "")
-    label = f"Data Quality — {grade_icon} {grade.get('display', 'N/A')}"
+    grade_display = grade.get("display", "N/A")
+    if grade.get("value") in _GRADE_LABELS:
+        grade_display = tx(*_GRADE_LABELS[grade["value"]])
+    label = f"{tx('Veri Kalitesi', 'Data Quality')} - {grade_icon} {grade_display}"
 
     with st.expander(label, expanded=False):
         cols = st.columns(len(metrics))
         for col, (name, m) in zip(cols, metrics.items()):
             icon = _LEVEL_ICONS.get(m["level"], "")
+            display_name = tx(*_METRIC_LABELS.get(name, (name, name)))
+            display_value = m["display"]
+            if m.get("value") in _GRADE_LABELS:
+                display_value = tx(*_GRADE_LABELS[m["value"]])
             col.markdown(
-                f"**{name}**  \n"
-                f"{icon} {m['display']}",
+                f"**{display_name}**  \n"
+                f"{icon} {display_value}",
             )

@@ -520,6 +520,22 @@ _SIGNAL_UNIT_KEYWORDS = {
 _TIME_UNIT_MAP = {"min": "min", "s": "s", "sec": "s", "h": "h"}
 
 
+def detect_vendor(source_name: str = "", columns: list[str] | None = None) -> str:
+    """Heuristically classify common vendor exports."""
+    source_name = (source_name or "").lower()
+    column_text = " ".join(str(col).lower() for col in (columns or []))
+    combined = f"{source_name} {column_text}"
+
+    netzsch_tokens = ("netzsch", "proteus", "sta449", "dsc/(mw", "tg/%")
+    ta_tokens = ("ta instruments", "trios", "q200", "q20", "q500", "heat flow (", "weight (%)")
+
+    if any(token in combined for token in netzsch_tokens):
+        return "NETZSCH"
+    if any(token in combined for token in ta_tokens):
+        return "TA"
+    return "Generic"
+
+
 def _extract_unit(col_name: str, role: str) -> str:
     """Try to extract a unit string from a column name like 'Temp/°C'."""
     m = _UNIT_RE.search(col_name)
@@ -682,11 +698,16 @@ def read_thermal_data(
     # ------------------------------------------------------------------
     # Final metadata
     # ------------------------------------------------------------------
+    vendor = detect_vendor(source_name=source_name, columns=list(raw_df.columns))
+    display_name = metadata.get("display_name") or os.path.basename(source_name) or metadata.get("sample_name", "")
+
     base_meta: dict = {
         "sample_name": metadata.get("sample_name", ""),
         "sample_mass": metadata.get("sample_mass", None),
         "heating_rate": metadata.get("heating_rate", None),
         "instrument": metadata.get("instrument", ""),
+        "vendor": metadata.get("vendor", vendor),
+        "display_name": display_name,
     }
     base_meta.update(metadata)  # let caller override defaults
 

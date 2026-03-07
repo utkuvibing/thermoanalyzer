@@ -173,18 +173,24 @@ class TestDSCProcessorFullPipeline:
     def test_process_returns_dsc_result(self, temperature_range):
         """
         process() should return a DSCResult dataclass.
-
-        Note: sample_mass is intentionally omitted here because the production
-        implementation of normalize() passes the wrong keyword argument name
-        ('mass_mg' instead of 'sample_mass_mg') to normalize_by_mass(), which
-        raises a TypeError when sample_mass is supplied.  This test exercises
-        the pipeline without normalization to validate the remaining stages.
         """
         raw = _make_clean_dsc(temperature_range)
-        # Do not pass sample_mass to avoid triggering the normalize() bug
         proc = DSCProcessor(temperature_range, raw, heating_rate=10.0)
         result = proc.process(smooth_method="savgol", baseline_method="linear")
         assert isinstance(result, DSCResult)
+
+    def test_process_with_sample_mass_runs_normalization(self, temperature_range):
+        """Providing sample_mass should no longer break the full DSC pipeline."""
+        raw = _make_clean_dsc(temperature_range)
+        result = DSCProcessor(
+            temperature_range,
+            raw,
+            sample_mass=5.0,
+            heating_rate=10.0,
+        ).process(smooth_method="savgol", baseline_method="linear")
+
+        assert isinstance(result, DSCResult)
+        assert result.metadata.get("sample_mass_mg") == 5.0
 
     def test_process_smoothed_signal_populated(self, temperature_range):
         """DSCResult.smoothed_signal should be a numpy array of the right length."""

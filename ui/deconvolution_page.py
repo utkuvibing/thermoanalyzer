@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from core.peak_deconvolution import deconvolve_peaks
+from core.result_serialization import serialize_deconvolution_result
 from ui.components.plot_builder import (
     create_deconvolution_plot,
     create_thermal_plot,
@@ -17,6 +18,9 @@ from ui.components.history_tracker import _log_event
 
 def render():
     st.title("Peak Deconvolution")
+    st.warning(
+        "Experimental module: deconvolution is available for exploratory work, but it is not part of the Phase 1 stable workflow."
+    )
     st.markdown(
         "Fit overlapping peaks with Gaussian, Lorentzian, or Pseudo-Voigt models "
         "using non-linear least-squares (lmfit)."
@@ -239,24 +243,24 @@ def render():
 
     # ── Save results ────────────────────────────────────────────────────────
     if st.button("Save Results to Session", key="deconv_save"):
-        if "results" not in st.session_state:
-            st.session_state.results = {}
-        st.session_state.results[f"deconv_{selected_key}"] = {
-            "analysis_type": "Peak Deconvolution",
-            "dataset_key": selected_key,
-            "r_squared": result["r_squared"],
-            "params": result["params"],
-            "peak_shape": peak_shape,
-            "n_peaks": len(result["components"]),
-        }
-        # Save figure for report embedding
         figures = st.session_state.setdefault("figures", {})
+        figure_key = f"Deconvolution - {selected_key}"
+        figure_keys = []
         fig_save = create_deconvolution_plot(
             x, y, result["fitted"], result["components"],
             title=f"Deconvolution — {selected_key}",
         )
         try:
-            figures[f"Deconvolution - {selected_key}"] = fig_to_bytes(fig_save)
+            figures[figure_key] = fig_to_bytes(fig_save)
+            figure_keys.append(figure_key)
         except Exception:
             pass  # kaleido not available
-        st.success("Results saved! Go to Export & Report page to download.")
+        record = serialize_deconvolution_result(
+            selected_key,
+            dataset,
+            result,
+            peak_shape,
+            artifacts={"figure_keys": figure_keys},
+        )
+        st.session_state.setdefault("results", {})[record["id"]] = record
+        st.success("Experimental deconvolution results saved. Go to Export & Report to download.")

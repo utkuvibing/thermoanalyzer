@@ -16,6 +16,7 @@ from core.preprocessing import smooth_signal, compute_derivative
 from core.baseline import correct_baseline, AVAILABLE_METHODS
 from core.peak_analysis import find_thermal_peaks, characterize_peaks
 from core.dta_processor import DTAProcessor, DTAResult
+from core.result_serialization import serialize_dta_result
 from ui.components.plot_builder import create_dta_plot, create_thermal_plot, fig_to_bytes, PLOTLY_CONFIG
 from ui.components.history_tracker import _log_event
 from ui.components.quality_dashboard import render_quality_dashboard
@@ -48,12 +49,43 @@ def _format_opt(value, fmt=".2f", suffix=""):
     return f"{value:{fmt}}{suffix}"
 
 
+def _store_dta_result(selected_key, dataset, temperature, signal, state):
+    """Persist an experimental DTA result record."""
+    figures = st.session_state.setdefault("figures", {})
+    figure_key = f"DTA Analysis - {selected_key}"
+    figure_keys = []
+    display_signal = state["corrected"] if state.get("corrected") is not None else state["smoothed"] if state.get("smoothed") is not None else signal
+    fig_save = create_dta_plot(
+        temperature,
+        display_signal,
+        title=f"DTA Analysis - {selected_key}",
+        baseline=state.get("baseline"),
+        peaks=state.get("peaks"),
+    )
+    try:
+        figures[figure_key] = fig_to_bytes(fig_save)
+        figure_keys.append(figure_key)
+    except Exception:
+        pass
+
+    record = serialize_dta_result(
+        selected_key,
+        dataset,
+        state.get("peaks") or [],
+        artifacts={"figure_keys": figure_keys},
+    )
+    st.session_state.setdefault("results", {})[record["id"]] = record
+
+
 # ---------------------------------------------------------------------------
 # render()
 # ---------------------------------------------------------------------------
 
 def render():
     st.title("DTA Analysis")
+    st.warning(
+        "Experimental module: DTA results remain available, but this workflow is outside the Phase 1 stability guarantee for project persistence and reporting."
+    )
 
     dta_datasets = _get_dta_datasets()
     if not dta_datasets:
@@ -481,15 +513,6 @@ def render():
             df_peaks = pd.DataFrame(rows)
             st.dataframe(df_peaks, use_container_width=True, hide_index=True)
 
-            # Store results so the export page can pick them up
-            if "results" not in st.session_state:
-                st.session_state.results = {}
-            st.session_state.results[f"dta_{selected_key}"] = {
-                "peaks": state["peaks"],
-                "dataset_key": selected_key,
-                "analysis_type": "DTA",
-            }
-
     # =========================================================================
     # TAB 5 - RESULTS SUMMARY
     # =========================================================================
@@ -549,25 +572,5 @@ def render():
         st.divider()
 
         if st.button("Save Results to Session", key="dta_save_results"):
-            if "results" not in st.session_state:
-                st.session_state.results = {}
-            st.session_state.results[f"dta_{selected_key}"] = {
-                "peaks": state["peaks"],
-                "dataset_key": selected_key,
-                "analysis_type": "DTA",
-                "metadata": dataset.metadata,
-            }
-            # Save figure for report embedding
-            figures = st.session_state.setdefault("figures", {})
-            display_signal = state.get("corrected") or state.get("smoothed") or signal
-            fig_save = create_dta_plot(
-                temperature, display_signal,
-                title=f"DTA Peak Analysis - {selected_key}",
-                baseline=state.get("baseline"),
-                peaks=state.get("peaks"),
-            )
-            try:
-                figures[f"DTA Peak Analysis - {selected_key}"] = fig_to_bytes(fig_save)
-            except Exception:
-                pass
-            st.success("Results saved. Go to the Export & Report page to download.")
+            _store_dta_result(selected_key, dataset, temperature, signal, state)
+            st.success("Experimental DTA results saved. Go to Export & Report to download.")

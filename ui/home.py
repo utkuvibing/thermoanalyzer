@@ -1,34 +1,49 @@
 """Home page - Data upload and column mapping."""
 
-import streamlit as st
-import pandas as pd
 import os
 
-from core.data_io import read_thermal_data, guess_columns, detect_file_format, ThermalDataset
+import pandas as pd
+import streamlit as st
+
+from core.data_io import detect_file_format, read_thermal_data
+from ui.components.chrome import render_page_header
 from ui.components.column_mapper import render_column_mapper
 from ui.components.data_preview import render_data_preview
-from ui.components.plot_builder import create_thermal_plot, PLOTLY_CONFIG
 from ui.components.history_tracker import _log_event
+from ui.components.plot_builder import PLOTLY_CONFIG, create_thermal_plot
+from ui.components.workflow_guide import render_home_workflow_guide
+from utils.i18n import t, tx
+from utils.session_state import ensure_session_state
 
 
 def render():
-    st.title("ThermoAnalyzer")
-    st.caption("Vendor-independent thermal analysis data processing \u2014 DSC \u00b7 TGA \u00b7 DTA")
+    ensure_session_state()
 
-    # Initialize session state
-    if "datasets" not in st.session_state:
-        st.session_state.datasets = {}
-    if "active_dataset" not in st.session_state:
-        st.session_state.active_dataset = None
+    render_page_header(t("home.title"), t("home.caption"), badge=t("home.hero_badge"))
+    render_home_workflow_guide()
 
-    # --- File Upload Section ---
-    st.header("Import Data")
+    datasets = st.session_state.get("datasets", {})
+    if datasets:
+        vendors = {ds.metadata.get("vendor", "Generic") for ds in datasets.values()}
+        dsc_count = sum(1 for ds in datasets.values() if ds.data_type == "DSC")
+        tga_count = sum(1 for ds in datasets.values() if ds.data_type == "TGA")
+        m1, m2, m3 = st.columns(3)
+        m1.metric(tx("Yüklü Koşu", "Loaded Runs"), str(len(datasets)))
+        m2.metric("DSC / TGA", f"{dsc_count} / {tga_count}")
+        m3.metric(tx("Vendor Sayısı", "Vendors"), str(len(vendors)))
 
-    upload_tab, sample_tab = st.tabs(["Upload File", "Load Sample Data"])
+    st.header(t("home.title"))
+
+    upload_tab, sample_tab = st.tabs(
+        [
+            tx("Dosya Yükle", "Upload File"),
+            tx("Örnek Veri Yükle", "Load Sample Data"),
+        ]
+    )
 
     with upload_tab:
         uploaded_files = st.file_uploader(
-            "Choose thermal analysis data files",
+            tx("Termal analiz dosyalarını seç", "Choose thermal analysis data files"),
             type=["csv", "txt", "tsv", "xlsx", "xls"],
             accept_multiple_files=True,
             key="file_uploader",
@@ -40,10 +55,9 @@ def render():
                 if file_key in st.session_state.datasets:
                     continue
 
-                st.subheader(f"Processing: {uploaded_file.name}")
+                st.subheader(f"{tx('İşleniyor', 'Processing')}: {uploaded_file.name}")
 
                 try:
-                    # Try auto-detection first
                     dataset = read_thermal_data(uploaded_file)
                     guessed = {
                         "temperature": dataset.original_columns.get("temperature"),
@@ -52,8 +66,7 @@ def render():
                         "data_type": dataset.data_type,
                     }
 
-                    with st.expander("Adjust Column Mapping", expanded=False):
-                        # Show the raw dataframe columns for manual mapping
+                    with st.expander(tx("Kolon Eşlemeyi Düzenle", "Adjust Column Mapping"), expanded=False):
                         uploaded_file.seek(0)
                         raw_ext = os.path.splitext(uploaded_file.name)[1].lower()
                         if raw_ext in (".xlsx", ".xls"):
@@ -70,11 +83,12 @@ def render():
                         uploaded_file.seek(0)
 
                         mapping = render_column_mapper(
-                            raw_df, guessed_mapping=guessed,
+                            raw_df,
+                            guessed_mapping=guessed,
                             key_prefix=f"map_{file_key}",
                         )
 
-                        if mapping and st.button("Re-map Columns", key=f"remap_{file_key}"):
+                        if mapping and st.button(tx("Kolonları Yeniden Eşle", "Re-map Columns"), key=f"remap_{file_key}"):
                             uploaded_file.seek(0)
                             col_map = {}
                             if mapping["temperature"]:
@@ -90,21 +104,36 @@ def render():
                                 metadata=mapping["metadata"],
                             )
 
-                    # Store dataset
                     dataset.metadata.setdefault("file_name", uploaded_file.name)
+                    dataset.metadata.setdefault("display_name", uploaded_file.name)
                     st.session_state.datasets[file_key] = dataset
+                    st.session_state.active_dataset = file_key
                     _log_event(
-                        "Data Loaded",
-                        f"{uploaded_file.name} ({dataset.data_type}, {len(dataset.data)} pts)",
-                        "Import Data",
+                        tx("Veri Yüklendi", "Data Loaded"),
+                        f"{uploaded_file.name} ({dataset.data_type}, {dataset.metadata.get('vendor', 'Generic')}, {len(dataset.data)} pts)",
+                        t("home.title"),
                     )
-                    st.success(f"Loaded **{uploaded_file.name}** as **{dataset.data_type}** data "
-                               f"({len(dataset.data)} points)")
+                    st.success(
+                        tx(
+                            "**{file_name}** dosyası **{data_type}** olarak **{vendor}** kaynağından yüklendi ({points} nokta).",
+                            "Loaded **{file_name}** as **{data_type}** data from **{vendor}** ({points} points).",
+                            file_name=uploaded_file.name,
+                            data_type=dataset.data_type,
+                            vendor=dataset.metadata.get("vendor", "Generic"),
+                            points=len(dataset.data),
+                        )
+                    )
 
-                except Exception as e:
-                    st.error(f"Error loading {uploaded_file.name}: {e}")
+                except Exception as error:
+                    st.error(
+                        tx(
+                            "{file_name} yüklenirken hata oluştu: {error}",
+                            "Error loading {file_name}: {error}",
+                            file_name=uploaded_file.name,
+                            error=error,
+                        )
+                    )
 
-                    # Fallback: show raw data and manual mapping
                     try:
                         uploaded_file.seek(0)
                         raw_ext = os.path.splitext(uploaded_file.name)[1].lower()
@@ -114,12 +143,10 @@ def render():
                             raw_df = pd.read_csv(uploaded_file)
                         uploaded_file.seek(0)
 
-                        st.write("Please map columns manually:")
-                        mapping = render_column_mapper(
-                            raw_df, key_prefix=f"fallback_{file_key}",
-                        )
+                        st.write(tx("Lütfen kolonları manuel eşleyin:", "Please map columns manually:"))
+                        mapping = render_column_mapper(raw_df, key_prefix=f"fallback_{file_key}")
 
-                        if mapping and st.button("Load with Mapping", key=f"load_{file_key}"):
+                        if mapping and st.button(tx("Eşleme ile Yükle", "Load with Mapping"), key=f"load_{file_key}"):
                             uploaded_file.seek(0)
                             col_map = {}
                             if mapping["temperature"]:
@@ -135,57 +162,88 @@ def render():
                                 metadata=mapping["metadata"],
                             )
                             dataset.metadata["file_name"] = uploaded_file.name
+                            dataset.metadata.setdefault("display_name", uploaded_file.name)
                             st.session_state.datasets[file_key] = dataset
+                            st.session_state.active_dataset = file_key
                             st.rerun()
-                    except Exception as e2:
-                        st.error(f"Could not parse file: {e2}")
+                    except Exception as fallback_error:
+                        st.error(
+                            tx(
+                                "Dosya ayrıştırılamadı: {error}",
+                                "Could not parse file: {error}",
+                                error=fallback_error,
+                            )
+                        )
 
     with sample_tab:
-        st.markdown("Load built-in sample data for testing:")
+        st.markdown(tx("Test için örnek veriyi yükleyin:", "Load built-in sample data for testing:"))
 
         sample_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sample_data")
 
         sample_files = {
-            "DSC - Polymer Melting": "dsc_polymer_melting.csv",
-            "TGA - Calcium Oxalate": "tga_calcium_oxalate.csv",
-            "DSC - Multi-Rate Kissinger": "dsc_multirate_kissinger.csv",
+            tx("DSC - Polimer Erime", "DSC - Polymer Melting"): "dsc_polymer_melting.csv",
+            tx("TGA - Kalsiyum Oksalat", "TGA - Calcium Oxalate"): "tga_calcium_oxalate.csv",
+            tx("DSC - Çoklu Isıtma Hızı Kissinger", "DSC - Multi-Rate Kissinger"): "dsc_multirate_kissinger.csv",
         }
 
         for label, filename in sample_files.items():
             filepath = os.path.join(sample_dir, filename)
             if os.path.exists(filepath):
-                if st.button(f"Load: {label}", key=f"sample_{filename}"):
+                if st.button(f"{tx('Yükle', 'Load')}: {label}", key=f"sample_{filename}"):
                     try:
                         dataset = read_thermal_data(filepath)
                         dataset.metadata["file_name"] = filename
+                        dataset.metadata.setdefault("display_name", filename)
                         st.session_state.datasets[filename] = dataset
+                        st.session_state.active_dataset = filename
                         _log_event(
-                            "Data Loaded",
-                            f"{label} ({dataset.data_type}, {len(dataset.data)} pts)",
-                            "Import Data",
+                            tx("Veri Yüklendi", "Data Loaded"),
+                            f"{label} ({dataset.data_type}, {dataset.metadata.get('vendor', 'Generic')}, {len(dataset.data)} pts)",
+                            t("home.title"),
                         )
-                        st.success(f"Loaded **{label}**")
+                        st.success(tx("**{label}** yüklendi.", "Loaded **{label}**.", label=label))
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Error loading sample: {e}")
+                    except Exception as error:
+                        st.error(
+                            tx(
+                                "Örnek veri yüklenemedi: {error}",
+                                "Error loading sample: {error}",
+                                error=error,
+                            )
+                        )
 
-    # --- Dataset Manager ---
     if st.session_state.datasets:
         st.divider()
-        st.header("Loaded Datasets")
+        st.header(tx("Yüklenen Veri Setleri", "Loaded Datasets"))
 
         dataset_names = list(st.session_state.datasets.keys())
+        active_dataset = st.session_state.get("active_dataset")
+        default_index = dataset_names.index(active_dataset) if active_dataset in dataset_names else 0
 
         cols = st.columns([3, 1])
         with cols[0]:
             selected = st.selectbox(
-                "Select dataset to view/analyze",
+                tx("Görüntülenecek / analiz edilecek veri seti", "Select dataset to view or analyze"),
                 dataset_names,
+                index=default_index,
                 key="dataset_selector",
             )
         with cols[1]:
-            if st.button("Remove", key="remove_dataset"):
+            if st.button(tx("Kaldır", "Remove"), key="remove_dataset"):
                 del st.session_state.datasets[selected]
+                st.session_state.pop(f"dsc_state_{selected}", None)
+                st.session_state.pop(f"tga_state_{selected}", None)
+                st.session_state.pop(f"dta_state_{selected}", None)
+                workspace = st.session_state.get("comparison_workspace", {})
+                if workspace.get("selected_datasets"):
+                    workspace["selected_datasets"] = [
+                        key for key in workspace["selected_datasets"] if key != selected
+                    ]
+                    if not workspace["selected_datasets"]:
+                        workspace["figure_key"] = None
+                for result_key in list(st.session_state.get("results", {}).keys()):
+                    if st.session_state.results[result_key].get("dataset_key") == selected:
+                        del st.session_state.results[result_key]
                 if st.session_state.active_dataset == selected:
                     st.session_state.active_dataset = None
                 st.rerun()
@@ -195,31 +253,54 @@ def render():
         if selected:
             dataset = st.session_state.datasets[selected]
 
-            # Preview
+            info_cols = st.columns(4)
+            info_cols[0].metric(tx("Tip", "Type"), dataset.data_type)
+            info_cols[1].metric("Vendor", dataset.metadata.get("vendor", "Generic"))
+            info_cols[2].metric(tx("Nokta", "Points"), str(len(dataset.data)))
+            info_cols[3].metric(
+                tx("Isıtma Hızı", "Heating Rate"),
+                str(dataset.metadata.get("heating_rate") or "—"),
+            )
+
             render_data_preview(dataset, key_prefix=f"prev_{selected}")
 
-            # Quick plot
-            st.subheader("Quick View")
+            st.subheader(tx("Hızlı Görünüm", "Quick View"))
             if "temperature" in dataset.data.columns and "signal" in dataset.data.columns:
-                y_label = "Signal"
                 if dataset.data_type == "DSC":
-                    y_label = f"Heat Flow ({dataset.units.get('signal', 'mW')})"
+                    y_label = tx(
+                        f"Isı Akışı ({dataset.units.get('signal', 'mW')})",
+                        f"Heat Flow ({dataset.units.get('signal', 'mW')})",
+                    )
                 elif dataset.data_type == "TGA":
-                    y_label = f"Mass ({dataset.units.get('signal', '%')})"
+                    y_label = tx(
+                        f"Kütle ({dataset.units.get('signal', '%')})",
+                        f"Mass ({dataset.units.get('signal', '%')})",
+                    )
                 elif dataset.data_type == "DTA":
                     y_label = f"ΔT ({dataset.units.get('signal', 'µV')})"
+                else:
+                    y_label = tx("Sinyal", "Signal")
 
                 fig = create_thermal_plot(
                     dataset.data["temperature"].values,
                     dataset.data["signal"].values,
-                    title=f"{dataset.data_type} - {dataset.metadata.get('file_name', 'Data')}",
-                    x_label=f"Temperature ({dataset.units.get('temperature', '°C')})",
+                    title=f"{dataset.data_type} - {dataset.metadata.get('file_name', tx('Veri', 'Data'))}",
+                    x_label=tx(
+                        f"Sıcaklık ({dataset.units.get('temperature', '°C')})",
+                        f"Temperature ({dataset.units.get('temperature', '°C')})",
+                    ),
                     y_label=y_label,
                 )
                 st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
-        # Navigation hint
         st.markdown(
-            '<div class="status-bar">Navigate to DSC Analysis, TGA Analysis, or DTA Analysis from the sidebar to process your data.</div>',
+            (
+                '<div class="status-bar">'
+                + tx(
+                    "Önerilen sonraki adım: çoklu overlay için Karşılaştırma Alanı'na geçin veya aktif koşu için doğrudan DSC / TGA analizini açın.",
+                    "Recommended next step: open Compare Workspace for multi-run overlays, or continue directly into DSC / TGA analysis for the active run.",
+                )
+                + "</div>"
+            ),
             unsafe_allow_html=True,
         )
