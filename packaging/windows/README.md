@@ -136,6 +136,7 @@ packaging\windows\build\
 6. Launch ThermoAnalyzer from the final page, the Start Menu, or the optional desktop shortcut
 
 Professors still do **not** need Python, pip, PATH edits, or terminal commands.
+The installed docs folder now also includes a simple Turkish `README.txt` and a Turkish `HELP.html`, and the Start Menu help shortcut points to the Turkish HTML help by default.
 
 ## Legal / distribution notes
 

@@ -610,3 +610,51 @@ Harden the current Windows beta installer into a prerequisite-aware bootstrapper
 - The Inno Setup bootstrapper now validates install/runtime disk space, checks that `%LOCALAPPDATA%\ThermoAnalyzer Beta` is writable, and conditionally installs the VC++ compatibility package while keeping the existing per-user installer flow.
 - Verification complete: PowerShell parsing passed for `packaging/windows/build_beta_installer.ps1`, `python -m py_compile packaging/windows/launcher.py tests/test_windows_launcher.py` passed, `pytest tests/test_windows_launcher.py -q` passed, and the full suite passed with `199 passed, 5 warnings`.
 - Full installer compilation was still not executed in this environment because `ISCC.exe` is not installed on the machine; GitHub Actions remains the supported automated build path for the final `Setup.exe` artifact.
+
+---
+
+## Title
+Professor-Friendly Packaged Help Files
+
+### Objective
+Replace the Markdown-only packaged help surface with simpler Turkish-first end-user help files that non-technical professors can open easily from the installed application.
+
+### Definition Of Done
+- The installed docs folder includes a concise Turkish `README.txt`.
+- The installed docs folder includes a concise Turkish `HELP.html` for easier reading.
+- Start Menu shortcuts expose the Turkish-first simple help files instead of only Markdown documents.
+- Existing Markdown docs remain in the repo for deeper reference and developer use.
+
+### Constraints
+- No installer redesign, no architecture rewrite, no workflow redesign, no normalized export/result changes, and no `.thermozip` changes.
+- Keep the current packaging path and app behavior intact.
+- Keep the help wording short, practical, and non-technical.
+
+### Impact Analysis
+- New packaged docs: `packaging/windows/end_user_docs/README.txt`, `packaging/windows/end_user_docs/HELP.html`.
+- Installer wiring: `packaging/windows/ThermoAnalyzer_Beta.iss`.
+- Builder note: `packaging/windows/README.md`.
+
+### Risks
+- None on the app/runtime side; this tranche only changes packaged documentation exposure.
+- The HTML help should remain simple enough to render correctly with any default browser on Windows.
+
+### Migration / Rollout Strategy
+- Add Turkish-first TXT + HTML help files.
+- Keep the existing packaged Markdown files if still useful, but stop making them the primary Start Menu help surface.
+- Expose the Turkish HTML help as the primary packaged help shortcut and keep the TXT file as a fallback.
+
+### Test Strategy
+- Run `pytest -q` to confirm no behavior regression from installer/doc packaging edits.
+- Manually inspect the installer script for packaged file and shortcut changes.
+
+### Progress Log
+- [x] Add Turkish-first TXT and HTML help files
+- [x] Update the installer docs payload and Start Menu shortcuts
+- [x] Verify the unchanged test suite
+
+### Notes
+- Chosen path: package both TXT and HTML. `README.txt` is the most robust fallback, and `HELP.html` is the easiest primary reading experience for non-technical professors.
+- The installer now copies `packaging/windows/end_user_docs/README.txt` and `packaging/windows/end_user_docs/HELP.html` into `{app}\docs`.
+- Start Menu help exposure is now Turkish-first: `Yardim` opens the HTML help page and `Hizli Baslangic` opens the TXT quick guide.
+- Verification complete: `pytest -q` passed with `199 passed, 5 warnings`.

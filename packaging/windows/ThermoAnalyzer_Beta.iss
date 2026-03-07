@@ -46,6 +46,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#MySourceDist}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MySourceDist}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyRepoRoot}\packaging\windows\end_user_docs\README.txt"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#MyRepoRoot}\packaging\windows\end_user_docs\HELP.html"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#MyRepoRoot}\PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#MyRepoRoot}\PROFESSOR_SETUP_AND_USAGE_GUIDE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#MyRepoRoot}\PROFESSOR_BETA_GUIDE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
@@ -54,9 +56,8 @@ Source: "{#MyVcRedistPath}"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\ThermoAnalyzer Beta"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{group}\Turkish Setup Guide"; Filename: "{app}\docs\PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md"
-Name: "{group}\English Setup Guide"; Filename: "{app}\docs\PROFESSOR_SETUP_AND_USAGE_GUIDE.md"
-Name: "{group}\Professor Beta Guide"; Filename: "{app}\docs\PROFESSOR_BETA_GUIDE.md"
+Name: "{group}\Yardim"; Filename: "{app}\docs\HELP.html"
+Name: "{group}\Hizli Baslangic"; Filename: "{app}\docs\README.txt"
 Name: "{autodesktop}\ThermoAnalyzer Beta"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
