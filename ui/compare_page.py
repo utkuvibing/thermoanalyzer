@@ -15,14 +15,8 @@ from ui.components.chrome import render_page_header
 from ui.components.history_tracker import _log_event
 from ui.components.plot_builder import PLOTLY_CONFIG, create_overlay_plot, fig_to_bytes
 from utils.diagnostics import make_error_id, record_diagnostic_event, record_exception
-from utils.i18n import t
+from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
-
-
-ANALYSIS_LABELS = {
-    "DSC": "Heat Flow",
-    "TGA": "Mass",
-}
 
 
 def render():
@@ -112,10 +106,11 @@ def render():
         )
 
     y_unit = eligible[selected[0]].units.get("signal", "a.u.")
-    y_label = f"{ANALYSIS_LABELS[analysis_type]} ({y_unit})"
+    y_quantity = tx("Isı Akışı", "Heat Flow") if analysis_type == "DSC" else tx("Kütle", "Mass")
+    y_label = f"{y_quantity} ({y_unit})"
     fig = create_overlay_plot(
         series,
-        title=f"{analysis_type} Compare Workspace",
+        title=tx("{analysis_type} Karşılaştırma Alanı", "{analysis_type} Compare Workspace", analysis_type=analysis_type),
         y_label=y_label,
     )
     st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
@@ -123,7 +118,7 @@ def render():
     m1, m2, m3 = st.columns(3)
     m1.metric("Karşılaştırılan Koşu" if lang == "tr" else "Runs Compared", str(len(selected)))
     m2.metric("Vendor Sayısı" if lang == "tr" else "Vendors Present", str(len({eligible[key].metadata.get('vendor', 'Generic') for key in selected})))
-    m3.metric("Kayıtlı Stable Sonuç" if lang == "tr" else "Saved Stable Results", str(sum(1 for key in selected if _has_saved_result(valid_results, analysis_type, key))))
+    m3.metric("Kayıtlı Kararlı Sonuç" if lang == "tr" else "Saved Stable Results", str(sum(1 for key in selected if _has_saved_result(valid_results, analysis_type, key))))
 
     st.subheader("Alan Özeti" if lang == "tr" else "Workspace Summary")
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
@@ -145,9 +140,9 @@ def render():
             workspace["figure_key"] = figure_key
             workspace["saved_at"] = datetime.now().isoformat(timespec="seconds")
             _log_event(
-                "Comparison Saved",
-                f"{analysis_type} overlay with {len(selected)} run(s)",
-                "Compare Workspace",
+                tx("Karşılaştırma Kaydedildi", "Comparison Saved"),
+                tx("{analysis_type} üst bindirme, {count} koşu", "{analysis_type} overlay with {count} run(s)", analysis_type=analysis_type, count=len(selected)),
+                t("compare.title"),
             )
             st.success("Karşılaştırma görseli rapor için kaydedildi." if lang == "tr" else "Comparison figure saved for report generation.")
     with info_col:
@@ -226,7 +221,7 @@ def _render_saved_result_preview(results, analysis_type, selected, lang):
 
 
 def _render_batch_runner(workspace, eligible, selected, analysis_type, lang):
-    st.subheader("Toplu Şablon Uygulama" if lang == "tr" else "Batch Template Runner")
+    st.subheader("Toplu Şablon Uygulayıcı" if lang == "tr" else "Batch Template Runner")
     workflow_catalog = get_workflow_templates(analysis_type)
     workflow_labels = {entry["id"]: entry["label"] for entry in workflow_catalog}
     workflow_options = list(workflow_labels)
@@ -322,11 +317,11 @@ def _apply_batch_template(workspace, eligible, selected, analysis_type, workflow
     analysis_history = st.session_state.get("analysis_history", [])
     analyst_name = (st.session_state.get("branding", {}) or {}).get("analyst_name")
     area = "dsc_analysis" if analysis_type == "DSC" else "tga_analysis"
-    page_label = "Compare Workspace"
+    page_label = t("compare.title")
 
     _log_event(
-        "Batch Template Started",
-        f"{analysis_type} template {workflow_template_id} on {len(selected)} run(s)",
+        tx("Toplu Şablon Başlatıldı", "Batch Template Started"),
+        tx("{analysis_type} şablonu {count} koşuda başlatıldı", "{analysis_type} template {template} on {count} run(s)", analysis_type=analysis_type, template=workflow_template_id, count=len(selected)),
         page_label,
         parameters={"workflow_template_id": workflow_template_id, "batch_run_id": batch_run_id},
         status="info",
@@ -356,8 +351,8 @@ def _apply_batch_template(workspace, eligible, selected, analysis_type, workflow
                 st.session_state[_state_key(analysis_type, dataset_key)] = outcome["state"]
                 saved_result_ids.append(outcome["record"]["id"])
                 _log_event(
-                    "Batch Template Applied",
-                    f"{analysis_type} batch saved with {workflow_template_id}",
+                    tx("Toplu Şablon Uygulandı", "Batch Template Applied"),
+                    tx("{analysis_type} batch sonucu {template} ile kaydedildi", "{analysis_type} batch saved with {template}", analysis_type=analysis_type, template=workflow_template_id),
                     page_label,
                     dataset_key=dataset_key,
                     result_id=outcome["record"]["id"],
@@ -385,7 +380,7 @@ def _apply_batch_template(workspace, eligible, selected, analysis_type, workflow
                 row["failure_reason"] = row.get("failure_reason") or ("Validation blocked this dataset." if lang != "tr" else "Veri seti doğrulama nedeniyle bloklandı.")
                 row["message"] = row["failure_reason"]
                 _log_event(
-                    "Batch Template Blocked",
+                    tx("Toplu Şablon Bloklandı", "Batch Template Blocked"),
                     row["failure_reason"],
                     page_label,
                     dataset_key=dataset_key,
@@ -427,7 +422,7 @@ def _apply_batch_template(workspace, eligible, selected, analysis_type, workflow
                 }
             )
             _log_event(
-                "Batch Template Failed",
+                tx("Toplu Şablon Başarısız", "Batch Template Failed"),
                 str(exc),
                 page_label,
                 dataset_key=dataset_key,

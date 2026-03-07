@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from core.processing_schema import ensure_processing_payload
 from core.result_serialization import serialize_dsc_result
 from core.peak_analysis import ThermalPeak
 from utils.diagnostics import (
     configure_diagnostics_logger,
+    get_default_log_file,
     make_error_id,
     record_exception,
     serialize_support_snapshot,
@@ -16,6 +18,11 @@ from utils.diagnostics import (
 def test_make_error_id_uses_stable_area_prefix():
     error_id = make_error_id("report")
     assert error_id.startswith("TA-REPORT-")
+
+
+def test_default_log_file_uses_thermoanalyzer_home_when_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(tmp_path))
+    assert get_default_log_file() == Path(tmp_path) / "support_logs" / "thermoanalyzer_support.log"
 
 
 def test_serialize_support_snapshot_includes_recent_support_events_and_results(thermal_dataset, tmp_path):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import traceback
 import uuid
 from datetime import UTC, datetime
@@ -15,8 +16,6 @@ from core.result_serialization import split_valid_results
 
 
 LOGGER_NAME = "thermoanalyzer.diagnostics"
-DEFAULT_LOG_DIR = Path.cwd() / "support_logs"
-DEFAULT_LOG_FILE = DEFAULT_LOG_DIR / "thermoanalyzer_support.log"
 MAX_SUPPORT_EVENTS = 100
 AREA_CODES = {
     "import": "IMPORT",
@@ -28,9 +27,22 @@ AREA_CODES = {
 }
 
 
+def get_default_log_dir() -> Path:
+    """Return the default support-log directory for the current runtime."""
+    root = os.getenv("THERMOANALYZER_HOME")
+    if root:
+        return Path(root) / "support_logs"
+    return Path.cwd() / "support_logs"
+
+
+def get_default_log_file() -> Path:
+    """Return the default support-log file for the current runtime."""
+    return get_default_log_dir() / "thermoanalyzer_support.log"
+
+
 def configure_diagnostics_logger(log_file: str | Path | None = None) -> str:
     """Configure a rotating JSON-lines diagnostics logger once per process."""
-    target = Path(log_file) if log_file else DEFAULT_LOG_FILE
+    target = Path(log_file) if log_file else get_default_log_file()
     target.parent.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(LOGGER_NAME)
@@ -132,7 +144,7 @@ def build_support_snapshot(
     """Build a support-friendly JSON snapshot without changing project archives."""
     datasets = session_state.get("datasets", {}) or {}
     valid_results, issues = split_valid_results(session_state.get("results", {}) or {})
-    log_path = Path(log_file or session_state.get("diagnostics_log_path") or DEFAULT_LOG_FILE)
+    log_path = Path(log_file or session_state.get("diagnostics_log_path") or get_default_log_file())
 
     snapshot = {
         "generated_at_utc": datetime.now(UTC).isoformat(),

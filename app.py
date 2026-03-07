@@ -10,7 +10,7 @@ import streamlit as st
 
 from core.project_io import PROJECT_EXTENSION, save_project_archive, load_project_archive
 from utils.diagnostics import configure_diagnostics_logger, record_exception
-from utils.i18n import SUPPORTED_LANGUAGES, t
+from utils.i18n import SUPPORTED_LANGUAGES, t, tx
 from utils.license_manager import APP_VERSION, commercial_mode_enabled, license_allows_write, load_license_state
 from utils.session_state import clear_project_state, ensure_session_state, replace_project_state
 
@@ -388,7 +388,7 @@ show_preview_tools = st.sidebar.toggle(
     help=t("app.preview_toggle_help"),
 )
 pages = {
-    "Primary": [
+    tx("Ana Akış", "Primary"): [
         st.Page(home_render, title=t("nav.import"), icon="📂", default=True, url_path="import"),
         st.Page(compare_render, title=t("nav.compare"), icon="🧪", url_path="compare"),
         st.Page(dsc_render, title=t("nav.dsc"), icon="📈", url_path="dsc"),
@@ -399,10 +399,10 @@ pages = {
     ],
 }
 if show_preview_tools:
-    pages["Lab Preview"] = [
-        st.Page(dta_render, title="DTA Analysis (Experimental)", icon="📊", url_path="dta"),
-        st.Page(kinetics_render, title="Kinetic Analysis (Experimental)", icon="⚡", url_path="kinetics"),
-        st.Page(deconv_render, title="Peak Deconvolution (Experimental)", icon="🔍", url_path="deconvolution"),
+    pages[t("nav.preview")] = [
+        st.Page(dta_render, title=tx("DTA Analizi (Deneysel)", "DTA Analysis (Experimental)"), icon="📊", url_path="dta"),
+        st.Page(kinetics_render, title=tx("Kinetik Analiz (Deneysel)", "Kinetic Analysis (Experimental)"), icon="⚡", url_path="kinetics"),
+        st.Page(deconv_render, title=tx("Pik Dekonvolüsyonu (Deneysel)", "Peak Deconvolution (Experimental)"), icon="🔍", url_path="deconvolution"),
     ]
 
 pg = st.navigation(pages)
@@ -424,10 +424,10 @@ with st.sidebar:
                 "QC ve Ar-Ge laboratuvarları için cihazdan bağımsız DSC/TGA çalışma alanı.\n\n"
                 "**Kararlı beta kapsamı**\n"
                 "- CSV/TXT/XLSX DSC ve TGA koşularını içe aktar\n"
-                "- Çoklu koşuları Compare Workspace ve Batch Template Runner ile yönet\n"
+                "- Çoklu koşuları Karşılaştırma Alanı ve Toplu Şablon Uygulayıcı ile yönet\n"
                 "- DSC/TGA sonuçlarını proje durumu, rapor ve export akışıyla sakla\n\n"
-                "**Lab Preview modülleri**\n"
-                "- DTA, kinetik ve dekonvolüsyon modülleri preview arkasında kalır ve ticari stabilite sözüne dahil değildir.\n\n"
+                "**Laboratuvar önizleme modülleri**\n"
+                "- DTA, kinetik ve dekonvolüsyon modülleri önizleme anahtarı arkasında kalır ve ticari stabilite sözüne dahil değildir.\n\n"
                 "**Referans standartlar**\n"
                 "- ASTM E967 — DSC sıcaklık ve entalpi kalibrasyonu\n"
                 "- ASTM E1131 — TGA ile kompozisyon analizi\n"

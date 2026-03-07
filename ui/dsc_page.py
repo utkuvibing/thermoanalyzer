@@ -27,7 +27,7 @@ from ui.components.plot_builder import (
 from ui.components.history_tracker import _log_event
 from ui.components.quality_dashboard import render_quality_dashboard
 from utils.diagnostics import record_exception
-from utils.i18n import t
+from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 from utils.reference_data import render_reference_comparison
 
@@ -61,7 +61,7 @@ def _build_dsc_figure(selected_key, temperature, signal, state):
     fig = create_dsc_plot(
         temperature,
         working_signal,
-        title=f"DSC Analysis - {selected_key}",
+        title=tx("DSC Analizi - {dataset}", "DSC Analysis - {dataset}", dataset=selected_key),
         baseline=state.get("baseline"),
         peaks=state.get("peaks"),
     )
@@ -137,10 +137,10 @@ def render():
 
     dsc_datasets = _get_dsc_datasets()
     if not dsc_datasets:
-        st.warning("No DSC datasets loaded. Go to **Import Data** to load a dataset.")
+        st.warning(tx("Henüz DSC verisi yüklenmedi. Veri seti yüklemek için **Veri Al** sayfasına gidin.", "No DSC datasets loaded. Go to **Import Runs** to load a dataset."))
         return
 
-    selected_key = st.selectbox("Select Dataset", list(dsc_datasets.keys()), key="dsc_dataset_select")
+    selected_key = st.selectbox(tx("Veri Seti Seç", "Select Dataset"), list(dsc_datasets.keys()), key="dsc_dataset_select")
     dataset = dsc_datasets[selected_key]
     state_key = f"dsc_state_{selected_key}"
     if state_key not in st.session_state:
@@ -151,7 +151,7 @@ def render():
             "peaks": None,
             "glass_transitions": [],
             "processor": None,
-            "processing": ensure_processing_payload(analysis_type="DSC", workflow_template="General DSC"),
+            "processing": ensure_processing_payload(analysis_type="DSC", workflow_template=tx("Genel DSC", "General DSC")),
         }
     state = st.session_state[state_key]
     state["processing"] = ensure_processing_payload(state.get("processing"), analysis_type="DSC")
@@ -162,7 +162,7 @@ def render():
     current_template = state["processing"].get("workflow_template_id")
     template_index = workflow_options.index(current_template) if current_template in workflow_options else 0
     workflow_template_id = st.selectbox(
-        "Workflow Template",
+        tx("İş Akışı Şablonu", "Workflow Template"),
         workflow_options,
         format_func=lambda template_id: workflow_labels.get(template_id, template_id),
         index=template_index,
@@ -177,10 +177,10 @@ def render():
 
     dataset_validation = validate_thermal_dataset(dataset, analysis_type="DSC", processing=state.get("processing"))
     if dataset_validation["status"] == "fail":
-        st.error("Dataset is blocked from the stable DSC workflow: " + "; ".join(dataset_validation["issues"]))
+        st.error(tx("Veri seti kararlı DSC iş akışına alınmadı: ", "Dataset is blocked from the stable DSC workflow: ") + "; ".join(dataset_validation["issues"]))
         return
     if dataset_validation["warnings"]:
-        with st.expander("Dataset Validation", expanded=False):
+        with st.expander(tx("Veri Doğrulama", "Dataset Validation"), expanded=False):
             for warning in dataset_validation["warnings"]:
                 st.warning(warning)
 
@@ -189,22 +189,34 @@ def render():
     y_label = f"Heat Flow ({dataset.units.get('signal', 'mW')})"
 
     tab_raw, tab_smooth, tab_baseline, tab_tg, tab_peaks, tab_results = st.tabs(
-        ["Raw Data", "Smoothing", "Baseline Correction", "Glass Transition (Tg)", "Peak Analysis", "Results Summary"]
+        [
+            tx("Ham Veri", "Raw Data"),
+            tx("Yumuşatma", "Smoothing"),
+            tx("Baz Çizgisi Düzeltmesi", "Baseline Correction"),
+            tx("Cam Geçişi (Tg)", "Glass Transition (Tg)"),
+            tx("Pik Analizi", "Peak Analysis"),
+            tx("Sonuç Özeti", "Results Summary"),
+        ]
     )
 
     with tab_raw:
-        st.subheader("Raw DSC Data")
+        st.subheader(tx("Ham DSC Verisi", "Raw DSC Data"))
 
         fig = create_thermal_plot(
             temperature,
             signal,
-            title=f"Raw DSC - {dataset.metadata.get('file_name', '')}",
+            title=tx("Ham DSC - {name}", "Raw DSC - {name}", name=dataset.metadata.get("file_name", "")),
             y_label=y_label,
         )
         _plot_with_status(
             fig,
-            f"Range: {temperature.min():.1f} – {temperature.max():.1f} °C &nbsp;│&nbsp; "
-            f"Points: {len(temperature):,}",
+            tx(
+                "Aralık: {t_min:.1f} – {t_max:.1f} °C &nbsp;│&nbsp; Nokta: {points}",
+                "Range: {t_min:.1f} – {t_max:.1f} °C &nbsp;│&nbsp; Points: {points}",
+                t_min=float(temperature.min()),
+                t_max=float(temperature.max()),
+                points=f"{len(temperature):,}",
+            ),
         )
 
         render_quality_dashboard(temperature, signal, key_prefix=f"dsc_qd_{selected_key}")
@@ -213,71 +225,71 @@ def render():
         with col1:
             mass = dataset.metadata.get("sample_mass")
             if mass and mass > 0:
-                st.info(f"Sample mass: {mass} mg")
-                if st.checkbox("Normalize by mass", key="dsc_normalize"):
+                st.info(tx("Numune kütlesi: {mass} mg", "Sample mass: {mass} mg", mass=mass))
+                if st.checkbox(tx("Kütleye göre normalize et", "Normalize by mass"), key="dsc_normalize"):
                     normalize_by_mass(signal, mass)
-                    st.success("Signal can be normalized during processing/export workflows.")
+                    st.success(tx("Sinyal işleme ve dışa aktarım akışlarında kütleye göre normalize edilebilir.", "Signal can be normalized during processing/export workflows."))
 
         with col2:
-            st.write(f"**Temperature range:** {temperature.min():.1f} - {temperature.max():.1f} °C")
-            st.write(f"**Data points:** {len(temperature)}")
+            st.write(f"**{tx('Sıcaklık aralığı', 'Temperature range')}:** {temperature.min():.1f} - {temperature.max():.1f} °C")
+            st.write(f"**{tx('Veri noktası', 'Data points')}:** {len(temperature)}")
 
     with tab_smooth:
-        st.subheader("Signal Smoothing")
+        st.subheader(tx("Sinyal Yumuşatma", "Signal Smoothing"))
 
         col1, col2 = st.columns([1, 3])
 
         with col1:
             smooth_method = st.selectbox(
-                "Smoothing Method",
+                tx("Yumuşatma Yöntemi", "Smoothing Method"),
                 ["savgol", "moving_average", "gaussian"],
                 key="dsc_smooth_method",
-                help="Savitzky-Golay preserves peak shape best. Moving average is simplest. Gaussian is good for very noisy data.",
+                help=tx("Savitzky-Golay pik şeklini en iyi korur. Hareketli ortalama en basit seçenektir. Gaussian çok gürültülü veri için uygundur.", "Savitzky-Golay preserves peak shape best. Moving average is simplest. Gaussian is good for very noisy data."),
             )
 
             if smooth_method == "savgol":
                 window = st.slider(
-                    "Window Length",
+                    tx("Pencere Uzunluğu", "Window Length"),
                     5,
                     51,
                     11,
                     step=2,
                     key="dsc_sg_window",
-                    help="Number of points in the smoothing window. Larger values give smoother curves but may distort narrow peaks.",
+                    help=tx("Yumuşatma penceresindeki nokta sayısı. Daha büyük değerler eğriyi daha fazla yumuşatır ancak dar pikleri bozabilir.", "Number of points in the smoothing window. Larger values give smoother curves but may distort narrow peaks."),
                 )
                 polyorder = st.slider(
-                    "Polynomial Order",
+                    tx("Polinom Derecesi", "Polynomial Order"),
                     1,
                     7,
                     3,
                     key="dsc_sg_poly",
-                    help="Polynomial degree for Savitzky-Golay fit. Higher orders follow sharp features better but smooth less.",
+                    help=tx("Savitzky-Golay uyumu için polinom derecesi. Daha yüksek dereceler keskin özellikleri daha iyi izler ama daha az yumuşatır.", "Polynomial degree for Savitzky-Golay fit. Higher orders follow sharp features better but smooth less."),
                 )
                 smooth_kwargs = {"window_length": window, "polyorder": polyorder}
             elif smooth_method == "moving_average":
                 window = st.slider(
-                    "Window Size",
+                    tx("Pencere Boyutu", "Window Size"),
                     3,
                     51,
                     11,
                     step=2,
                     key="dsc_ma_window",
-                    help="Number of points averaged. Larger windows give smoother results.",
+                    help=tx("Ortalaması alınacak nokta sayısı. Daha büyük pencereler daha yumuşak sonuç verir.", "Number of points averaged. Larger windows give smoother results."),
                 )
                 smooth_kwargs = {"window": window}
             else:
                 sigma = st.slider(
-                    "Sigma",
+                    tx("Sigma", "Sigma"),
                     0.5,
                     10.0,
                     2.0,
                     step=0.5,
                     key="dsc_gauss_sigma",
-                    help="Standard deviation of the Gaussian kernel. Higher values smooth more aggressively.",
+                    help=tx("Gaussian çekirdeğinin standart sapması. Daha yüksek değerler daha agresif yumuşatma uygular.", "Standard deviation of the Gaussian kernel. Higher values smooth more aggressively."),
                 )
                 smooth_kwargs = {"sigma": sigma}
 
-            if st.button("Apply Smoothing", key="dsc_apply_smooth"):
+            if st.button(tx("Yumuşatmayı Uygula", "Apply Smoothing"), key="dsc_apply_smooth"):
                 smoothed = smooth_signal(signal, method=smooth_method, **smooth_kwargs)
                 state["smoothed"] = smoothed
                 state["baseline"] = None
@@ -291,72 +303,72 @@ def render():
                     analysis_type="DSC",
                 )
                 _log_event(
-                    "Smoothing Applied",
-                    f"Method: {smooth_method}",
-                    "DSC Analysis",
+                    tx("Yumuşatma Uygulandı", "Smoothing Applied"),
+                    f"{tx('Yöntem', 'Method')}: {smooth_method}",
+                    t("dsc.title"),
                     dataset_key=selected_key,
                     parameters={"method": smooth_method, **smooth_kwargs},
                 )
-                st.success("Smoothing applied.")
+                st.success(tx("Yumuşatma uygulandı.", "Smoothing applied."))
 
         with col2:
             fig = create_dsc_plot(
                 temperature,
                 signal,
-                title="Smoothed DSC",
+                title=tx("Yumuşatılmış DSC", "Smoothed DSC"),
                 y_label=y_label,
                 smoothed=state.get("smoothed"),
             )
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
-        if st.checkbox("Show Derivative", key="dsc_show_deriv"):
+        if st.checkbox(tx("Türevi Göster", "Show Derivative"), key="dsc_show_deriv"):
             working_signal = state.get("smoothed") if state.get("smoothed") is not None else signal
             deriv = compute_derivative(temperature, working_signal, smooth_first=False)
             fig_d = create_thermal_plot(
                 temperature,
                 deriv,
-                title="dHF/dT (First Derivative)",
-                y_label="dHF/dT",
+                title=tx("dHF/dT (Birinci Türev)", "dHF/dT (First Derivative)"),
+                y_label=tx("dHF/dT", "dHF/dT"),
                 color="#2EC4B6",
             )
             st.plotly_chart(fig_d, use_container_width=True, config=PLOTLY_CONFIG)
 
     with tab_baseline:
-        st.subheader("Baseline Correction")
+        st.subheader(tx("Baz Çizgisi Düzeltmesi", "Baseline Correction"))
 
         col1, col2 = st.columns([1, 3])
 
         with col1:
             baseline_method = st.selectbox(
-                "Baseline Method",
+                tx("Baz Çizgisi Yöntemi", "Baseline Method"),
                 list(AVAILABLE_METHODS.keys()),
                 format_func=lambda x: f"{x} - {AVAILABLE_METHODS[x]}",
                 key="dsc_baseline_method",
-                help="ASLS and AirPLS work well for most DSC data. Polynomial methods suit simple baselines. SNIP is robust for complex backgrounds.",
+                help=tx("ASLS ve AirPLS çoğu DSC verisinde iyi çalışır. Polinom yöntemleri basit baz çizgileri için uygundur. SNIP karmaşık arka planlarda daha dayanıklıdır.", "ASLS and AirPLS work well for most DSC data. Polynomial methods suit simple baselines. SNIP is robust for complex backgrounds."),
             )
 
             bl_kwargs = {}
             if baseline_method in ("asls", "airpls"):
-                lam = st.number_input("Lambda (smoothness)", value=1e6, format="%.0e", key="dsc_bl_lam")
+                lam = st.number_input(tx("Lambda (yumuşaklık)", "Lambda (smoothness)"), value=1e6, format="%.0e", key="dsc_bl_lam")
                 bl_kwargs["lam"] = lam
                 if baseline_method == "asls":
-                    p = st.number_input("Asymmetry (p)", value=0.01, format="%.3f", key="dsc_bl_p")
+                    p = st.number_input(tx("Asimetri (p)", "Asymmetry (p)"), value=0.01, format="%.3f", key="dsc_bl_p")
                     bl_kwargs["p"] = p
             elif baseline_method in ("modpoly", "imodpoly"):
-                poly_order = st.slider("Polynomial Order", 1, 10, 6, key="dsc_bl_poly")
+                poly_order = st.slider(tx("Polinom Derecesi", "Polynomial Order"), 1, 10, 6, key="dsc_bl_poly")
                 bl_kwargs["poly_order"] = poly_order
             elif baseline_method == "snip":
-                max_hw = st.slider("Max Half Window", 5, 100, 40, key="dsc_bl_snip")
+                max_hw = st.slider(tx("Maksimum Yarım Pencere", "Max Half Window"), 5, 100, 40, key="dsc_bl_snip")
                 bl_kwargs["max_half_window"] = max_hw
 
-            use_region = st.checkbox("Restrict to region", key="dsc_bl_region")
+            use_region = st.checkbox(tx("Bölgeyle sınırla", "Restrict to region"), key="dsc_bl_region")
             region = None
             if use_region:
-                r_min = st.number_input("Region min (°C)", value=float(temperature.min()), key="dsc_bl_rmin")
-                r_max = st.number_input("Region max (°C)", value=float(temperature.max()), key="dsc_bl_rmax")
+                r_min = st.number_input(tx("Bölge minimumu (°C)", "Region min (°C)"), value=float(temperature.min()), key="dsc_bl_rmin")
+                r_max = st.number_input(tx("Bölge maksimumu (°C)", "Region max (°C)"), value=float(temperature.max()), key="dsc_bl_rmax")
                 region = (r_min, r_max)
 
-            if st.button("Apply Baseline Correction", key="dsc_apply_bl"):
+            if st.button(tx("Baz Çizgisi Düzeltmesini Uygula", "Apply Baseline Correction"), key="dsc_apply_bl"):
                 working_signal = state.get("smoothed") if state.get("smoothed") is not None else signal
                 try:
                     corrected, baseline = correct_baseline(
@@ -381,13 +393,13 @@ def render():
                         analysis_type="DSC",
                     )
                     _log_event(
-                        "Baseline Corrected",
-                        f"Method: {baseline_method}",
-                        "DSC Analysis",
+                        tx("Baz Çizgisi Düzeltildi", "Baseline Corrected"),
+                        f"{tx('Yöntem', 'Method')}: {baseline_method}",
+                        t("dsc.title"),
                         dataset_key=selected_key,
                         parameters={"method": baseline_method, "region": region, **bl_kwargs},
                     )
-                    st.success(f"Baseline correction applied ({baseline_method})")
+                    st.success(tx("Baz çizgisi düzeltmesi uygulandı ({method}).", "Baseline correction applied ({method})", method=baseline_method))
                 except Exception as exc:
                     error_id = record_exception(
                         st.session_state,
@@ -397,14 +409,14 @@ def render():
                         context={"dataset_key": selected_key, "method": baseline_method},
                         exception=exc,
                     )
-                    st.error(f"Baseline correction failed: {exc} (Error ID: {error_id})")
+                    st.error(tx("Baz çizgisi düzeltmesi başarısız oldu: {error}", "Baseline correction failed: {error}", error=f"{exc} (Error ID: {error_id})"))
 
         with col2:
             working_signal = state.get("smoothed") if state.get("smoothed") is not None else signal
             fig = create_dsc_plot(
                 temperature,
                 working_signal,
-                title="Baseline Correction",
+                title=tx("Baz Çizgisi Düzeltmesi", "Baseline Correction"),
                 y_label=y_label,
                 baseline=state.get("baseline"),
             )
@@ -414,29 +426,29 @@ def render():
                 fig2 = create_thermal_plot(
                     temperature,
                     state["corrected"],
-                    title="Baseline-Corrected Signal",
-                    y_label=f"Corrected {y_label}",
+                    title=tx("Baz Çizgisi Düzeltilmiş Sinyal", "Baseline-Corrected Signal"),
+                    y_label=tx("Düzeltilmiş {label}", "Corrected {label}", label=y_label),
                     color="#2EC4B6",
                 )
                 st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
 
     with tab_tg:
-        st.subheader("Glass Transition Detection")
-        st.caption("Use the current working DSC signal to estimate Tg onset, midpoint, endset, and ΔCp.")
+        st.subheader(tx("Cam Geçişi Tespiti", "Glass Transition Detection"))
+        st.caption(tx("Mevcut DSC çalışma sinyalini kullanarak Tg başlangıç, orta nokta, bitiş ve ΔCp değerlerini tahmin edin.", "Use the current working DSC signal to estimate Tg onset, midpoint, endset, and ΔCp."))
 
         col1, col2 = st.columns([1, 3])
         working_signal = _get_working_signal(state, signal)
 
         with col1:
-            st.write("**Search options**")
-            use_region = st.checkbox("Restrict Tg search region", key="dsc_tg_region")
+            st.write(f"**{tx('Arama seçenekleri', 'Search options')}**")
+            use_region = st.checkbox(tx("Tg arama bölgesini sınırla", "Restrict Tg search region"), key="dsc_tg_region")
             tg_region = None
             if use_region:
-                tg_min = st.number_input("Tg region min (°C)", value=float(temperature.min()), key="dsc_tg_rmin")
-                tg_max = st.number_input("Tg region max (°C)", value=float(temperature.max()), key="dsc_tg_rmax")
+                tg_min = st.number_input(tx("Tg bölgesi minimumu (°C)", "Tg region min (°C)"), value=float(temperature.min()), key="dsc_tg_rmin")
+                tg_max = st.number_input(tx("Tg bölgesi maksimumu (°C)", "Tg region max (°C)"), value=float(temperature.max()), key="dsc_tg_rmax")
                 tg_region = (tg_min, tg_max)
 
-            if st.button("Detect Tg", key="dsc_detect_tg"):
+            if st.button(tx("Tg Tespit Et", "Detect Tg"), key="dsc_detect_tg"):
                 try:
                     processor = DSCProcessor(
                         temperature,
@@ -454,16 +466,16 @@ def render():
                         analysis_type="DSC",
                     )
                     _log_event(
-                        "Glass Transition Detected",
-                        f"{len(glass_transitions)} Tg event(s)",
-                        "DSC Analysis",
+                        tx("Cam Geçişi Tespit Edildi", "Glass Transition Detected"),
+                        tx("{count} Tg olayı", "{count} Tg event(s)", count=len(glass_transitions)),
+                        t("dsc.title"),
                         dataset_key=selected_key,
                         parameters={"region": tg_region, "event_count": len(glass_transitions)},
                     )
                     if glass_transitions:
-                        st.success(f"Detected {len(glass_transitions)} Tg event(s).")
+                        st.success(tx("{count} Tg olayı tespit edildi.", "Detected {count} Tg event(s).", count=len(glass_transitions)))
                     else:
-                        st.info("No Tg event was detected for the current signal/region.")
+                        st.info(tx("Geçerli sinyal/bölge için Tg olayı tespit edilmedi.", "No Tg event was detected for the current signal/region."))
                 except Exception as exc:
                     error_id = record_exception(
                         st.session_state,
@@ -473,32 +485,32 @@ def render():
                         context={"dataset_key": selected_key, "region": tg_region},
                         exception=exc,
                     )
-                    st.error(f"Tg detection failed: {exc} (Error ID: {error_id})")
+                    st.error(tx("Tg tespiti başarısız oldu: {error}", "Tg detection failed: {error}", error=f"{exc} (Error ID: {error_id})"))
 
         with col2:
             fig_tg = create_thermal_plot(
                 temperature,
                 working_signal,
-                title="Glass Transition View",
-                y_label="Signal",
+                title=tx("Cam Geçişi Görünümü", "Glass Transition View"),
+                y_label=tx("Sinyal", "Signal"),
             )
             for tg in state.get("glass_transitions") or []:
-                fig_tg.add_vline(x=tg.tg_onset, line_dash="dot", line_color="#6B7280", annotation_text=f"Onset {tg.tg_onset:.1f}°C")
-                fig_tg.add_vline(x=tg.tg_midpoint, line_dash="dash", line_color="#0B5394", annotation_text=f"Tg {tg.tg_midpoint:.1f}°C")
-                fig_tg.add_vline(x=tg.tg_endset, line_dash="dot", line_color="#6B7280", annotation_text=f"Endset {tg.tg_endset:.1f}°C")
+                fig_tg.add_vline(x=tg.tg_onset, line_dash="dot", line_color="#6B7280", annotation_text=tx("Başlangıç {value:.1f}°C", "Onset {value:.1f}°C", value=tg.tg_onset))
+                fig_tg.add_vline(x=tg.tg_midpoint, line_dash="dash", line_color="#0B5394", annotation_text=tx("Tg {value:.1f}°C", "Tg {value:.1f}°C", value=tg.tg_midpoint))
+                fig_tg.add_vline(x=tg.tg_endset, line_dash="dot", line_color="#6B7280", annotation_text=tx("Bitiş {value:.1f}°C", "Endset {value:.1f}°C", value=tg.tg_endset))
             st.plotly_chart(fig_tg, use_container_width=True, config=PLOTLY_CONFIG)
 
         if state.get("glass_transitions"):
-            st.subheader("Detected Tg Events")
+            st.subheader(tx("Tespit Edilen Tg Olayları", "Detected Tg Events"))
             for index, tg in enumerate(state["glass_transitions"], start=1):
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric(f"Tg {index}", f"{tg.tg_midpoint:.1f} °C")
-                c2.metric("Onset", f"{tg.tg_onset:.1f} °C")
-                c3.metric("Endset", f"{tg.tg_endset:.1f} °C")
+                c2.metric(tx("Başlangıç", "Onset"), f"{tg.tg_onset:.1f} °C")
+                c3.metric(tx("Bitiş", "Endset"), f"{tg.tg_endset:.1f} °C")
                 c4.metric("ΔCp", f"{tg.delta_cp:.3f}")
 
     with tab_peaks:
-        st.subheader("Peak Detection & Characterization")
+        st.subheader(tx("Pik Tespiti ve Karakterizasyonu", "Peak Detection & Characterization"))
 
         col1, col2 = st.columns([1, 3])
 
@@ -506,32 +518,40 @@ def render():
             working = state.get("corrected")
             if working is None:
                 working = state.get("smoothed") if state.get("smoothed") is not None else signal
-                st.info("Using raw/smoothed signal. Apply baseline correction for better results.")
+                st.info(tx("Ham/yumuşatılmış sinyal kullanılıyor. Daha iyi sonuç için baz çizgisi düzeltmesi uygulayın.", "Using raw/smoothed signal. Apply baseline correction for better results."))
 
             direction = st.selectbox(
-                "Peak Direction",
-                ["both", "up (endotherm)", "down (exotherm)"],
+                tx("Pik Yönü", "Peak Direction"),
+                [
+                    tx("her ikisi", "both"),
+                    tx("yukarı (endotermik)", "up (endotherm)"),
+                    tx("aşağı (ekzotermik)", "down (exotherm)"),
+                ],
                 key="dsc_peak_dir",
-                help="Select which direction of peaks to detect. 'Both' finds endothermic and exothermic events.",
+                help=tx("Hangi yöndeki piklerin tespit edileceğini seçin. 'Her ikisi' hem endotermik hem ekzotermik olayları bulur.", "Select which direction of peaks to detect. 'Both' finds endothermic and exothermic events."),
             )
-            dir_map = {"both": "both", "up (endotherm)": "up", "down (exotherm)": "down"}
+            dir_map = {
+                tx("her ikisi", "both"): "both",
+                tx("yukarı (endotermik)", "up (endotherm)"): "up",
+                tx("aşağı (ekzotermik)", "down (exotherm)"): "down",
+            }
 
             prominence = st.number_input(
-                "Min Prominence (0=auto)",
+                tx("Minimum Belirginlik (0=otomatik)", "Min Prominence (0=auto)"),
                 value=0.0,
                 format="%.3f",
                 key="dsc_peak_prom",
-                help="Minimum height difference between a peak and its surrounding valleys. Set to 0 for automatic threshold (5% of signal range).",
+                help=tx("Bir pik ile çevresindeki vadiler arasındaki minimum yükseklik farkı. Otomatik eşik için 0 kullanın (sinyal aralığının %5'i).", "Minimum height difference between a peak and its surrounding valleys. Set to 0 for automatic threshold (5% of signal range)."),
             )
             min_distance = st.number_input(
-                "Min Distance (points, 0=auto)",
+                tx("Minimum Mesafe (nokta, 0=otomatik)", "Min Distance (points, 0=auto)"),
                 value=0,
                 step=1,
                 key="dsc_peak_dist",
-                help="Minimum number of data points between adjacent peaks. Increase to avoid detecting noise as separate peaks.",
+                help=tx("Komşu pikler arasında gereken minimum veri noktası sayısı. Gürültünün ayrı pik olarak algılanmasını önlemek için artırın.", "Minimum number of data points between adjacent peaks. Increase to avoid detecting noise as separate peaks."),
             )
 
-            if st.button("Find Peaks", key="dsc_find_peaks"):
+            if st.button(tx("Pikleri Bul", "Find Peaks"), key="dsc_find_peaks"):
                 kwargs = {"direction": dir_map[direction]}
                 if prominence > 0:
                     kwargs["prominence"] = prominence
@@ -550,13 +570,13 @@ def render():
                         analysis_type="DSC",
                     )
                     _log_event(
-                        "Peaks Detected",
-                        f"{len(peaks)} peak(s) found",
-                        "DSC Analysis",
+                        tx("Pikler Tespit Edildi", "Peaks Detected"),
+                        tx("{count} pik bulundu", "{count} peak(s) found", count=len(peaks)),
+                        t("dsc.title"),
                         dataset_key=selected_key,
                         parameters={"peak_count": len(peaks), **kwargs},
                     )
-                    st.success(f"Found {len(peaks)} peak(s)")
+                    st.success(tx("{count} pik bulundu.", "Found {count} peak(s)", count=len(peaks)))
                 except Exception as exc:
                     error_id = record_exception(
                         st.session_state,
@@ -566,13 +586,13 @@ def render():
                         context={"dataset_key": selected_key, "direction": dir_map[direction]},
                         exception=exc,
                     )
-                    st.error(f"Peak detection failed: {exc} (Error ID: {error_id})")
+                    st.error(tx("Pik tespiti başarısız oldu: {error}", "Peak detection failed: {error}", error=f"{exc} (Error ID: {error_id})"))
 
         with col2:
             fig = create_dsc_plot(
                 temperature,
                 working,
-                title="Peak Analysis",
+                title=tx("Pik Analizi", "Peak Analysis"),
                 y_label=y_label,
                 baseline=state.get("baseline"),
                 peaks=state.get("peaks"),
@@ -580,73 +600,73 @@ def render():
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
         if state.get("peaks"):
-            st.subheader("Peak Results")
+            st.subheader(tx("Pik Sonuçları", "Peak Results"))
             import pandas as pd
 
             rows = []
             for i, peak in enumerate(state["peaks"]):
                 rows.append(
                     {
-                        "Peak #": i + 1,
-                        "Type": peak.peak_type,
-                        "Peak T (°C)": f"{peak.peak_temperature:.2f}",
-                        "Onset T (°C)": f"{peak.onset_temperature:.2f}" if peak.onset_temperature is not None else "N/A",
-                        "Endset T (°C)": f"{peak.endset_temperature:.2f}" if peak.endset_temperature is not None else "N/A",
-                        "Area (J/g)": f"{peak.area:.3f}" if peak.area is not None else "N/A",
-                        "FWHM (°C)": f"{peak.fwhm:.2f}" if peak.fwhm is not None else "N/A",
-                        "Height": f"{peak.height:.4f}" if peak.height is not None else "N/A",
+                        tx("Pik #", "Peak #"): i + 1,
+                        tx("Tip", "Type"): peak.peak_type,
+                        tx("Pik T (°C)", "Peak T (°C)"): f"{peak.peak_temperature:.2f}",
+                        tx("Başlangıç T (°C)", "Onset T (°C)"): f"{peak.onset_temperature:.2f}" if peak.onset_temperature is not None else tx("Yok", "N/A"),
+                        tx("Bitiş T (°C)", "Endset T (°C)"): f"{peak.endset_temperature:.2f}" if peak.endset_temperature is not None else tx("Yok", "N/A"),
+                        tx("Alan (J/g)", "Area (J/g)"): f"{peak.area:.3f}" if peak.area is not None else tx("Yok", "N/A"),
+                        tx("FWHM (°C)", "FWHM (°C)"): f"{peak.fwhm:.2f}" if peak.fwhm is not None else tx("Yok", "N/A"),
+                        tx("Yükseklik", "Height"): f"{peak.height:.4f}" if peak.height is not None else tx("Yok", "N/A"),
                     }
                 )
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tab_results:
-        st.subheader("Analysis Summary")
+        st.subheader(tx("Analiz Özeti", "Analysis Summary"))
 
         peaks = state.get("peaks") or []
         glass_transitions = state.get("glass_transitions") or []
         if not peaks and not glass_transitions:
-            st.info("Run peak analysis or Tg detection first to see results here.")
+            st.info(tx("Burada sonuç görmek için önce pik analizi veya Tg tespiti çalıştırın.", "Run peak analysis or Tg detection first to see results here."))
             return
 
-        st.markdown(f"**Dataset:** {dataset.metadata.get('file_name', selected_key)}")
-        st.markdown(f"**Sample:** {dataset.metadata.get('sample_name', 'N/A')}")
+        st.markdown(f"**{tx('Veri Seti', 'Dataset')}:** {dataset.metadata.get('file_name', selected_key)}")
+        st.markdown(f"**{tx('Numune', 'Sample')}:** {dataset.metadata.get('sample_name', tx('Yok', 'N/A'))}")
         if dataset.metadata.get("sample_mass"):
-            st.markdown(f"**Mass:** {dataset.metadata['sample_mass']} mg")
+            st.markdown(f"**{tx('Kütle', 'Mass')}:** {dataset.metadata['sample_mass']} mg")
         if dataset.metadata.get("heating_rate"):
-            st.markdown(f"**Heating Rate:** {dataset.metadata['heating_rate']} °C/min")
+            st.markdown(f"**{tx('Isıtma Hızı', 'Heating Rate')}:** {dataset.metadata['heating_rate']} °C/min")
 
         st.divider()
 
         if glass_transitions:
-            st.markdown("### Glass Transition")
+            st.markdown(f"### {tx('Cam Geçişi', 'Glass Transition')}")
             for index, tg in enumerate(glass_transitions, start=1):
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric(f"Tg {index}", f"{tg.tg_midpoint:.1f} °C")
-                c2.metric("Onset", f"{tg.tg_onset:.1f} °C")
-                c3.metric("Endset", f"{tg.tg_endset:.1f} °C")
+                c2.metric(tx("Başlangıç", "Onset"), f"{tg.tg_onset:.1f} °C")
+                c3.metric(tx("Bitiş", "Endset"), f"{tg.tg_endset:.1f} °C")
                 c4.metric("ΔCp", f"{tg.delta_cp:.3f}")
             st.divider()
 
         if peaks:
             for i, peak in enumerate(peaks):
                 with st.container():
-                    st.markdown(f"### Peak {i + 1} ({peak.peak_type})")
+                    st.markdown(f"### {tx('Pik', 'Peak')} {i + 1} ({peak.peak_type})")
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Peak Temp", f"{peak.peak_temperature:.1f} °C")
-                    c2.metric("Onset", f"{peak.onset_temperature:.1f} °C" if peak.onset_temperature is not None else "N/A")
-                    c3.metric("Enthalpy", f"{peak.area:.2f} J/g" if peak.area is not None else "N/A")
-                    c4.metric("FWHM", f"{peak.fwhm:.1f} °C" if peak.fwhm is not None else "N/A")
+                    c1.metric(tx("Pik Sıcaklığı", "Peak Temp"), f"{peak.peak_temperature:.1f} °C")
+                    c2.metric(tx("Başlangıç", "Onset"), f"{peak.onset_temperature:.1f} °C" if peak.onset_temperature is not None else tx("Yok", "N/A"))
+                    c3.metric(tx("Entalpi", "Enthalpy"), f"{peak.area:.2f} J/g" if peak.area is not None else tx("Yok", "N/A"))
+                    c4.metric("FWHM", f"{peak.fwhm:.1f} °C" if peak.fwhm is not None else tx("Yok", "N/A"))
                     ref_info = render_reference_comparison(peak.peak_temperature, "DSC")
                     if ref_info:
                         st.markdown(ref_info)
 
             st.divider()
 
-        if st.button("Save Results to Session", key="dsc_save_results"):
+        if st.button(tx("Sonuçları Oturuma Kaydet", "Save Results to Session"), key="dsc_save_results"):
             try:
                 _store_dsc_result(selected_key, dataset, temperature, signal, state)
-                _log_event("Results Saved", "Stable DSC result saved", "DSC Analysis", dataset_key=selected_key, result_id=f"dsc_{selected_key}")
-                st.success("Stable DSC results saved. Go to Export & Report to download.")
+                _log_event(tx("Sonuçlar Kaydedildi", "Results Saved"), tx("Kararlı DSC sonucu kaydedildi", "Stable DSC result saved"), t("dsc.title"), dataset_key=selected_key, result_id=f"dsc_{selected_key}")
+                st.success(tx("Kararlı DSC sonuçları kaydedildi. İndirmek için Rapor Merkezi'ne gidin.", "Stable DSC results saved. Go to Report Center to download."))
             except Exception as exc:
                 error_id = record_exception(
                     st.session_state,
@@ -656,4 +676,4 @@ def render():
                     context={"dataset_key": selected_key},
                     exception=exc,
                 )
-                st.error(f"Saving DSC results failed: {exc} (Error ID: {error_id})")
+                st.error(tx("DSC sonuçları kaydedilemedi: {error}", "Saving DSC results failed: {error}", error=f"{exc} (Error ID: {error_id})"))

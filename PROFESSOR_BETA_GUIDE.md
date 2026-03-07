@@ -1,5 +1,14 @@
 # Professor Beta Guide
 
+For installation and day-to-day usage instructions, use the setup guide that matches your language first:
+
+- Turkish: [PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md](PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md)
+- English: [PROFESSOR_SETUP_AND_USAGE_GUIDE.md](PROFESSOR_SETUP_AND_USAGE_GUIDE.md)
+
+This file is the shorter beta-scope and feedback guide.
+
+For professor beta distribution, the expected installation path is the Windows installer build. Professors should not need Python, pip, or terminal commands.
+
 ## Scope
 This beta is intended for controlled academic evaluation of the current stable workflow:
 

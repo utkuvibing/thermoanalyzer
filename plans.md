@@ -501,3 +501,54 @@ Improve real-world DSC/TGA import reliability for professor beta testing by maki
 ### Notes
 - Ambiguous imports now prefer explicit review metadata over hidden certainty; they are not silently promoted to the stable workflow as fully trusted.
 - Verification complete: focused import/validation regression run passed, `pytest -q` passed with `197 passed, 5 warnings`, and `pytest --collect-only -q` reported `197` collected tests (`+9` versus the previous `188` baseline).
+
+---
+
+## Title
+Windows Beta Installer Packaging
+
+### Objective
+Prepare the current Streamlit-based ThermoAnalyzer build for professor beta distribution as a Windows installer that requires no Python, pip, or terminal usage on the professor side.
+
+### Definition Of Done
+- A practical Windows packaging path exists for the current repo without rewriting the app.
+- The packaged app launches from a desktop shortcut or Start Menu entry and opens the current local Streamlit workflow in the browser.
+- Build scripts, installer config, and release instructions exist inside the repo.
+- Professor-facing install instructions are updated to prefer the installer path over source setup.
+
+### Constraints
+- No architecture rewrite, no framework migration, no normalized result/export contract changes, and no `.thermozip` compatibility changes.
+- Keep the current browser-based Streamlit runtime for beta delivery.
+- Prefer the smallest reliable packaging path over an ambitious native desktop rewrite.
+
+### Impact Analysis
+- Packaging files: `packaging/windows/launcher.py`, `packaging/windows/ThermoAnalyzerLauncher.spec`, `packaging/windows/ThermoAnalyzer_Beta.iss`, `packaging/windows/build_beta_installer.ps1`, `packaging/windows/build_beta_installer.bat`, `packaging/windows/README.md`.
+- Runtime support: `utils/diagnostics.py` for writable packaged log location.
+- Repo docs: `README.md`, `PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md`, `PROFESSOR_SETUP_AND_USAGE_GUIDE.md`, `PROFESSOR_BETA_GUIDE.md`, `.gitignore`.
+
+### Risks
+- Streamlit packaging is more reliable in `onedir` mode than `onefile`, but the installed folder will be larger.
+- Browser-based local apps can still trigger first-launch firewall or browser prompts on some Windows systems.
+- The installer build depends on Inno Setup being present on the build machine; that tool is not vendored in the repo.
+
+### Migration / Rollout Strategy
+- Add a small launcher that starts the current app locally and opens the browser.
+- Package the launcher plus the existing repo runtime with PyInstaller `onedir`.
+- Wrap the output with Inno Setup for desktop and Start Menu shortcuts.
+- Update professor docs to use the installer flow instead of source setup.
+
+### Test Strategy
+- Run `python -m py_compile` on the packaging launcher and any runtime support files touched.
+- Run `pytest -q` to confirm the existing app behavior still passes unchanged.
+- Manually verify the build scripts and installer config for path consistency.
+
+### Progress Log
+- [x] Add launcher, PyInstaller spec, and Inno Setup installer config
+- [x] Add build scripts and builder-facing packaging instructions
+- [x] Update professor-facing install docs to the installer-first workflow
+- [x] Verify syntax and full pytest suite
+
+### Notes
+- Chosen path: PyInstaller `onedir` + Inno Setup, so the current Streamlit app stays browser-based but installs like a normal Windows beta application.
+- Verification complete: `python -m py_compile` passed for the launcher/spec/runtime support files, `pytest tests/test_diagnostics.py -q` passed, and `pytest -q` passed with `198 passed, 5 warnings`.
+- Full installer generation was not executed in this environment because Inno Setup (`ISCC.exe`) was not present on the machine, but the build scripts and installer config were added and path-checked.

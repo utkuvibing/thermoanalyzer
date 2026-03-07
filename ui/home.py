@@ -25,7 +25,7 @@ def render():
     render_home_workflow_guide()
     st.info(
         tx(
-            "Bu beta build'de kararlı akış Veri Alma -> Karşılaştırma Alanı -> DSC/TGA Analizi -> Batch Template Runner -> Rapor/Proje Kaydı zinciridir. DTA, kinetik ve dekonvolüsyon preview kapsamındadır.",
+            "Bu beta build'de kararlı akış Veri Alma -> Karşılaştırma Alanı -> DSC/TGA Analizi -> Toplu Şablon Uygulayıcı -> Rapor/Proje Kaydı zinciridir. DTA, kinetik ve dekonvolüsyon önizleme kapsamındadır.",
             "In this beta build, the stable workflow is Import -> Compare Workspace -> DSC/TGA Analysis -> Batch Template Runner -> Report/Project Save. DTA, kinetics, and deconvolution remain preview modules.",
         )
     )

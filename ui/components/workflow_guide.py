@@ -59,7 +59,7 @@ def render_home_workflow_guide() -> None:
                         "3. Use Quick View or Compare Workspace to confirm that the run behaves as expected.",
                     ),
                     tx(
-                        "4. Aktif koşuya göre DSC Analysis veya TGA Analysis sayfasına geçin ve sekmeleri soldan sağa takip edin.",
+                        "4. Aktif koşuya göre DSC Analizi veya TGA Analizi sayfasına geçin ve sekmeleri soldan sağa takip edin.",
                         "4. Open DSC Analysis or TGA Analysis for the active run and move through the tabs from left to right.",
                     ),
                     tx(
@@ -71,7 +71,7 @@ def render_home_workflow_guide() -> None:
 
         st.caption(
             tx(
-                "Kararlı beta kapsamı: DSC, TGA, Karşılaştırma Alanı, Batch Template Runner, rapor/export ve proje arşivi. DTA, kinetik ve dekonvolüsyon preview kalır.",
+                "Kararlı beta kapsamı: DSC, TGA, Karşılaştırma Alanı, Toplu Şablon Uygulayıcı, rapor/dışa aktarım ve proje arşivi. DTA, kinetik ve dekonvolüsyon önizleme olarak kalır.",
                 "Stable beta scope: DSC, TGA, Compare Workspace, Batch Template Runner, report/export, and project archive flows. DTA, kinetics, and deconvolution remain preview.",
             )
         )
@@ -105,14 +105,14 @@ def render_tga_workflow_guide() -> None:
             _render_list(
                 tx("Sekmeleri hangi sırayla kullanmalı?", "Which tab order should you follow?"),
                 [
-                    tx("1. Raw Data sekmesinde veri aralığını ve metadata bilgisini kontrol edin.", "1. Use Raw Data to inspect range, quality, and metadata."),
-                    tx("2. Gürültü varsa Smoothing / DTG sekmesinde yumuşatma uygulayın.", "2. Apply smoothing in Smoothing / DTG only when noise hides the decomposition shape."),
+                    tx("1. Ham Veri sekmesinde veri aralığını ve metadata bilgisini kontrol edin.", "1. Use Raw Data to inspect range, quality, and metadata."),
+                    tx("2. Gürültü varsa Yumuşatma / DTG sekmesinde yumuşatma uygulayın.", "2. Apply smoothing in Smoothing / DTG only when noise hides the decomposition shape."),
                     tx(
-                        "3. Step Analysis sekmesinde adım tespitini çalıştırıp prominence veya minimum kütle kaybı eşiğini ayarlayın.",
+                        "3. Adım Analizi sekmesinde adım tespitini çalıştırıp prominence veya minimum kütle kaybı eşiğini ayarlayın.",
                         "3. Run Step Analysis and tune prominence or minimum mass-loss thresholds when needed.",
                     ),
                     tx(
-                        "4. Results Summary sekmesinde özet metrikleri doğrulayıp sonucu oturuma kaydedin.",
+                        "4. Sonuç Özeti sekmesinde özet metrikleri doğrulayıp sonucu oturuma kaydedin.",
                         "4. Review Results Summary, then save the validated result to the session.",
                     ),
                 ],

@@ -83,7 +83,7 @@ def _render_preview(datasets, valid_results, issues, branding, comparison_worksp
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Veri Seti" if lang == "tr" else "Datasets", str(len(datasets)))
     m2.metric("Stable Analiz" if lang == "tr" else "Stable Analyses", str(sum(1 for record in valid_results.values() if record.get("status") == "stable")))
-    m3.metric("Preview Analiz" if lang == "tr" else "Preview Analyses", str(sum(1 for record in valid_results.values() if record.get("status") == "experimental")))
+    m3.metric("Önizleme Analizi" if lang == "tr" else "Preview Analyses", str(sum(1 for record in valid_results.values() if record.get("status") == "experimental")))
     m4.metric("Rapor Görseli" if lang == "tr" else "Report Figures", str(len(_collect_figures(valid_results, comparison_workspace) or {})))
 
     company = branding.get("company_name") or (license_state.get("license") or {}).get("company_name") or "Not set"

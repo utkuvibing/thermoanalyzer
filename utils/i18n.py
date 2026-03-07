@@ -20,7 +20,7 @@ TRANSLATIONS = {
         "en": "Vendor-independent DSC/TGA workbench",
     },
     "app.preview_toggle": {
-        "tr": "Lab Preview Modüllerini Göster",
+        "tr": "Laboratuvar Önizleme Modüllerini Göster",
         "en": "Show Lab Preview Modules",
     },
     "app.preview_toggle_help": {
@@ -80,7 +80,7 @@ TRANSLATIONS = {
         "en": "License & Branding",
     },
     "nav.preview": {
-        "tr": "Lab Preview",
+        "tr": "Laboratuvar Önizlemesi",
         "en": "Lab Preview",
     },
     "sidebar.project": {

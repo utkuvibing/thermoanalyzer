@@ -4,6 +4,11 @@
 
 ThermoAnalyzer is an open-source, browser-based application built with Streamlit that imports, processes, and reports thermal analysis data from exported lab files. The current stable beta scope is DSC, TGA, Compare Workspace, Batch Template Runner, report/export, and project archive workflows. DTA, kinetics, and deconvolution remain preview modules for exploratory evaluation only.
 
+Professor-facing docs:
+- [Profesor Kurulum ve Kullanim Kilavuzu](PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md)
+- [Professor Setup and Usage Guide](PROFESSOR_SETUP_AND_USAGE_GUIDE.md)
+- [Professor Beta Guide](PROFESSOR_BETA_GUIDE.md)
+
 ---
 
 ## Features
