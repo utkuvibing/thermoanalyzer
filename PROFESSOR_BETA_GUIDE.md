@@ -8,6 +8,7 @@ For installation and day-to-day usage instructions, use the setup guide that mat
 This file is the shorter beta-scope and feedback guide.
 
 For professor beta distribution, the expected installation path is the Windows installer build. Professors should not need Python, pip, or terminal commands.
+The installer is intended to handle local runtime prerequisites automatically as part of the normal Setup flow.
 
 ## Scope
 This beta is intended for controlled academic evaluation of the current stable workflow:

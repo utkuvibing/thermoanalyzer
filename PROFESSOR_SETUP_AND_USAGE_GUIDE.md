@@ -26,6 +26,7 @@ Preview-only areas that should not be treated as production-ready:
 - The provided `ThermoAnalyzer_Beta_Setup.exe` installer
 
 For the beta distribution, **no Python, pip, dependency installation, or terminal usage is required**.
+The installer also checks the local runtime prerequisites automatically.
 
 ## 3. Installation
 
@@ -33,6 +34,8 @@ For the beta distribution, **no Python, pip, dependency installation, or termina
 2. Follow the installer steps with `Next`.
 3. Leave the desktop-shortcut option enabled if you want quick access.
 4. Click `Finish` to complete the installation and optionally launch the app immediately.
+
+If the Windows machine is missing a Microsoft compatibility runtime used by packaged scientific libraries, Setup may show a single permission prompt and install it automatically. No manual download is required.
 
 After installation:
 
@@ -43,6 +46,7 @@ After installation:
 Notes:
 
 - some Windows systems may show a first-launch browser or local-network prompt
+- some Windows systems may show a one-time Microsoft runtime permission prompt during Setup if the compatibility package is missing
 - the app still runs locally on the professor's computer; it is not a cloud-hosted session
 
 ## 4. Recommended usage workflow

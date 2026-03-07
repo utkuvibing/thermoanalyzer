@@ -553,3 +553,60 @@ Prepare the current Streamlit-based ThermoAnalyzer build for professor beta dist
 - Verification complete: `python -m py_compile` passed for the launcher/spec/runtime support files, `pytest tests/test_diagnostics.py -q` passed, and `pytest -q` passed with `198 passed, 5 warnings`.
 - Full installer generation was not executed in this environment because Inno Setup (`ISCC.exe`) was not present on the machine, but the build scripts and installer config were added and path-checked.
 - GitHub Actions automation now reuses the same packaging path through `.github/workflows/windows-beta-installer.yml` and uploads `ThermoAnalyzer_Beta_Setup_<APP_VERSION>.exe` as an artifact.
+
+---
+
+## Title
+Prerequisite-Aware Windows Bootstrap Installer
+
+### Objective
+Harden the current Windows beta installer into a prerequisite-aware bootstrapper so professors can install and launch ThermoAnalyzer without Python, pip, PATH edits, or manual runtime preparation.
+
+### Definition Of Done
+- The existing `PyInstaller onedir + Inno Setup` delivery path remains intact.
+- The build process stages any external prerequisite installers that are still useful for compatibility hardening.
+- The final `Setup.exe` checks install/runtime sanity and handles prerequisite installation automatically or with minimal guidance.
+- GitHub Actions continues to produce the same one-click `Setup.exe` artifact.
+- Professor-facing install docs describe the real install flow succinctly.
+
+### Constraints
+- No architecture rewrite, no framework migration, no normalized result/export changes, and no `.thermozip` compatibility changes.
+- Keep the current browser-based Streamlit runtime and existing packaging workflow.
+- Do not push Python, pip, PATH edits, or other technical setup steps onto the professor.
+
+### Impact Analysis
+- Packaging scripts: `packaging/windows/build_beta_installer.ps1`, `packaging/windows/build_beta_installer.bat`, `packaging/windows/ThermoAnalyzer_Beta.iss`.
+- Packaged runtime launcher: `packaging/windows/launcher.py`.
+- Builder/professor docs: `packaging/windows/README.md`, `PROFESSOR_SETUP_AND_USAGE_GUIDE.md`, `PROFESOR_KURULUM_VE_KULLANIM_KILAVUZU.md`, `PROFESSOR_BETA_GUIDE.md`.
+- Repo tracking: `bugs.md`.
+
+### Risks
+- Visual C++ Redistributable installation may trigger a one-time Windows elevation prompt on systems where the runtime is absent.
+- The build now depends on downloading the official Microsoft redistributable during packaging unless an explicit local path is supplied.
+- Installer-side Pascal Script changes cannot be unit-tested through `pytest`; verification is limited to path/syntax review plus the unchanged Python test suite.
+
+### Migration / Rollout Strategy
+- Keep the current onedir bundle self-contained for Python and app dependencies.
+- Stage the official Microsoft VC++ redistributable during the build and embed it into the installer without committing binaries to the repo.
+- Add installer-side checks for free space and writable per-user runtime directories.
+- Attempt silent/minimal VC++ compatibility installation only when the system runtime is missing.
+- Update builder and professor docs to describe the new bootstrap behavior.
+
+### Test Strategy
+- Run `python -m py_compile packaging/windows/launcher.py`.
+- Run `pytest -q`.
+- Manually inspect the packaging scripts and GitHub Actions path consistency.
+
+### Progress Log
+- [x] Stage and verify external prerequisite payloads during the build
+- [x] Add installer-side prerequisite checks and compatibility-runtime handling
+- [x] Update docs for builder and professor bootstrap flow
+- [x] Verify syntax plus the unchanged Python test suite
+
+### Notes
+- The desired professor flow remains `Setup.exe -> Next -> Install -> Finish -> Launch ThermoAnalyzer`.
+- The bootstrapper should prefer bundling over manual setup and keep any unavoidable prerequisite handling as quiet and minimal as possible.
+- The build script now downloads or accepts a local official `vc_redist.x64.exe`, verifies the Microsoft Authenticode signature, and embeds it into the installer without checking binaries into git.
+- The Inno Setup bootstrapper now validates install/runtime disk space, checks that `%LOCALAPPDATA%\ThermoAnalyzer Beta` is writable, and conditionally installs the VC++ compatibility package while keeping the existing per-user installer flow.
+- Verification complete: PowerShell parsing passed for `packaging/windows/build_beta_installer.ps1`, `python -m py_compile packaging/windows/launcher.py tests/test_windows_launcher.py` passed, `pytest tests/test_windows_launcher.py -q` passed, and the full suite passed with `199 passed, 5 warnings`.
+- Full installer compilation was still not executed in this environment because `ISCC.exe` is not installed on the machine; GitHub Actions remains the supported automated build path for the final `Setup.exe` artifact.

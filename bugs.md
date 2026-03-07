@@ -209,3 +209,29 @@ Harden `core.data_io` so import now records additive `import_confidence`, `impor
 - Run `pytest -q`
 - Run `pytest --collect-only -q`
 - Confirm clear TA/NETZSCH/generic imports still resolve cleanly, while ambiguous header/unit cases now carry explicit review metadata and warnings
+
+### Title
+Windows beta installer was not prerequisite-aware for professor-side runtime setup
+
+### Date
+2026-03-07
+
+### Repro
+1. Review `packaging/windows/build_beta_installer.ps1` and `packaging/windows/ThermoAnalyzer_Beta.iss`.
+2. Observe that the beta build previously packaged the app and created `Setup.exe`, but it did not stage or check compatibility prerequisites beyond the bundled onedir runtime.
+3. Note that the installer also lacked sanity checks for writable `%LOCALAPPDATA%` runtime setup and free-space conditions, which increased the chance of professor-side install friction.
+
+### Suspected Cause
+The first packaging tranche intentionally optimized for the smallest viable installer path: PyInstaller `onedir` plus Inno Setup. That preserved the app architecture, but it left prerequisite handling implicit instead of making the installer act like a true bootstrapper.
+
+### Attempted Fix
+Keep the same packaging path and GitHub Actions automation, but make the build stage the official Microsoft VC++ redistributable, verify its Authenticode signature, and let Inno Setup handle prerequisite checks and minimal compatibility installation without requiring Python, pip, or PATH changes on the professor side.
+
+### Actual Fix
+Update `packaging/windows/build_beta_installer.ps1` to download or accept a local official `vc_redist.x64.exe`, verify it is Microsoft-signed, and pass it into the installer build. Harden `packaging/windows/ThermoAnalyzer_Beta.iss` with install-time free-space and writable-runtime checks plus conditional VC++ compatibility installation. Also tighten the packaged launcher and professor/builder docs so the expected flow is still a one-click `Setup.exe` with minimal prompts.
+
+### Verification
+- Run `python -m py_compile packaging/windows/launcher.py tests/test_windows_launcher.py`
+- Run `pytest -q`
+- Manually confirm the installer script now references `vc_redist.x64.exe`, free-space checks, and writable `%LOCALAPPDATA%` runtime validation
+- Confirm GitHub Actions still builds the same `ThermoAnalyzer_Beta_Setup_<APP_VERSION>.exe` artifact through the unchanged workflow entry point

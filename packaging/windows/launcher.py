@@ -47,12 +47,22 @@ def _show_startup_error(message: str) -> None:
         print(message, file=sys.stderr)
 
 
+def _assert_writable_directory(path: Path) -> None:
+    """Fail early with a clear message if the runtime path is not writable."""
+    probe = path / ".thermoanalyzer_write_probe"
+    probe.write_text("ok", encoding="utf-8")
+    probe.unlink(missing_ok=True)
+
+
 def _ensure_user_runtime(resource_root: Path, user_root: Path) -> None:
     """Create writable runtime directories and seed Streamlit config."""
     user_root.mkdir(parents=True, exist_ok=True)
     (user_root / "support_logs").mkdir(parents=True, exist_ok=True)
     user_streamlit_dir = user_root / ".streamlit"
     user_streamlit_dir.mkdir(parents=True, exist_ok=True)
+    _assert_writable_directory(user_root)
+    _assert_writable_directory(user_root / "support_logs")
+    _assert_writable_directory(user_streamlit_dir)
 
     bundled_config = resource_root / ".streamlit" / "config.toml"
     target_config = user_streamlit_dir / "config.toml"

@@ -24,6 +24,7 @@ Onizleme durumunda olan ve uretim-guveni ile yorumlanmamasi gereken kisimlar:
 - size verilen `ThermoAnalyzer_Beta_Setup.exe` dosyasi
 
 Bu beta dagitiminda **Python, pip veya terminal kullanmaniz gerekmez**.
+Kurulum dosyasi gerekli yerel onkosullari da otomatik olarak kontrol eder.
 
 ## 3. Kurulum
 
@@ -31,6 +32,8 @@ Bu beta dagitiminda **Python, pip veya terminal kullanmaniz gerekmez**.
 2. Kurulum sihirbazinda `Ileri / Next` adimlarini izleyin.
 3. Istiyorsaniz masaustu kisayolu secenegini acik birakin.
 4. `Bitir / Finish` sonrasinda uygulamayi hemen baslatabilirsiniz.
+
+Eger Windows makinesinde paketli bilimsel kutuphanelerin kullandigi Microsoft uyumluluk bileseni eksikse, kurulum bunu otomatik algilar ve tek seferlik bir izin penceresiyle kendisi kurar. Ayrica ayri bir indirme yapmaniz gerekmez.
 
 Kurulum tamamlandiginda:
 
@@ -41,6 +44,7 @@ Kurulum tamamlandiginda:
 Not:
 
 - Ilk acilista Windows tarayici veya yerel ag erisimiyle ilgili bir soruya izin istemi gosterebilir
+- Bazi Windows sistemlerinde kurulum sirasinda Microsoft uyumluluk paketi icin tek seferlik bir izin penceresi gorulebilir
 - uygulama sadece yerel makinede calisir; bulut servisine veri gondermez
 
 ## 4. Onerilen kullanim akisi
