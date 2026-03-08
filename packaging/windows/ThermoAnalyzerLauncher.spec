@@ -5,7 +5,13 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 
-SPEC_ROOT = Path(__file__).resolve().parent
+# PyInstaller may execute spec files without defining __file__.
+# SPECPATH is provided by PyInstaller and points to the spec directory.
+_spec_file = globals().get("__file__")
+if _spec_file:
+    SPEC_ROOT = Path(_spec_file).resolve().parent
+else:
+    SPEC_ROOT = Path(globals().get("SPECPATH", Path.cwd())).resolve()
 REPO_ROOT = SPEC_ROOT.parents[1]
 
 

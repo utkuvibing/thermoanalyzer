@@ -143,7 +143,7 @@ if (-not (Test-Path $prereqRoot)) {
 }
 
 Write-Host "==> Running PyInstaller"
-& $PythonExe -m PyInstaller $specPath --noconfirm --clean
+& $PythonExe -m PyInstaller $specPath --noconfirm --clean --distpath $distRoot --workpath $buildRoot
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed."
 }

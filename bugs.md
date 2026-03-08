@@ -261,3 +261,52 @@ In `packaging/windows/build_beta_installer.ps1`, replace the non-zero-exit `impo
 - Verify the new `find_spec` probe returns `present=0` without throwing in the same PowerShell mode.
 - Run script syntax check: `powershell -NoProfile -Command "[void][ScriptBlock]::Create((Get-Content 'packaging/windows/build_beta_installer.ps1' -Raw))"`.
 - Residual risk: if Python itself is unavailable/broken, the script still fails early, which is correct for packaging.
+
+### Title
+PyInstaller spec crashed on `__file__` lookup during local Windows build
+
+### Date
+2026-03-08
+
+### Repro
+1. Run `powershell -ExecutionPolicy Bypass -File packaging\windows\build_beta_installer.ps1`.
+2. Reach PyInstaller stage.
+3. Observe `NameError: name '__file__' is not defined` from `packaging/windows/ThermoAnalyzerLauncher.spec`.
+
+### Suspected Cause
+`ThermoAnalyzerLauncher.spec` assumed `__file__` is always defined, but PyInstaller can execute spec code with `SPECPATH` and without `__file__`.
+
+### Attempted Fix
+Keep current packaging flow; only harden spec root resolution to support both execution modes.
+
+### Actual Fix
+Update `packaging/windows/ThermoAnalyzerLauncher.spec` to resolve `SPEC_ROOT` from `__file__` when available, otherwise fall back to PyInstaller-provided `SPECPATH` (or `Path.cwd()` as final fallback).
+
+### Verification
+- Re-run `powershell -ExecutionPolicy Bypass -File packaging\windows\build_beta_installer.ps1` and confirm build passes the former `__file__` failure point.
+- Residual risk: full build can still fail later if local prerequisites (for example `ISCC.exe`) are missing, which is expected.
+
+### Title
+Windows build script expected PyInstaller output in the wrong dist/work paths
+
+### Date
+2026-03-08
+
+### Repro
+1. Run `powershell -ExecutionPolicy Bypass -File packaging\windows\build_beta_installer.ps1`.
+2. Let PyInstaller finish successfully.
+3. Observe script failure: `PyInstaller output was not created at C:\thermoanalyzer\packaging\windows\dist\ThermoAnalyzerLauncher` while PyInstaller reports output under `C:\thermoanalyzer\dist`.
+
+### Suspected Cause
+The script assumed PyInstaller would emit into `packaging/windows/dist`, but the command did not set `--distpath`/`--workpath`, so PyInstaller defaulted to current working directory paths.
+
+### Attempted Fix
+Keep existing folder structure and checks; pass explicit output directories to PyInstaller.
+
+### Actual Fix
+In `packaging/windows/build_beta_installer.ps1`, update the PyInstaller invocation to include `--distpath $distRoot` and `--workpath $buildRoot`.
+
+### Verification
+- Re-run `powershell -ExecutionPolicy Bypass -File packaging\windows\build_beta_installer.ps1`.
+- Confirm PyInstaller writes into `packaging\windows\dist` and the script proceeds past `Assert-PackagedRuntime`.
+- Residual risk: installer compile still requires local Inno Setup (`ISCC.exe`) availability.
