@@ -78,15 +78,15 @@ npm install
 npm run build:backend
 ```
 
-3. Build portable Windows desktop app:
+3. Build NSIS Windows installer:
 
 ```powershell
-npm run build:win:portable
+npm run build:win:nsis
 ```
 
 Expected outputs:
 - bundled backend: `desktop/backend_bundle/dist/thermoanalyzer_backend/thermoanalyzer_backend.exe`
-- packaged desktop app: `release/electron/ThermoAnalyzer-Desktop-0.1.0-x64.exe`
+- installer: `release/electron/ThermoAnalyzer-Setup-0.1.0-x64.exe`
 
 Optional unpacked build output:
 
@@ -96,6 +96,7 @@ npm run build:win:dir
 
 Output:
 - `release/electron/win-unpacked/`
+- NSIS unpacked helper files in `release/electron/` (`.yml`, blockmap, etc.)
 
 ## Startup Path Smoke Test
 

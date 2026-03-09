@@ -6,13 +6,13 @@ Use this checklist on a fresh Windows machine before professor demo handoff.
 
 - Windows 10/11 x64 machine with no Python requirement.
 - Build artifact available:
-  - `ThermoAnalyzer-Desktop-<version>-x64.exe` (portable)
+  - `ThermoAnalyzer-Setup-<version>-x64.exe` (NSIS installer)
 - At least one known-good DSC/TGA CSV sample file ready for import.
 
 ## Smoke Steps
 
-1. Launch app
-- Action: Double-click `ThermoAnalyzer-Desktop-<version>-x64.exe`.
+1. Install and launch app
+- Action: Run `ThermoAnalyzer-Setup-<version>-x64.exe`, complete `Next -> Install -> Finish`, then launch from Start Menu shortcut.
 - Verify:
   - Main window opens as `ThermoAnalyzer Desktop`.
   - No immediate backend startup error dialog appears.

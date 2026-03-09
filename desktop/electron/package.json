@@ -12,7 +12,7 @@
     "test:desktop-smoke": "npm run test:startup-paths && npm run test:startup-diagnostics",
     "build:backend": "python ../backend_bundle/build_backend.py --clean",
     "build:win:dir": "npm run build:backend && electron-builder --win dir --x64",
-    "build:win:portable": "npm run build:backend && electron-builder --win portable --x64"
+    "build:win:nsis": "npm run build:backend && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "^36.0.0",
@@ -47,13 +47,24 @@
       "icon": "assets/thermoanalyzer.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ],
-      "artifactName": "ThermoAnalyzer-Desktop-${version}-${arch}.${ext}"
+      "artifactName": "ThermoAnalyzer-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ThermoAnalyzer Desktop",
+      "installerIcon": "assets/thermoanalyzer.ico",
+      "uninstallerIcon": "assets/thermoanalyzer.ico",
+      "installerHeaderIcon": "assets/thermoanalyzer.ico"
     }
   }
 }

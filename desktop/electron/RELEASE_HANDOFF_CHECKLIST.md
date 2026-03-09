@@ -9,9 +9,9 @@ Run this checklist before sending a demo build to professors.
 - `npm run build:backend`
 - Verify: `desktop/backend_bundle/dist/thermoanalyzer_backend/thermoanalyzer_backend.exe` exists.
 
-2. Build portable desktop artifact:
-- `npm run build:win:portable`
-- Verify: `release/electron/ThermoAnalyzer-Desktop-<version>-x64.exe` exists.
+2. Build NSIS installer artifact:
+- `npm run build:win:nsis`
+- Verify: `release/electron/ThermoAnalyzer-Setup-<version>-x64.exe` exists.
 
 3. Optional unpacked validation build:
 - `npm run build:win:dir`

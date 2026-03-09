@@ -1115,3 +1115,56 @@ Polish the demo-facing desktop release quality (identity, startup clarity, and v
 
 ### Notes
 - This tranche is polish-focused and intentionally defers signing/procurement and installer UX redesign.
+
+---
+
+## Title
+Electron Migration Tranche 9 - Windows NSIS Installer Switch
+
+### Objective
+Switch Windows desktop packaging from portable EXE to a standard NSIS installer flow while preserving bundled backend behavior and existing desktop/core compatibility.
+
+### Definition Of Done
+- Electron build target produces NSIS installer artifact (Setup EXE) instead of portable-only output.
+- Bundled backend still ships via `extraResources` and starts in packaged mode.
+- Installer metadata (name/icon/artifact naming) remains consistent and professor-friendly.
+- Build/readme/checklist docs reflect NSIS installer usage.
+
+### Constraints
+- No numerical/core algorithm changes.
+- No normalized result/export contract changes.
+- No `.thermozip` compatibility changes.
+- No Streamlit fallback changes.
+- No signing/procurement implementation in this tranche.
+
+### Impact Analysis
+- Packaging config/docs only:
+  - `desktop/electron/package.json`
+  - `desktop/electron/README.md`
+  - `desktop/electron/CLEAN_MACHINE_SMOKE_CHECKLIST.md`
+  - `desktop/electron/RELEASE_HANDOFF_CHECKLIST.md`
+  - `plans.md`
+
+### Risks
+- Unsigned NSIS installer may trigger SmartScreen warnings.
+- Artifact naming changes can break old release scripts if they hardcode portable names.
+
+### Migration / Rollout Strategy
+- Replace `portable` target with `nsis`.
+- Enable standard wizard installer settings (non-one-click + shortcuts).
+- Keep bundled backend startup code unchanged.
+- Verify with startup smoke tests and NSIS build output inspection.
+
+### Test Strategy
+- `npm run test:desktop-smoke`
+- `npm run build:win:nsis`
+- `pytest -q`
+
+### Progress Log
+- [x] Switch electron-builder Windows target to NSIS with installer settings
+- [x] Update build scripts/docs/artifact naming for setup EXE
+- [x] Run smoke tests and NSIS build verification
+- [x] Run full Python regression suite
+
+### Notes
+- Portable output is intentionally removed from primary build target in this tranche.
