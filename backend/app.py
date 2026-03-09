@@ -22,8 +22,12 @@ from backend.exports import (
     generate_results_csv_artifact,
 )
 from backend.models import (
+    ActiveDatasetResponse,
+    ActiveDatasetUpdateRequest,
     AnalysisRunRequest,
     AnalysisRunResponse,
+    CompareSelectionResponse,
+    CompareSelectionUpdateRequest,
     CompareWorkspaceResponse,
     CompareWorkspaceUpdateRequest,
     DatasetDetailResponse,
@@ -43,6 +47,7 @@ from backend.models import (
     ResultsListResponse,
     ValidationSummary,
     VersionResponse,
+    WorkspaceContextResponse,
     WorkspaceCreateResponse,
     WorkspaceSummaryResponse,
 )
@@ -54,6 +59,7 @@ from backend.workspace import (
     summarize_result,
     unique_dataset_key,
 )
+from backend.workspace_context import build_workspace_context, set_active_dataset, update_compare_selection
 from core.batch_runner import execute_batch_template
 from core.data_io import read_thermal_data
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
@@ -167,6 +173,16 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         state = _require_project_state(project_store, project_id)
         return WorkspaceSummaryResponse(project_id=project_id, summary=_project_summary(state))
 
+    @app.get("/workspace/{project_id}/context", response_model=WorkspaceContextResponse)
+    def workspace_context(
+        project_id: str,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> WorkspaceContextResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        payload = build_workspace_context(state)
+        return WorkspaceContextResponse(project_id=project_id, summary=_project_summary(state), **payload)
+
     @app.get("/workspace/{project_id}/datasets", response_model=DatasetsListResponse)
     def workspace_datasets(
         project_id: str,
@@ -253,6 +269,50 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         project_store.set(project_id, state)
         return CompareWorkspaceResponse(project_id=project_id, compare_workspace=payload)
+
+    @app.post("/workspace/{project_id}/compare/selection", response_model=CompareSelectionResponse)
+    def compare_selection_update(
+        project_id: str,
+        request: CompareSelectionUpdateRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> CompareSelectionResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        try:
+            payload = update_compare_selection(
+                state,
+                operation=request.operation,
+                dataset_keys=request.dataset_keys,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        project_store.set(project_id, state)
+        return CompareSelectionResponse(
+            project_id=project_id,
+            summary=_project_summary(state),
+            compare_workspace=payload,
+            selected_dataset_count=len(payload.selected_datasets),
+        )
+
+    @app.put("/workspace/{project_id}/active-dataset", response_model=ActiveDatasetResponse)
+    def workspace_active_dataset_set(
+        project_id: str,
+        request: ActiveDatasetUpdateRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> ActiveDatasetResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        try:
+            active_dataset = set_active_dataset(state, request.dataset_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        project_store.set(project_id, state)
+        return ActiveDatasetResponse(
+            project_id=project_id,
+            summary=_project_summary(state),
+            active_dataset_key=state.get("active_dataset"),
+            active_dataset=active_dataset,
+        )
 
     @app.get("/workspace/{project_id}/exports/preparation", response_model=ExportPreparationResponse)
     def export_preparation(

@@ -3,7 +3,10 @@ let activeProjectDefaultName = "thermoanalyzer_project.thermozip";
 let selectedDatasetKey = null;
 let selectedResultId = null;
 let currentDatasets = [];
+let currentResults = [];
 let exportableResults = [];
+let currentActiveDatasetKey = null;
+let compareSelectedDatasetKeys = new Set();
 
 function setText(id, text) {
   const node = document.getElementById(id);
@@ -23,10 +26,14 @@ function appendLog(message) {
 
 function setWorkflowEnabled(enabled) {
   document.getElementById("saveProjectBtn").disabled = !enabled;
+  document.getElementById("refreshWorkspaceContextBtn").disabled = !enabled;
   document.getElementById("importDatasetBtn").disabled = !enabled;
   document.getElementById("runAnalysisBtn").disabled = !enabled || !selectedDatasetKey;
   document.getElementById("refreshCompareBtn").disabled = !enabled;
   document.getElementById("saveCompareBtn").disabled = !enabled;
+  document.getElementById("addSelectedToCompareBtn").disabled = !enabled || !selectedDatasetKey;
+  document.getElementById("removeSelectedFromCompareBtn").disabled = !enabled || !selectedDatasetKey;
+  document.getElementById("clearCompareSelectionBtn").disabled = !enabled;
   document.getElementById("refreshExportPrepBtn").disabled = !enabled;
   document.getElementById("exportCsvBtn").disabled = !enabled;
   document.getElementById("exportDocxBtn").disabled = !enabled;
@@ -41,6 +48,28 @@ function escapeHtml(text) {
 
 function safeJson(value) {
   return JSON.stringify(value || {}, null, 2);
+}
+
+function applyWorkspaceContext(context) {
+  currentActiveDatasetKey = context.active_dataset_key || null;
+  compareSelectedDatasetKeys = new Set((context.compare_workspace && context.compare_workspace.selected_datasets) || []);
+  const selectedResultText = selectedResultId || "none";
+  const latestResultText = context.latest_result && context.latest_result.id ? context.latest_result.id : "none";
+  const compareCount = context.compare_workspace && context.compare_workspace.selected_datasets
+    ? context.compare_workspace.selected_datasets.length
+    : 0;
+  setText(
+    "workspaceContextInfo",
+    `Active dataset: ${currentActiveDatasetKey || "none"} | Selected result: ${selectedResultText} | Latest result: ${latestResultText} | Compare selected: ${compareCount}`
+  );
+  const payload = {
+    active_dataset: context.active_dataset,
+    latest_result: context.latest_result,
+    compare_workspace: context.compare_workspace,
+    compare_selected_datasets: context.compare_selected_datasets,
+    recent_history: context.recent_history,
+  };
+  setText("workspaceContextSummary", safeJson(payload));
 }
 
 function renderCompareDatasetChecks(selectedDatasets) {
@@ -122,9 +151,11 @@ function renderDatasets(datasets) {
   const body = document.getElementById("datasetsBody");
   currentDatasets = datasets;
   if (!datasets.length) {
-    body.innerHTML = "<tr><td colspan='8'>No datasets loaded.</td></tr>";
+    body.innerHTML = "<tr><td colspan='10'>No datasets loaded.</td></tr>";
     selectedDatasetKey = null;
     document.getElementById("runAnalysisBtn").disabled = true;
+    document.getElementById("addSelectedToCompareBtn").disabled = true;
+    document.getElementById("removeSelectedFromCompareBtn").disabled = true;
     setText("datasetDetailInfo", "No dataset detail selected.");
     setText("datasetDetail", "");
     renderCompareDatasetChecks([]);
@@ -134,13 +165,25 @@ function renderDatasets(datasets) {
   if (!selectedDatasetKey || !datasets.some((item) => item.key === selectedDatasetKey)) {
     selectedDatasetKey = datasets[0].key;
   }
+  document.getElementById("addSelectedToCompareBtn").disabled = !activeProjectId || !selectedDatasetKey;
+  document.getElementById("removeSelectedFromCompareBtn").disabled = !activeProjectId || !selectedDatasetKey;
 
   body.innerHTML = datasets
     .map((item) => {
       const checked = item.key === selectedDatasetKey ? "checked" : "";
+      const active = item.key === currentActiveDatasetKey ? "Active" : "";
+      const compareSelected = compareSelectedDatasetKeys.has(item.key);
       return `
       <tr>
         <td><input type="radio" name="datasetPick" value="${escapeHtml(item.key)}" ${checked}></td>
+        <td>
+          <button class="set-active-btn" data-dataset-key="${escapeHtml(item.key)}">Set Active</button>
+          <div class="small">${escapeHtml(active)}</div>
+        </td>
+        <td>
+          <button class="toggle-compare-btn" data-dataset-key="${escapeHtml(item.key)}">${compareSelected ? "Remove" : "Add"}</button>
+          <div class="small">${compareSelected ? "Selected" : "Not selected"}</div>
+        </td>
         <td><button class="inspect-dataset-btn" data-dataset-key="${escapeHtml(item.key)}">View</button></td>
         <td>${escapeHtml(item.key)}</td>
         <td>${escapeHtml(item.data_type)}</td>
@@ -157,8 +200,24 @@ function renderDatasets(datasets) {
     node.addEventListener("change", async (event) => {
       selectedDatasetKey = event.target.value;
       document.getElementById("runAnalysisBtn").disabled = !activeProjectId || !selectedDatasetKey;
+      document.getElementById("addSelectedToCompareBtn").disabled = !activeProjectId || !selectedDatasetKey;
+      document.getElementById("removeSelectedFromCompareBtn").disabled = !activeProjectId || !selectedDatasetKey;
       appendLog(`Selected dataset: ${selectedDatasetKey}`);
       await loadDatasetDetail(selectedDatasetKey);
+    });
+  });
+
+  body.querySelectorAll(".set-active-btn").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const key = node.getAttribute("data-dataset-key");
+      await onSetActiveDataset(key);
+    });
+  });
+
+  body.querySelectorAll(".toggle-compare-btn").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const key = node.getAttribute("data-dataset-key");
+      await onToggleCompareDataset(key);
     });
   });
 
@@ -175,8 +234,9 @@ function renderDatasets(datasets) {
 
 function renderResults(results) {
   const body = document.getElementById("resultsBody");
+  currentResults = results;
   if (!results.length) {
-    body.innerHTML = "<tr><td colspan='9'>No results saved.</td></tr>";
+    body.innerHTML = "<tr><td colspan='10'>No results saved.</td></tr>";
     selectedResultId = null;
     setText("resultDetailInfo", "No result detail selected.");
     setText("resultDetail", "");
@@ -191,6 +251,7 @@ function renderResults(results) {
     .map(
       (item) => `
       <tr>
+        <td>${item.id === selectedResultId ? "Selected" : ""}</td>
         <td><button class="inspect-result-btn" data-result-id="${escapeHtml(item.id)}">View</button></td>
         <td>${escapeHtml(item.id)}</td>
         <td>${escapeHtml(item.analysis_type)}</td>
@@ -209,7 +270,15 @@ function renderResults(results) {
     node.addEventListener("click", async () => {
       const resultId = node.getAttribute("data-result-id");
       selectedResultId = resultId;
+      renderResults(currentResults);
       await loadResultDetail(resultId);
+      const context = await refreshWorkspaceContext();
+      if (!context) {
+        setText(
+          "workspaceContextInfo",
+          `Active dataset: ${currentActiveDatasetKey || "none"} | Selected result: ${selectedResultId || "none"}`
+        );
+      }
     });
   });
 }
@@ -245,16 +314,93 @@ function renderExportableResults(results) {
 async function refreshCompareWorkspace() {
   if (!activeProjectId) {
     setText("compareSummary", "");
+    setText("compareMeta", "No compare metadata loaded.");
     return;
   }
   try {
     const compare = await window.taDesktop.getCompareWorkspace(activeProjectId);
+    compareSelectedDatasetKeys = new Set(compare.compare_workspace.selected_datasets || []);
     document.getElementById("compareTypeSelect").value = compare.compare_workspace.analysis_type || "DSC";
     document.getElementById("compareNotes").value = compare.compare_workspace.notes || "";
     renderCompareDatasetChecks(compare.compare_workspace.selected_datasets || []);
     setText("compareSummary", safeJson(compare.compare_workspace));
+    setText(
+      "compareMeta",
+      `Selected datasets: ${(compare.compare_workspace.selected_datasets || []).length} | Saved at: ${compare.compare_workspace.saved_at || "N/A"}`
+    );
+    if (currentDatasets.length) {
+      renderDatasets(currentDatasets);
+    }
   } catch (error) {
     setText("compareSummary", `Compare workspace read failed: ${error}`);
+    setText("compareMeta", "Compare metadata unavailable.");
+  }
+}
+
+async function refreshWorkspaceContext() {
+  if (!activeProjectId) {
+    setText("workspaceContextInfo", "No workspace context loaded.");
+    setText("workspaceContextSummary", "");
+    return null;
+  }
+  try {
+    const context = await window.taDesktop.getWorkspaceContext(activeProjectId);
+    applyWorkspaceContext(context);
+    document.getElementById("compareTypeSelect").value = context.compare_workspace.analysis_type || "DSC";
+    document.getElementById("compareNotes").value = context.compare_workspace.notes || "";
+    renderCompareDatasetChecks(context.compare_workspace.selected_datasets || []);
+    setText(
+      "compareMeta",
+      `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${context.compare_workspace.saved_at || "N/A"}`
+    );
+    setText("compareSummary", safeJson(context.compare_workspace));
+    if (currentDatasets.length) {
+      renderDatasets(currentDatasets);
+    }
+    return context;
+  } catch (error) {
+    setText("workspaceContextInfo", `Workspace context failed: ${error}`);
+    setText("workspaceContextSummary", "");
+    return null;
+  }
+}
+
+async function onSetActiveDataset(datasetKey) {
+  if (!activeProjectId || !datasetKey) return;
+  try {
+    const response = await window.taDesktop.setActiveDataset(activeProjectId, datasetKey);
+    currentActiveDatasetKey = response.active_dataset_key;
+    appendLog(`Active dataset set to ${response.active_dataset_key}.`);
+    await refreshWorkspaceViews();
+  } catch (error) {
+    appendLog(`Set active dataset failed: ${error}`);
+  }
+}
+
+async function updateCompareSelection(operation, datasetKeys) {
+  if (!activeProjectId) return;
+  const response = await window.taDesktop.updateCompareSelection(activeProjectId, operation, datasetKeys);
+  compareSelectedDatasetKeys = new Set(response.compare_workspace.selected_datasets || []);
+  document.getElementById("compareTypeSelect").value = response.compare_workspace.analysis_type || "DSC";
+  document.getElementById("compareNotes").value = response.compare_workspace.notes || "";
+  renderCompareDatasetChecks(response.compare_workspace.selected_datasets || []);
+  setText(
+    "compareMeta",
+    `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${response.compare_workspace.saved_at || "N/A"}`
+  );
+  setText("compareSummary", safeJson(response.compare_workspace));
+  renderDatasets(currentDatasets);
+  await refreshWorkspaceContext();
+}
+
+async function onToggleCompareDataset(datasetKey) {
+  if (!datasetKey) return;
+  const operation = compareSelectedDatasetKeys.has(datasetKey) ? "remove" : "add";
+  try {
+    await updateCompareSelection(operation, [datasetKey]);
+    appendLog(`Compare selection ${operation}: ${datasetKey}`);
+  } catch (error) {
+    appendLog(`Compare selection update failed: ${error}`);
   }
 }
 
@@ -316,11 +462,17 @@ async function refreshStatus() {
 
 async function refreshWorkspaceViews() {
   if (!activeProjectId) {
+    currentActiveDatasetKey = null;
+    compareSelectedDatasetKeys = new Set();
+    currentResults = [];
     setText("projectInfo", "No workspace active.");
     setText("projectSummary", "");
+    setText("workspaceContextInfo", "No workspace context loaded.");
+    setText("workspaceContextSummary", "");
     renderDatasets([]);
     renderResults([]);
     setText("compareSummary", "");
+    setText("compareMeta", "No compare metadata loaded.");
     setText("exportPrepInfo", "No export preparation data loaded.");
     setText("exportPrepSummary", "");
     setText("exportActionSummary", "");
@@ -329,11 +481,13 @@ async function refreshWorkspaceViews() {
     return;
   }
 
-  const summary = await window.taDesktop.getWorkspaceSummary(activeProjectId);
+  const context = await window.taDesktop.getWorkspaceContext(activeProjectId);
   const datasets = await window.taDesktop.listDatasets(activeProjectId);
   const results = await window.taDesktop.listResults(activeProjectId);
   setText("projectInfo", `Workspace: ${activeProjectId}`);
-  setText("projectSummary", JSON.stringify(summary.summary, null, 2));
+  setText("projectSummary", JSON.stringify(context.summary, null, 2));
+  applyWorkspaceContext(context);
+  compareSelectedDatasetKeys = new Set((context.compare_workspace && context.compare_workspace.selected_datasets) || []);
   renderDatasets(datasets.datasets || []);
   renderResults(results.results || []);
   setWorkflowEnabled(true);
@@ -344,7 +498,14 @@ async function refreshWorkspaceViews() {
   if (selectedResultId) {
     await loadResultDetail(selectedResultId);
   }
-  await refreshCompareWorkspace();
+  document.getElementById("compareTypeSelect").value = context.compare_workspace.analysis_type || "DSC";
+  document.getElementById("compareNotes").value = context.compare_workspace.notes || "";
+  renderCompareDatasetChecks(context.compare_workspace.selected_datasets || []);
+  setText(
+    "compareMeta",
+    `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${context.compare_workspace.saved_at || "N/A"}`
+  );
+  setText("compareSummary", safeJson(context.compare_workspace));
   await refreshExportPreparation();
 }
 
@@ -462,10 +623,53 @@ async function onSaveCompareSelection() {
       notes: document.getElementById("compareNotes").value,
     };
     const response = await window.taDesktop.updateCompareWorkspace(activeProjectId, payload);
+    compareSelectedDatasetKeys = new Set(response.compare_workspace.selected_datasets || []);
+    setText(
+      "compareMeta",
+      `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${response.compare_workspace.saved_at || "N/A"}`
+    );
     setText("compareSummary", safeJson(response.compare_workspace));
+    renderDatasets(currentDatasets);
+    await refreshWorkspaceContext();
     appendLog(`Saved compare workspace (${response.compare_workspace.analysis_type}) with ${response.compare_workspace.selected_datasets.length} dataset(s).`);
   } catch (error) {
     appendLog(`Save compare workspace failed: ${error}`);
+  }
+}
+
+async function onAddSelectedToCompare() {
+  if (!activeProjectId || !selectedDatasetKey) {
+    appendLog("Add to compare skipped: select a dataset first.");
+    return;
+  }
+  try {
+    await updateCompareSelection("add", [selectedDatasetKey]);
+    appendLog(`Added to compare: ${selectedDatasetKey}`);
+  } catch (error) {
+    appendLog(`Add to compare failed: ${error}`);
+  }
+}
+
+async function onRemoveSelectedFromCompare() {
+  if (!activeProjectId || !selectedDatasetKey) {
+    appendLog("Remove from compare skipped: select a dataset first.");
+    return;
+  }
+  try {
+    await updateCompareSelection("remove", [selectedDatasetKey]);
+    appendLog(`Removed from compare: ${selectedDatasetKey}`);
+  } catch (error) {
+    appendLog(`Remove from compare failed: ${error}`);
+  }
+}
+
+async function onClearCompareSelection() {
+  if (!activeProjectId) return;
+  try {
+    await updateCompareSelection("clear", []);
+    appendLog("Cleared compare selected datasets.");
+  } catch (error) {
+    appendLog(`Clear compare selection failed: ${error}`);
   }
 }
 
@@ -506,10 +710,14 @@ async function onGenerateDocxReport() {
 document.getElementById("newWorkspaceBtn").addEventListener("click", onNewWorkspace);
 document.getElementById("openProjectBtn").addEventListener("click", onOpenProject);
 document.getElementById("saveProjectBtn").addEventListener("click", onSaveProject);
+document.getElementById("refreshWorkspaceContextBtn").addEventListener("click", refreshWorkspaceContext);
 document.getElementById("importDatasetBtn").addEventListener("click", onImportDataset);
 document.getElementById("runAnalysisBtn").addEventListener("click", onRunAnalysis);
 document.getElementById("refreshCompareBtn").addEventListener("click", refreshCompareWorkspace);
 document.getElementById("saveCompareBtn").addEventListener("click", onSaveCompareSelection);
+document.getElementById("addSelectedToCompareBtn").addEventListener("click", onAddSelectedToCompare);
+document.getElementById("removeSelectedFromCompareBtn").addEventListener("click", onRemoveSelectedFromCompare);
+document.getElementById("clearCompareSelectionBtn").addEventListener("click", onClearCompareSelection);
 document.getElementById("refreshExportPrepBtn").addEventListener("click", refreshExportPreparation);
 document.getElementById("exportCsvBtn").addEventListener("click", onExportResultsCsv);
 document.getElementById("exportDocxBtn").addEventListener("click", onGenerateDocxReport);

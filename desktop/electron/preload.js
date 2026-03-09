@@ -50,8 +50,17 @@ contextBridge.exposeInMainWorld("taDesktop", {
   async getWorkspaceSummary(projectId) {
     return apiCall(`/workspace/${encodeURIComponent(projectId)}`, { method: "GET" });
   },
+  async getWorkspaceContext(projectId) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/context`, { method: "GET" });
+  },
   async listDatasets(projectId) {
     return apiCall(`/workspace/${encodeURIComponent(projectId)}/datasets`, { method: "GET" });
+  },
+  async setActiveDataset(projectId, datasetKey) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/active-dataset`, {
+      method: "PUT",
+      body: JSON.stringify({ dataset_key: datasetKey }),
+    });
   },
   async getDatasetDetail(projectId, datasetKey) {
     return apiCall(
@@ -75,6 +84,15 @@ contextBridge.exposeInMainWorld("taDesktop", {
     return apiCall(`/workspace/${encodeURIComponent(projectId)}/compare`, {
       method: "PUT",
       body: JSON.stringify(payload || {}),
+    });
+  },
+  async updateCompareSelection(projectId, operation, datasetKeys) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/compare/selection`, {
+      method: "POST",
+      body: JSON.stringify({
+        operation,
+        dataset_keys: datasetKeys || null,
+      }),
     });
   },
   async getExportPreparation(projectId) {

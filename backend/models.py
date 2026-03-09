@@ -199,3 +199,37 @@ class ExportArtifactResponse(BaseModel):
     included_result_ids: list[str]
     skipped_record_issues: list[str]
     artifact_base64: str
+
+
+class WorkspaceContextResponse(BaseModel):
+    project_id: str
+    summary: ProjectSummary
+    active_dataset_key: str | None = None
+    active_dataset: DatasetSummary | None = None
+    latest_result: ResultSummary | None = None
+    compare_workspace: CompareWorkspacePayload
+    compare_selected_datasets: list[DatasetSummary] = Field(default_factory=list)
+    recent_history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ActiveDatasetUpdateRequest(BaseModel):
+    dataset_key: str = Field(..., min_length=1)
+
+
+class ActiveDatasetResponse(BaseModel):
+    project_id: str
+    summary: ProjectSummary
+    active_dataset_key: str | None = None
+    active_dataset: DatasetSummary | None = None
+
+
+class CompareSelectionUpdateRequest(BaseModel):
+    operation: str = Field(..., min_length=1)
+    dataset_keys: list[str] | None = None
+
+
+class CompareSelectionResponse(BaseModel):
+    project_id: str
+    summary: ProjectSummary
+    compare_workspace: CompareWorkspacePayload
+    selected_dataset_count: int

@@ -98,9 +98,12 @@
         <button id="newWorkspaceBtn">New Workspace</button>
         <button id="openProjectBtn">Open .thermozip</button>
         <button id="saveProjectBtn" disabled>Save Workspace</button>
+        <button id="refreshWorkspaceContextBtn" disabled>Refresh Context</button>
       </div>
       <p id="projectInfo">No workspace active.</p>
       <pre id="projectSummary"></pre>
+      <p id="workspaceContextInfo" class="small">No workspace context loaded.</p>
+      <pre id="workspaceContextSummary"></pre>
     </div>
 
     <div class="card">
@@ -119,6 +122,8 @@
         <thead>
           <tr>
             <th>Use</th>
+            <th>Active</th>
+            <th>Compare</th>
             <th>Inspect</th>
             <th>Key</th>
             <th>Type</th>
@@ -152,6 +157,7 @@
       <table>
         <thead>
           <tr>
+            <th>Selected</th>
             <th>Inspect</th>
             <th>ID</th>
             <th>Type</th>
@@ -177,6 +183,9 @@
           <option value="DSC">DSC</option>
           <option value="TGA">TGA</option>
         </select>
+        <button id="addSelectedToCompareBtn" disabled>Add Selected Dataset</button>
+        <button id="removeSelectedFromCompareBtn" disabled>Remove Selected Dataset</button>
+        <button id="clearCompareSelectionBtn" disabled>Clear Compare Selection</button>
       </div>
       <div id="compareDatasetChecks" class="small"></div>
       <label for="compareNotes">Notes</label>
@@ -185,6 +194,7 @@
         <button id="refreshCompareBtn" disabled>Refresh Compare</button>
         <button id="saveCompareBtn" disabled>Save Compare Selection</button>
       </div>
+      <p id="compareMeta" class="small">No compare metadata loaded.</p>
       <pre id="compareSummary"></pre>
     </div>
 

@@ -1,4 +1,4 @@
-# Electron Desktop Skeleton (Tranche 4)
+# Electron Desktop Skeleton (Tranche 5)
 
 This directory contains a minimal desktop workflow shell for early migration tranches.
 
@@ -13,6 +13,9 @@ What it does:
   - inspect dataset details (metadata, units, validation, data preview)
   - inspect result details (summary, processing, validation, provenance, review)
   - view/update basic compare workspace selection state
+  - inspect richer workspace context (active dataset, latest result, compare state, recent history)
+  - set active dataset explicitly for workspace state
+  - manage compare selected datasets with add/remove/clear actions
   - inspect export/report preparation (exportable saved results + metadata)
   - generate/download normalized results CSV for selected saved results
   - generate/download DOCX report for selected saved results

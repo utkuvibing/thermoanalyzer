@@ -890,3 +890,60 @@ Introduce a minimal but real desktop export/report preparation workflow by reusi
 
 ### Notes
 - This tranche supports only `results_csv` and `report_docx` to keep risk low while enabling meaningful desktop report/export usability.
+
+---
+
+## Title
+Electron Migration Tranche 5 - Workspace Context and Compare Selection Usability
+
+### Objective
+Improve desktop workspace confidence and compare usability with richer context visibility and safe selection-management endpoints, while deferring batch execution parity.
+
+### Definition Of Done
+- Backend exposes focused workspace/compare usability endpoints for:
+  - richer workspace context read
+  - active dataset update
+  - compare selected-dataset mutation
+- Electron renderer surfaces:
+  - clear active dataset and selected result context
+  - richer compare metadata visibility (notes/saved timestamp/selected count)
+  - quick compare selected-dataset actions (add/remove/clear) and explicit set-active action
+- Save/load workspace roundtrip keeps compare selection state intact.
+- Streamlit fallback and existing core/export/project contracts remain unchanged.
+
+### Constraints
+- No full batch runner parity.
+- No preview modules.
+- No numerical algorithm changes.
+- No installer/signing flow changes.
+
+### Impact Analysis
+- Backend files: `backend/models.py`, `backend/app.py`, `backend/workspace_context.py`.
+- Desktop files: `desktop/electron/preload.js`, `desktop/electron/index.html`, `desktop/electron/renderer.js`, `desktop/electron/README.md`.
+- Tests: new backend workspace contract/integration tests and workflow coverage touch-up.
+
+### Risks
+- More UI state wiring between active dataset, compare selection, and local selected result.
+- Compare selection mutation actions must preserve existing persisted workspace shape.
+- Recent history payload is intentionally bounded to avoid oversized context responses.
+
+### Migration / Rollout Strategy
+- Add context/read endpoints first.
+- Add active/compare mutation endpoints reusing existing state keys.
+- Wire minimal renderer actions around these endpoints.
+- Verify with roundtrip tests using current `.thermozip` path.
+
+### Test Strategy
+- Focused tests:
+  - `pytest tests/test_backend_workspace.py tests/test_backend_details.py tests/test_backend_exports.py tests/test_backend_workflow.py -q`
+- Full regression:
+  - `pytest -q`
+
+### Progress Log
+- [x] Add workspace context + active dataset + compare selection endpoints
+- [x] Improve renderer context/compare usability controls
+- [x] Add backend workspace contract and roundtrip integration tests
+- [x] Run focused and full test suites
+
+### Notes
+- This tranche prepares safer pathing toward compare/batch parity without introducing any batch execution endpoint yet.
