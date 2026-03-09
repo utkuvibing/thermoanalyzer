@@ -1062,3 +1062,56 @@ Make the Electron desktop path realistically buildable for a Windows demo by bun
 
 ### Notes
 - This tranche aims for demo-ready buildability and bundled runtime, not final signed installer release quality.
+
+---
+
+## Title
+Electron Migration Tranche 8 - Demo Polish and Clean-Machine Confidence
+
+### Objective
+Polish the demo-facing desktop release quality (identity, startup clarity, and validation docs) without expanding feature scope or changing scientific/core compatibility contracts.
+
+### Definition Of Done
+- Electron metadata/naming/icons are consistent for a professor-facing demo build.
+- Backend startup failures show clear user-facing guidance and a diagnostics log path.
+- Startup diagnostics logs capture enough context for rapid troubleshooting.
+- Clean-machine smoke checklist and release handoff checklist are added for demo validation.
+- Streamlit fallback and current backend/contract behavior remain unchanged.
+
+### Constraints
+- No new major product features.
+- No numerical algorithm changes.
+- No normalized result/export contract changes.
+- No `.thermozip` compatibility changes.
+- No installer signing flow implementation in this tranche.
+
+### Impact Analysis
+- Electron runtime files: `desktop/electron/main.js`, `desktop/electron/index.html`, `desktop/electron/package.json`, `desktop/electron/startup_diagnostics.js`.
+- Electron assets/tests/docs: `desktop/electron/assets/*`, `desktop/electron/scripts/test-startup-diagnostics.js`, `desktop/electron/README.md`, `desktop/electron/CLEAN_MACHINE_SMOKE_CHECKLIST.md`, `desktop/electron/RELEASE_HANDOFF_CHECKLIST.md`.
+- Planning log: `plans.md`.
+
+### Risks
+- App naming changes can shift artifact and user-data path expectations.
+- Startup diagnostics must avoid leaking sensitive token values.
+- Unsiged demo builds still face SmartScreen friction (documented, not solved here).
+
+### Migration / Rollout Strategy
+- Keep backend API and renderer functionality unchanged.
+- Add diagnostics/logging around existing startup path rather than replacing launch flow.
+- Apply metadata/icon updates in Electron packaging config only.
+- Add checklists for repeatable clean-machine and release handoff validation.
+
+### Test Strategy
+- Desktop smoke scripts:
+  - `npm run test:desktop-smoke` from `desktop/electron`
+- Full Python regression:
+  - `pytest -q`
+
+### Progress Log
+- [x] Add startup diagnostics helper and startup failure dialog improvements
+- [x] Apply app naming/icon/metadata consistency updates for demo build polish
+- [x] Add clean-machine and release handoff checklist docs
+- [x] Run smoke and full regression tests
+
+### Notes
+- This tranche is polish-focused and intentionally defers signing/procurement and installer UX redesign.

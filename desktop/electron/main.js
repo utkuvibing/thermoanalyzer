@@ -5,11 +5,15 @@ const net = require("net");
 const path = require("path");
 const crypto = require("crypto");
 const { resolveBackendLaunch } = require("./backend_locator");
+const { createStartupDiagnostics } = require("./startup_diagnostics");
+
+const APP_DISPLAY_NAME = "ThermoAnalyzer Desktop";
 
 let backendProcess = null;
 let backendPort = null;
 let backendToken = null;
 let backendBaseUrl = null;
+let startupDiagnostics = null;
 
 function getRepoRoot() {
   return path.resolve(__dirname, "..", "..");
@@ -26,23 +30,45 @@ function reservePort() {
   });
 }
 
-async function waitForBackendReady(url, timeoutMs) {
+function redactSpawnArgs(args) {
+  const redacted = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (index > 0 && args[index - 1] === "--token") {
+      redacted.push("[redacted]");
+      continue;
+    }
+    redacted.push(args[index]);
+  }
+  return redacted;
+}
+
+async function waitForBackendReady(url, timeoutMs, processHandle, diagnostics) {
   const deadline = Date.now() + timeoutMs;
+  let lastProbeError = "backend did not report readiness";
   while (Date.now() < deadline) {
+    if (processHandle && processHandle.exitCode !== null) {
+      throw new Error(
+        `Backend exited before readiness (code=${processHandle.exitCode}, signal=${processHandle.signalCode || "none"}).`
+      );
+    }
+
     try {
       const response = await fetch(`${url}/health`);
       if (response.ok) {
         return;
       }
+      lastProbeError = `health endpoint returned status ${response.status}`;
     } catch (_err) {
       // Backend not ready yet.
+      lastProbeError = String(_err);
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error("Backend readiness timeout.");
+  diagnostics.log(`backend_probe_last_error=${lastProbeError}`);
+  throw new Error(`Backend readiness timeout after ${timeoutMs} ms.`);
 }
 
-async function startBackend() {
+async function startBackend(diagnostics) {
   backendPort = await reservePort();
   backendToken = crypto.randomBytes(16).toString("hex");
   backendBaseUrl = `http://127.0.0.1:${backendPort}`;
@@ -65,8 +91,16 @@ async function startBackend() {
     "--token",
     backendToken,
   ];
+  const redactedSpawnArgs = redactSpawnArgs(spawnArgs);
 
   process.stdout.write(`[backend] launch mode=${launch.mode} command=${launch.resolvedPath}\n`);
+  diagnostics.log(`backend_launch_mode=${launch.mode}`);
+  diagnostics.log(`backend_command=${launch.resolvedPath}`);
+  diagnostics.log(`backend_spawn_args=${JSON.stringify(redactedSpawnArgs)}`);
+  if (launch.candidates && launch.candidates.length > 0) {
+    diagnostics.log(`backend_candidates=${launch.candidates.join("; ")}`);
+  }
+  diagnostics.log(`backend_cwd=${launch.cwd}`);
 
   backendProcess = childProcess.spawn(launch.command, spawnArgs, {
     cwd: launch.cwd,
@@ -76,15 +110,19 @@ async function startBackend() {
 
   backendProcess.stdout.on("data", (chunk) => {
     process.stdout.write(`[backend] ${chunk}`);
+    diagnostics.logBackendOutput("backend_stdout", chunk);
   });
   backendProcess.stderr.on("data", (chunk) => {
     process.stderr.write(`[backend] ${chunk}`);
+    diagnostics.logBackendOutput("backend_stderr", chunk);
   });
   backendProcess.on("exit", (code, signal) => {
     process.stdout.write(`[backend] exited code=${code} signal=${signal}\n`);
+    diagnostics.log(`backend_exit code=${code} signal=${signal}`);
   });
 
-  await waitForBackendReady(backendBaseUrl, 15000);
+  await waitForBackendReady(backendBaseUrl, 15000, backendProcess, diagnostics);
+  diagnostics.log("backend_ready=true");
 }
 
 function stopBackend() {
@@ -94,9 +132,13 @@ function stopBackend() {
 }
 
 function createWindow() {
+  const iconFile = process.platform === "win32" ? "thermoanalyzer.ico" : "thermoanalyzer.png";
+  const iconPath = path.join(__dirname, "assets", iconFile);
   const window = new BrowserWindow({
+    title: APP_DISPLAY_NAME,
     width: 980,
     height: 700,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -204,13 +246,37 @@ ipcMain.handle("ta:pick-dataset-file", async () => {
 });
 
 app.whenReady().then(async () => {
+  startupDiagnostics = createStartupDiagnostics({
+    appName: APP_DISPLAY_NAME,
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    userDataPath: app.getPath("userData"),
+  });
+  startupDiagnostics.log(`app_user_data_path=${app.getPath("userData")}`);
+  startupDiagnostics.log("startup_begin=true");
+
   try {
-    await startBackend();
+    await startBackend(startupDiagnostics);
+    startupDiagnostics.log("window_create_begin=true");
     createWindow();
+    startupDiagnostics.log("window_create_success=true");
   } catch (error) {
+    const failure = startupDiagnostics
+      ? startupDiagnostics.recordFailure(error)
+      : { reason: String(error), logPath: "diagnostics log unavailable" };
     dialog.showErrorBox(
-      "ThermoAnalyzer Desktop Bootstrap",
-      `Backend startup failed.\n\n${error}`
+      APP_DISPLAY_NAME,
+      [
+        "ThermoAnalyzer Desktop could not start the local analysis backend.",
+        "",
+        `Reason: ${failure.reason}`,
+        "",
+        "Diagnostics log:",
+        failure.logPath,
+        "",
+        "Please share this log file together with the build version.",
+      ].join("\n")
     );
     app.quit();
   }
@@ -223,5 +289,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  if (startupDiagnostics) {
+    startupDiagnostics.log("app_before_quit=true");
+  }
   stopBackend();
 });

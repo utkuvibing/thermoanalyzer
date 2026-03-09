@@ -1,13 +1,15 @@
 {
-  "name": "thermoanalyzer-desktop-bootstrap",
+  "name": "thermoanalyzer-desktop",
   "version": "0.1.0",
   "private": true,
   "author": "ThermoAnalyzer Team",
-  "description": "ThermoAnalyzer Electron desktop shell with bundled backend packaging path",
+  "description": "ThermoAnalyzer desktop app with bundled Python backend runtime",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test:startup-paths": "node ./scripts/test-backend-locator.js",
+    "test:startup-diagnostics": "node ./scripts/test-startup-diagnostics.js",
+    "test:desktop-smoke": "npm run test:startup-paths && npm run test:startup-diagnostics",
     "build:backend": "python ../backend_bundle/build_backend.py --clean",
     "build:win:dir": "npm run build:backend && electron-builder --win dir --x64",
     "build:win:portable": "npm run build:backend && electron-builder --win portable --x64"
@@ -18,7 +20,7 @@
   },
   "build": {
     "appId": "com.thermoanalyzer.desktop",
-    "productName": "ThermoAnalyzerDesktop",
+    "productName": "ThermoAnalyzer Desktop",
     "directories": {
       "output": "../../release/electron"
     },
@@ -28,6 +30,8 @@
       "preload.js",
       "renderer.js",
       "backend_locator.js",
+      "startup_diagnostics.js",
+      "assets/**/*",
       "package.json"
     ],
     "extraResources": [
@@ -40,6 +44,7 @@
       }
     ],
     "win": {
+      "icon": "assets/thermoanalyzer.ico",
       "target": [
         {
           "target": "portable",
@@ -48,7 +53,7 @@
           ]
         }
       ],
-      "artifactName": "ThermoAnalyzerDesktop-${version}-${arch}.${ext}"
+      "artifactName": "ThermoAnalyzer-Desktop-${version}-${arch}.${ext}"
     }
   }
 }
