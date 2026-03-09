@@ -1006,3 +1006,59 @@ Add the first controlled desktop batch execution capability for stable DSC/TGA w
 
 ### Notes
 - This tranche intentionally starts with synchronous execution and no job framework to minimize migration risk while proving end-to-end batch utility.
+
+---
+
+## Title
+Electron Migration Tranche 7 - Demo Build Packaging and Bundled Backend Runtime
+
+### Objective
+Make the Electron desktop path realistically buildable for a Windows demo by bundling a packaged Python backend executable and removing runtime dependence on system Python/PATH.
+
+### Definition Of Done
+- Backend packaging path added using PyInstaller `onedir`.
+- Electron startup supports:
+  - development mode from Python source
+  - packaged mode from bundled backend executable in `resources/backend`.
+- Electron build path added for Windows portable distribution artifact.
+- Startup path smoke checks added for dev vs packaged backend resolution.
+- Existing backend API contracts and renderer behavior remain unchanged.
+
+### Constraints
+- No numerical algorithm changes.
+- No Streamlit fallback regressions.
+- No normalized result/export contract changes.
+- No `.thermozip` compatibility changes.
+- No installer signing/publisher polish in this tranche.
+
+### Impact Analysis
+- Backend bundle files: `desktop/backend_bundle/*`.
+- Electron packaging/startup files: `desktop/electron/main.js`, `desktop/electron/package.json`, `desktop/electron/backend_locator.js`, `desktop/electron/scripts/test-backend-locator.js`, `desktop/electron/README.md`.
+- Project planning docs: `plans.md`.
+
+### Risks
+- PyInstaller hidden import/runtime gaps for scientific and web stack dependencies.
+- Unsiged portable executable may trigger SmartScreen/AV warnings.
+- Build machine still needs Python + PyInstaller for packaging step.
+
+### Migration / Rollout Strategy
+- Add backend freezing script and hook layer first.
+- Add startup resolver and smoke tests for path resolution.
+- Add electron-builder config and explicit Windows build scripts.
+- Keep runtime API and UI unchanged.
+
+### Test Strategy
+- Startup path smoke test:
+  - `npm run test:startup-paths` from `desktop/electron`
+- Python full regression:
+  - `pytest -q`
+
+### Progress Log
+- [x] Add backend PyInstaller packaging path for desktop runtime
+- [x] Add dev/packaged backend startup resolver in Electron main
+- [x] Add Windows portable electron-builder build scripts
+- [x] Add startup path smoke tests
+- [x] Run smoke + full regression tests
+
+### Notes
+- This tranche aims for demo-ready buildability and bundled runtime, not final signed installer release quality.

@@ -4,25 +4,15 @@ const fs = require("fs");
 const net = require("net");
 const path = require("path");
 const crypto = require("crypto");
+const { resolveBackendLaunch } = require("./backend_locator");
 
 let backendProcess = null;
 let backendPort = null;
 let backendToken = null;
 let backendBaseUrl = null;
 
-function getPythonExecutable() {
-  if (process.env.TA_PYTHON && process.env.TA_PYTHON.trim()) {
-    return process.env.TA_PYTHON.trim();
-  }
-  return process.platform === "win32" ? "python" : "python3";
-}
-
 function getRepoRoot() {
   return path.resolve(__dirname, "..", "..");
-}
-
-function getBackendEntrypoint() {
-  return path.join(getRepoRoot(), "backend", "main.py");
 }
 
 function reservePort() {
@@ -57,10 +47,17 @@ async function startBackend() {
   backendToken = crypto.randomBytes(16).toString("hex");
   backendBaseUrl = `http://127.0.0.1:${backendPort}`;
 
-  const pythonExe = getPythonExecutable();
-  const backendScript = getBackendEntrypoint();
+  const launch = resolveBackendLaunch({
+    isPackaged: app.isPackaged,
+    env: process.env,
+    platform: process.platform,
+    repoRoot: getRepoRoot(),
+    resourcesPath: process.resourcesPath,
+    existsSync: fs.existsSync,
+  });
+
   const spawnArgs = [
-    backendScript,
+    ...launch.args,
     "--host",
     "127.0.0.1",
     "--port",
@@ -69,8 +66,10 @@ async function startBackend() {
     backendToken,
   ];
 
-  backendProcess = childProcess.spawn(pythonExe, spawnArgs, {
-    cwd: getRepoRoot(),
+  process.stdout.write(`[backend] launch mode=${launch.mode} command=${launch.resolvedPath}\n`);
+
+  backendProcess = childProcess.spawn(launch.command, spawnArgs, {
+    cwd: launch.cwd,
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });

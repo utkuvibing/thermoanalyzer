@@ -2,13 +2,53 @@
   "name": "thermoanalyzer-desktop-bootstrap",
   "version": "0.1.0",
   "private": true,
-  "description": "Tranche-1 Electron bootstrap shell for ThermoAnalyzer backend connectivity",
+  "author": "ThermoAnalyzer Team",
+  "description": "ThermoAnalyzer Electron desktop shell with bundled backend packaging path",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test:startup-paths": "node ./scripts/test-backend-locator.js",
+    "build:backend": "python ../backend_bundle/build_backend.py --clean",
+    "build:win:dir": "npm run build:backend && electron-builder --win dir --x64",
+    "build:win:portable": "npm run build:backend && electron-builder --win portable --x64"
   },
   "devDependencies": {
-    "electron": "^36.0.0"
+    "electron": "^36.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.thermoanalyzer.desktop",
+    "productName": "ThermoAnalyzerDesktop",
+    "directories": {
+      "output": "../../release/electron"
+    },
+    "files": [
+      "index.html",
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "backend_locator.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend_bundle/dist/thermoanalyzer_backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ThermoAnalyzerDesktop-${version}-${arch}.${ext}"
+    }
   }
 }
-
