@@ -16,6 +16,7 @@ What it does:
   - inspect richer workspace context (active dataset, latest result, compare state, recent history)
   - set active dataset explicitly for workspace state
   - manage compare selected datasets with add/remove/clear actions
+  - run a minimal synchronous DSC/TGA batch on compare-selected datasets with per-dataset outcomes
   - inspect export/report preparation (exportable saved results + metadata)
   - generate/download normalized results CSV for selected saved results
   - generate/download DOCX report for selected saved results

@@ -34,6 +34,7 @@ function setWorkflowEnabled(enabled) {
   document.getElementById("addSelectedToCompareBtn").disabled = !enabled || !selectedDatasetKey;
   document.getElementById("removeSelectedFromCompareBtn").disabled = !enabled || !selectedDatasetKey;
   document.getElementById("clearCompareSelectionBtn").disabled = !enabled;
+  document.getElementById("runBatchBtn").disabled = !enabled;
   document.getElementById("refreshExportPrepBtn").disabled = !enabled;
   document.getElementById("exportCsvBtn").disabled = !enabled;
   document.getElementById("exportDocxBtn").disabled = !enabled;
@@ -311,6 +312,56 @@ function renderExportableResults(results) {
   document.getElementById("exportDocxBtn").disabled = false;
 }
 
+function renderBatchSummaryRows(rows) {
+  const body = document.getElementById("batchSummaryBody");
+  const items = rows || [];
+  if (!items.length) {
+    body.innerHTML = "<tr><td colspan='5'>No batch summary rows.</td></tr>";
+    return;
+  }
+  body.innerHTML = items
+    .map((row) => {
+      return `
+      <tr>
+        <td>${escapeHtml(row.dataset_key)}</td>
+        <td>${escapeHtml(row.execution_status)}</td>
+        <td>${escapeHtml(row.validation_status)}</td>
+        <td>${escapeHtml(row.result_id)}</td>
+        <td>${escapeHtml(row.failure_reason)}</td>
+      </tr>
+    `;
+    })
+    .join("");
+}
+
+function renderBatchWorkspaceState(compareWorkspace) {
+  const payload = compareWorkspace || {};
+  const feedback = payload.batch_last_feedback || {};
+  const selectedCount = (payload.selected_datasets || []).length;
+  const canRun = Boolean(activeProjectId) && selectedCount > 0;
+  document.getElementById("runBatchBtn").disabled = !canRun;
+  if (!selectedCount) {
+    setText("batchInfo", "No compare-selected datasets available for batch.");
+  } else if (payload.batch_run_id) {
+    setText(
+      "batchInfo",
+      `Last batch ${payload.batch_run_id}: saved=${feedback.saved || 0}, blocked=${feedback.blocked || 0}, failed=${feedback.failed || 0}`
+    );
+  } else {
+    setText("batchInfo", `Ready for batch run on ${selectedCount} compare-selected dataset(s).`);
+  }
+  const summaryPayload = {
+    batch_run_id: payload.batch_run_id,
+    batch_template_id: payload.batch_template_id,
+    batch_template_label: payload.batch_template_label,
+    batch_completed_at: payload.batch_completed_at,
+    batch_last_feedback: feedback,
+    batch_result_ids: payload.batch_result_ids || [],
+  };
+  setText("batchOutcomeSummary", safeJson(summaryPayload));
+  renderBatchSummaryRows(payload.batch_summary || []);
+}
+
 async function refreshCompareWorkspace() {
   if (!activeProjectId) {
     setText("compareSummary", "");
@@ -321,6 +372,7 @@ async function refreshCompareWorkspace() {
     const compare = await window.taDesktop.getCompareWorkspace(activeProjectId);
     compareSelectedDatasetKeys = new Set(compare.compare_workspace.selected_datasets || []);
     document.getElementById("compareTypeSelect").value = compare.compare_workspace.analysis_type || "DSC";
+    document.getElementById("batchAnalysisTypeSelect").value = compare.compare_workspace.analysis_type || "DSC";
     document.getElementById("compareNotes").value = compare.compare_workspace.notes || "";
     renderCompareDatasetChecks(compare.compare_workspace.selected_datasets || []);
     setText("compareSummary", safeJson(compare.compare_workspace));
@@ -331,9 +383,13 @@ async function refreshCompareWorkspace() {
     if (currentDatasets.length) {
       renderDatasets(currentDatasets);
     }
+    renderBatchWorkspaceState(compare.compare_workspace);
   } catch (error) {
     setText("compareSummary", `Compare workspace read failed: ${error}`);
     setText("compareMeta", "Compare metadata unavailable.");
+    setText("batchInfo", "Batch summary unavailable.");
+    setText("batchOutcomeSummary", "");
+    renderBatchSummaryRows([]);
   }
 }
 
@@ -347,6 +403,7 @@ async function refreshWorkspaceContext() {
     const context = await window.taDesktop.getWorkspaceContext(activeProjectId);
     applyWorkspaceContext(context);
     document.getElementById("compareTypeSelect").value = context.compare_workspace.analysis_type || "DSC";
+    document.getElementById("batchAnalysisTypeSelect").value = context.compare_workspace.analysis_type || "DSC";
     document.getElementById("compareNotes").value = context.compare_workspace.notes || "";
     renderCompareDatasetChecks(context.compare_workspace.selected_datasets || []);
     setText(
@@ -354,6 +411,7 @@ async function refreshWorkspaceContext() {
       `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${context.compare_workspace.saved_at || "N/A"}`
     );
     setText("compareSummary", safeJson(context.compare_workspace));
+    renderBatchWorkspaceState(context.compare_workspace);
     if (currentDatasets.length) {
       renderDatasets(currentDatasets);
     }
@@ -389,6 +447,7 @@ async function updateCompareSelection(operation, datasetKeys) {
     `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${response.compare_workspace.saved_at || "N/A"}`
   );
   setText("compareSummary", safeJson(response.compare_workspace));
+  renderBatchWorkspaceState(response.compare_workspace);
   renderDatasets(currentDatasets);
   await refreshWorkspaceContext();
 }
@@ -473,6 +532,9 @@ async function refreshWorkspaceViews() {
     renderResults([]);
     setText("compareSummary", "");
     setText("compareMeta", "No compare metadata loaded.");
+    setText("batchInfo", "No batch run executed.");
+    setText("batchOutcomeSummary", "");
+    renderBatchSummaryRows([]);
     setText("exportPrepInfo", "No export preparation data loaded.");
     setText("exportPrepSummary", "");
     setText("exportActionSummary", "");
@@ -499,6 +561,7 @@ async function refreshWorkspaceViews() {
     await loadResultDetail(selectedResultId);
   }
   document.getElementById("compareTypeSelect").value = context.compare_workspace.analysis_type || "DSC";
+  document.getElementById("batchAnalysisTypeSelect").value = context.compare_workspace.analysis_type || "DSC";
   document.getElementById("compareNotes").value = context.compare_workspace.notes || "";
   renderCompareDatasetChecks(context.compare_workspace.selected_datasets || []);
   setText(
@@ -506,6 +569,7 @@ async function refreshWorkspaceViews() {
     `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${context.compare_workspace.saved_at || "N/A"}`
   );
   setText("compareSummary", safeJson(context.compare_workspace));
+  renderBatchWorkspaceState(context.compare_workspace);
   await refreshExportPreparation();
 }
 
@@ -629,6 +693,7 @@ async function onSaveCompareSelection() {
       `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${response.compare_workspace.saved_at || "N/A"}`
     );
     setText("compareSummary", safeJson(response.compare_workspace));
+    renderBatchWorkspaceState(response.compare_workspace);
     renderDatasets(currentDatasets);
     await refreshWorkspaceContext();
     appendLog(`Saved compare workspace (${response.compare_workspace.analysis_type}) with ${response.compare_workspace.selected_datasets.length} dataset(s).`);
@@ -670,6 +735,47 @@ async function onClearCompareSelection() {
     appendLog("Cleared compare selected datasets.");
   } catch (error) {
     appendLog(`Clear compare selection failed: ${error}`);
+  }
+}
+
+function onBatchAnalysisTypeChanged() {
+  const analysisType = document.getElementById("batchAnalysisTypeSelect").value;
+  const templateInput = document.getElementById("batchTemplateIdInput");
+  if (!templateInput.value || templateInput.value === "dsc.general" || templateInput.value === "tga.general") {
+    templateInput.value = analysisType === "TGA" ? "tga.general" : "dsc.general";
+  }
+}
+
+async function onRunBatch() {
+  if (!activeProjectId) return;
+  try {
+    const analysisType = document.getElementById("batchAnalysisTypeSelect").value;
+    const workflowTemplateId = (document.getElementById("batchTemplateIdInput").value || "").trim();
+    const response = await window.taDesktop.runBatch(activeProjectId, {
+      analysis_type: analysisType,
+      workflow_template_id: workflowTemplateId || null,
+    });
+    setText(
+      "batchInfo",
+      `Batch ${response.batch_run_id}: saved=${response.outcomes.saved}, blocked=${response.outcomes.blocked}, failed=${response.outcomes.failed}`
+    );
+    setText(
+      "batchOutcomeSummary",
+      safeJson({
+        batch_run_id: response.batch_run_id,
+        workflow_template_id: response.workflow_template_id,
+        workflow_template_label: response.workflow_template_label,
+        outcomes: response.outcomes,
+        saved_result_ids: response.saved_result_ids,
+      })
+    );
+    renderBatchSummaryRows(response.batch_summary || []);
+    appendLog(
+      `Batch run ${response.batch_run_id} finished (saved=${response.outcomes.saved}, blocked=${response.outcomes.blocked}, failed=${response.outcomes.failed}).`
+    );
+    await refreshWorkspaceViews();
+  } catch (error) {
+    appendLog(`Batch run failed: ${error}`);
   }
 }
 
@@ -718,6 +824,8 @@ document.getElementById("saveCompareBtn").addEventListener("click", onSaveCompar
 document.getElementById("addSelectedToCompareBtn").addEventListener("click", onAddSelectedToCompare);
 document.getElementById("removeSelectedFromCompareBtn").addEventListener("click", onRemoveSelectedFromCompare);
 document.getElementById("clearCompareSelectionBtn").addEventListener("click", onClearCompareSelection);
+document.getElementById("batchAnalysisTypeSelect").addEventListener("change", onBatchAnalysisTypeChanged);
+document.getElementById("runBatchBtn").addEventListener("click", onRunBatch);
 document.getElementById("refreshExportPrepBtn").addEventListener("click", refreshExportPreparation);
 document.getElementById("exportCsvBtn").addEventListener("click", onExportResultsCsv);
 document.getElementById("exportDocxBtn").addEventListener("click", onGenerateDocxReport);

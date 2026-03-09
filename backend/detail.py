@@ -73,6 +73,13 @@ def normalize_compare_workspace(state: dict[str, Any]) -> CompareWorkspacePayloa
         notes=str(raw.get("notes") or ""),
         figure_key=raw.get("figure_key"),
         saved_at=raw.get("saved_at"),
+        batch_run_id=raw.get("batch_run_id"),
+        batch_template_id=raw.get("batch_template_id"),
+        batch_template_label=raw.get("batch_template_label"),
+        batch_completed_at=raw.get("batch_completed_at"),
+        batch_summary=list(raw.get("batch_summary") or []),
+        batch_result_ids=list(raw.get("batch_result_ids") or []),
+        batch_last_feedback=dict(raw.get("batch_last_feedback") or {}),
     )
 
 
@@ -104,4 +111,3 @@ def update_compare_workspace(
 
     workspace["saved_at"] = datetime.now().isoformat(timespec="seconds")
     return normalize_compare_workspace(state)
-

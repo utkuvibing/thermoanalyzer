@@ -6,6 +6,7 @@ import base64
 import binascii
 import io
 import uuid
+from datetime import datetime
 
 from fastapi import FastAPI, Header, HTTPException
 
@@ -26,6 +27,8 @@ from backend.models import (
     ActiveDatasetUpdateRequest,
     AnalysisRunRequest,
     AnalysisRunResponse,
+    BatchRunRequest,
+    BatchRunResponse,
     CompareSelectionResponse,
     CompareSelectionUpdateRequest,
     CompareWorkspaceResponse,
@@ -61,7 +64,9 @@ from backend.workspace import (
 )
 from backend.workspace_context import build_workspace_context, set_active_dataset, update_compare_selection
 from core.batch_runner import execute_batch_template
+from core.batch_runner import normalize_batch_summary_rows, summarize_batch_outcomes
 from core.data_io import read_thermal_data
+from core.processing_schema import get_workflow_templates
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
 from core.result_serialization import split_valid_results
 from core.validation import validate_thermal_dataset
@@ -95,6 +100,23 @@ def _require_project_state(project_store: ProjectStore, project_id: str) -> dict
     if project_state is None:
         raise HTTPException(status_code=404, detail=f"Unknown project_id: {project_id}")
     return project_state
+
+
+def _is_dataset_eligible_for_analysis(analysis_type: str, dataset_type: str) -> bool:
+    token = str(analysis_type or "").upper()
+    dtype = str(dataset_type or "unknown").upper()
+    if token == "DSC":
+        return dtype in {"DSC", "DTA", "UNKNOWN"}
+    if token == "TGA":
+        return dtype in {"TGA", "UNKNOWN"}
+    return False
+
+
+def _workflow_template_label(analysis_type: str, workflow_template_id: str) -> str:
+    for entry in get_workflow_templates(analysis_type):
+        if entry["id"] == workflow_template_id:
+            return entry["label"]
+    return workflow_template_id
 
 
 def create_app(*, api_token: str | None = None, store: ProjectStore | None = None) -> FastAPI:
@@ -314,6 +336,168 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             active_dataset=active_dataset,
         )
 
+    @app.post("/workspace/{project_id}/batch/run", response_model=BatchRunResponse)
+    def batch_run(
+        project_id: str,
+        request: BatchRunRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> BatchRunResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+
+        analysis_type = request.analysis_type.upper()
+        if analysis_type not in {"DSC", "TGA"}:
+            raise HTTPException(status_code=400, detail="analysis_type must be DSC or TGA for this tranche.")
+
+        default_template = "dsc.general" if analysis_type == "DSC" else "tga.general"
+        workflow_template_id = request.workflow_template_id or default_template
+        workflow_template_label = _workflow_template_label(analysis_type, workflow_template_id)
+
+        compare_workspace = state.setdefault("comparison_workspace", {})
+        selected_from_workspace = list(compare_workspace.get("selected_datasets") or [])
+        requested_dataset_keys = list(request.dataset_keys) if request.dataset_keys is not None else selected_from_workspace
+        selected_dataset_keys: list[str] = []
+        for key in requested_dataset_keys:
+            token = str(key)
+            if token not in selected_dataset_keys:
+                selected_dataset_keys.append(token)
+        if not selected_dataset_keys:
+            raise HTTPException(status_code=400, detail="No datasets selected for batch run.")
+
+        batch_run_id = f"batch_{analysis_type.lower()}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        datasets = state.get("datasets") or {}
+        analysis_history = state.get("analysis_history", [])
+        analyst_name = ((state.get("branding") or {}).get("analyst_name") or "")
+        summary_rows: list[dict] = []
+        saved_result_ids: list[str] = []
+
+        for dataset_key in selected_dataset_keys:
+            dataset = datasets.get(dataset_key)
+            if dataset is None:
+                summary_rows.append(
+                    {
+                        "dataset_key": dataset_key,
+                        "analysis_type": analysis_type,
+                        "sample_name": dataset_key,
+                        "workflow_template_id": workflow_template_id,
+                        "workflow_template": workflow_template_label,
+                        "execution_status": "failed",
+                        "validation_status": "not_run",
+                        "warning_count": 0,
+                        "issue_count": 1,
+                        "calibration_state": "unknown",
+                        "reference_state": "not_run",
+                        "result_id": None,
+                        "failure_reason": "Dataset not found in workspace.",
+                        "message": "Dataset not found in workspace.",
+                        "error_id": "",
+                    }
+                )
+                continue
+
+            dataset_type = str(getattr(dataset, "data_type", "unknown") or "unknown")
+            if not _is_dataset_eligible_for_analysis(analysis_type, dataset_type):
+                summary_rows.append(
+                    {
+                        "dataset_key": dataset_key,
+                        "analysis_type": analysis_type,
+                        "sample_name": (dataset.metadata or {}).get("sample_name") or dataset_key,
+                        "workflow_template_id": workflow_template_id,
+                        "workflow_template": workflow_template_label,
+                        "execution_status": "blocked",
+                        "validation_status": "fail",
+                        "warning_count": 0,
+                        "issue_count": 1,
+                        "calibration_state": (dataset.metadata or {}).get("calibration_status") or "unknown",
+                        "reference_state": "not_run",
+                        "result_id": None,
+                        "failure_reason": f"Dataset '{dataset_key}' ({dataset_type}) is not compatible with {analysis_type} batch run.",
+                        "message": f"Dataset '{dataset_key}' ({dataset_type}) is not compatible with {analysis_type} batch run.",
+                        "error_id": "",
+                    }
+                )
+                continue
+
+            state_key = f"dsc_state_{dataset_key}" if analysis_type == "DSC" else f"tga_state_{dataset_key}"
+            existing_state = state.get(state_key, {}) or {}
+            try:
+                outcome = execute_batch_template(
+                    dataset_key=dataset_key,
+                    dataset=dataset,
+                    analysis_type=analysis_type,
+                    workflow_template_id=workflow_template_id,
+                    existing_processing=existing_state.get("processing"),
+                    analysis_history=analysis_history,
+                    analyst_name=analyst_name,
+                    app_version=APP_VERSION,
+                    batch_run_id=batch_run_id,
+                )
+                row = dict(outcome.get("summary_row") or {})
+                summary_rows.append(row)
+                if outcome.get("status") == "saved" and outcome.get("record") and outcome["record"].get("id"):
+                    result_id = outcome["record"]["id"]
+                    state.setdefault("results", {})[result_id] = outcome["record"]
+                    state[state_key] = outcome.get("state") or {}
+                    saved_result_ids.append(result_id)
+            except Exception as exc:
+                summary_rows.append(
+                    {
+                        "dataset_key": dataset_key,
+                        "analysis_type": analysis_type,
+                        "sample_name": (dataset.metadata or {}).get("sample_name") or dataset_key,
+                        "workflow_template_id": workflow_template_id,
+                        "workflow_template": workflow_template_label,
+                        "execution_status": "failed",
+                        "validation_status": "not_run",
+                        "warning_count": 0,
+                        "issue_count": 1,
+                        "calibration_state": (dataset.metadata or {}).get("calibration_status") or "unknown",
+                        "reference_state": "not_run",
+                        "result_id": None,
+                        "failure_reason": str(exc),
+                        "message": str(exc),
+                        "error_id": "",
+                    }
+                )
+
+        normalized_rows = normalize_batch_summary_rows(summary_rows)
+        outcomes = summarize_batch_outcomes(normalized_rows)
+        completed_at = datetime.now().isoformat(timespec="seconds")
+
+        compare_workspace["analysis_type"] = analysis_type
+        compare_workspace["selected_datasets"] = selected_dataset_keys
+        compare_workspace["saved_at"] = completed_at
+        compare_workspace["batch_run_id"] = batch_run_id
+        compare_workspace["batch_template_id"] = workflow_template_id
+        compare_workspace["batch_template_label"] = workflow_template_label
+        compare_workspace["batch_completed_at"] = completed_at
+        compare_workspace["batch_summary"] = normalized_rows
+        compare_workspace["batch_result_ids"] = saved_result_ids
+        compare_workspace["batch_last_feedback"] = outcomes
+
+        add_history_event(
+            state,
+            action="Batch Template Executed",
+            details=f"{analysis_type} {workflow_template_id}: saved={outcomes['saved']}, blocked={outcomes['blocked']}, failed={outcomes['failed']}",
+            dataset_key=state.get("active_dataset"),
+            status="warning" if outcomes["failed"] or outcomes["blocked"] else "info",
+        )
+        project_store.set(project_id, state)
+
+        return BatchRunResponse(
+            project_id=project_id,
+            analysis_type=analysis_type,
+            workflow_template_id=workflow_template_id,
+            workflow_template_label=workflow_template_label,
+            batch_run_id=batch_run_id,
+            selected_dataset_keys=selected_dataset_keys,
+            batch_summary=normalized_rows,
+            outcomes=outcomes,
+            saved_result_ids=saved_result_ids,
+            compare_workspace=normalize_compare_workspace(state),
+            summary=_project_summary(state),
+        )
+
     @app.get("/workspace/{project_id}/exports/preparation", response_model=ExportPreparationResponse)
     def export_preparation(
         project_id: str,
@@ -413,9 +597,9 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         if analysis_type not in {"DSC", "TGA"}:
             raise HTTPException(status_code=400, detail="analysis_type must be DSC or TGA for this tranche.")
         dataset_type = str(getattr(dataset, "data_type", "unknown") or "unknown").upper()
-        if analysis_type == "DSC" and dataset_type not in {"DSC", "DTA", "UNKNOWN"}:
+        if analysis_type == "DSC" and not _is_dataset_eligible_for_analysis(analysis_type, dataset_type):
             raise HTTPException(status_code=400, detail=f"Dataset '{request.dataset_key}' is not eligible for DSC analysis.")
-        if analysis_type == "TGA" and dataset_type not in {"TGA", "UNKNOWN"}:
+        if analysis_type == "TGA" and not _is_dataset_eligible_for_analysis(analysis_type, dataset_type):
             raise HTTPException(status_code=400, detail=f"Dataset '{request.dataset_key}' is not eligible for TGA analysis.")
 
         default_template = "dsc.general" if analysis_type == "DSC" else "tga.general"

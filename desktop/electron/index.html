@@ -199,6 +199,34 @@
     </div>
 
     <div class="card">
+      <p class="small">Batch Runner (Minimal Stable)</p>
+      <div class="row">
+        <label for="batchAnalysisTypeSelect">Analysis:</label>
+        <select id="batchAnalysisTypeSelect">
+          <option value="DSC">DSC</option>
+          <option value="TGA">TGA</option>
+        </select>
+        <label for="batchTemplateIdInput">Template ID:</label>
+        <input id="batchTemplateIdInput" value="dsc.general" style="min-width:220px;" />
+        <button id="runBatchBtn" disabled>Run Batch On Compare Selection</button>
+      </div>
+      <p id="batchInfo" class="small">No batch run executed.</p>
+      <pre id="batchOutcomeSummary"></pre>
+      <table>
+        <thead>
+          <tr>
+            <th>Dataset</th>
+            <th>Status</th>
+            <th>Validation</th>
+            <th>Result ID</th>
+            <th>Failure Reason</th>
+          </tr>
+        </thead>
+        <tbody id="batchSummaryBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
       <p class="small">Export / Report (Stable)</p>
       <div class="row">
         <button id="refreshExportPrepBtn" disabled>Refresh Export Prep</button>

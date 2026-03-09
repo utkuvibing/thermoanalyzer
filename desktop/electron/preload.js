@@ -149,6 +149,12 @@ contextBridge.exposeInMainWorld("taDesktop", {
       }),
     });
   },
+  async runBatch(projectId, payload) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/batch/run`, {
+      method: "POST",
+      body: JSON.stringify(payload || {}),
+    });
+  },
   async persistProjectArchive(defaultName, archiveBase64) {
     return ipcRenderer.invoke("ta:save-project-archive", {
       defaultName,

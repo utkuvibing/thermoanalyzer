@@ -947,3 +947,62 @@ Improve desktop workspace confidence and compare usability with richer context v
 
 ### Notes
 - This tranche prepares safer pathing toward compare/batch parity without introducing any batch execution endpoint yet.
+
+---
+
+## Title
+Electron Migration Tranche 6 - Minimal Desktop Batch Runner Support
+
+### Objective
+Add the first controlled desktop batch execution capability for stable DSC/TGA workflows by reusing existing core batch runner behavior and compare workspace state.
+
+### Definition Of Done
+- Backend exposes one focused batch execution endpoint using existing compare selection state by default.
+- Batch execution:
+  - applies one shared template across selected datasets
+  - processes compatible datasets
+  - records saved/blocked/failed rows without aborting on single-dataset failures
+  - persists saved results into existing result store/state keys
+  - writes batch metadata into existing `comparison_workspace` fields
+- Electron renderer exposes a minimal batch section with:
+  - analysis type + template id input
+  - run action on compare-selected datasets
+  - per-dataset outcome table + summary visibility
+- Workspace and project roundtrip remain compatible.
+
+### Constraints
+- No async job queue.
+- No preview modules.
+- No numerical algorithm changes.
+- No packaging/signing work.
+
+### Impact Analysis
+- Backend files: `backend/models.py`, `backend/detail.py`, `backend/app.py`.
+- Desktop files: `desktop/electron/preload.js`, `desktop/electron/index.html`, `desktop/electron/renderer.js`, `desktop/electron/README.md`.
+- Tests: new backend batch contract/integration coverage.
+
+### Risks
+- Synchronous batch execution may become slow for very large selections (acceptable for this tranche).
+- Template id input is currently free-form; unknown ids fall back to core defaults.
+- Batch summary payload size grows with selection count.
+
+### Migration / Rollout Strategy
+- Add batch endpoint first, mirroring compare-page state conventions.
+- Wire minimal renderer controls to endpoint.
+- Refresh workspace/results context after each batch run.
+- Validate with focused tests and full suite.
+
+### Test Strategy
+- Focused tests:
+  - `pytest tests/test_backend_batch.py tests/test_backend_workspace.py tests/test_backend_workflow.py tests/test_backend_details.py tests/test_backend_exports.py -q`
+- Full regression:
+  - `pytest -q`
+
+### Progress Log
+- [x] Add minimal synchronous backend batch endpoint
+- [x] Add minimal desktop batch panel with per-dataset outcome visibility
+- [x] Add backend batch contract + persistence roundtrip tests
+- [x] Run focused and full test suites
+
+### Notes
+- This tranche intentionally starts with synchronous execution and no job framework to minimize migration risk while proving end-to-end batch utility.

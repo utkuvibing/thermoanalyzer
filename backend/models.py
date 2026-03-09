@@ -164,6 +164,13 @@ class CompareWorkspacePayload(BaseModel):
     notes: str = ""
     figure_key: str | None = None
     saved_at: str | None = None
+    batch_run_id: str | None = None
+    batch_template_id: str | None = None
+    batch_template_label: str | None = None
+    batch_completed_at: str | None = None
+    batch_summary: list[dict[str, Any]] = Field(default_factory=list)
+    batch_result_ids: list[str] = Field(default_factory=list)
+    batch_last_feedback: dict[str, int] = Field(default_factory=dict)
 
 
 class CompareWorkspaceResponse(BaseModel):
@@ -233,3 +240,23 @@ class CompareSelectionResponse(BaseModel):
     summary: ProjectSummary
     compare_workspace: CompareWorkspacePayload
     selected_dataset_count: int
+
+
+class BatchRunRequest(BaseModel):
+    analysis_type: str = Field(..., min_length=1)
+    workflow_template_id: str | None = None
+    dataset_keys: list[str] | None = None
+
+
+class BatchRunResponse(BaseModel):
+    project_id: str
+    analysis_type: str
+    workflow_template_id: str
+    workflow_template_label: str
+    batch_run_id: str
+    selected_dataset_keys: list[str]
+    batch_summary: list[dict[str, Any]]
+    outcomes: dict[str, int]
+    saved_result_ids: list[str]
+    compare_workspace: CompareWorkspacePayload
+    summary: ProjectSummary
