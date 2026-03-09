@@ -1,4 +1,4 @@
-# Electron Desktop Skeleton (Tranche 3)
+# Electron Desktop Skeleton (Tranche 4)
 
 This directory contains a minimal desktop workflow shell for early migration tranches.
 
@@ -13,6 +13,9 @@ What it does:
   - inspect dataset details (metadata, units, validation, data preview)
   - inspect result details (summary, processing, validation, provenance, review)
   - view/update basic compare workspace selection state
+  - inspect export/report preparation (exportable saved results + metadata)
+  - generate/download normalized results CSV for selected saved results
+  - generate/download DOCX report for selected saved results
   - import a dataset file
   - run one DSC/TGA analysis on a selected dataset
   - save workspace to `.thermozip`

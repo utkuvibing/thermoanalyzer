@@ -16,6 +16,11 @@ from backend.detail import (
     normalize_compare_workspace,
     update_compare_workspace,
 )
+from backend.exports import (
+    build_export_preparation,
+    generate_report_docx_artifact,
+    generate_results_csv_artifact,
+)
 from backend.models import (
     AnalysisRunRequest,
     AnalysisRunResponse,
@@ -25,6 +30,9 @@ from backend.models import (
     DatasetImportRequest,
     DatasetImportResponse,
     DatasetsListResponse,
+    ExportArtifactResponse,
+    ExportGenerateRequest,
+    ExportPreparationResponse,
     HealthResponse,
     ProjectLoadRequest,
     ProjectLoadResponse,
@@ -245,6 +253,44 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         project_store.set(project_id, state)
         return CompareWorkspaceResponse(project_id=project_id, compare_workspace=payload)
+
+    @app.get("/workspace/{project_id}/exports/preparation", response_model=ExportPreparationResponse)
+    def export_preparation(
+        project_id: str,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> ExportPreparationResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        payload = build_export_preparation(state)
+        return ExportPreparationResponse(project_id=project_id, summary=_project_summary(state), **payload)
+
+    @app.post("/workspace/{project_id}/exports/results-csv", response_model=ExportArtifactResponse)
+    def export_results_csv(
+        project_id: str,
+        request: ExportGenerateRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> ExportArtifactResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        try:
+            payload = generate_results_csv_artifact(state, selected_result_ids=request.selected_result_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ExportArtifactResponse(project_id=project_id, **payload)
+
+    @app.post("/workspace/{project_id}/exports/report-docx", response_model=ExportArtifactResponse)
+    def export_report_docx(
+        project_id: str,
+        request: ExportGenerateRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> ExportArtifactResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        try:
+            payload = generate_report_docx_artifact(state, selected_result_ids=request.selected_result_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ExportArtifactResponse(project_id=project_id, **payload)
 
     @app.post("/dataset/import", response_model=DatasetImportResponse)
     def dataset_import(

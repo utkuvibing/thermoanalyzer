@@ -81,6 +81,21 @@ def test_workspace_import_run_analysis_and_save_roundtrip(thermal_dataset):
     assert "validation" in result_detail
     assert "provenance" in result_detail
 
+    export_prep_response = client.get(f"/workspace/{project_id}/exports/preparation", headers=_headers())
+    assert export_prep_response.status_code == 200
+    export_prep = export_prep_response.json()
+    assert any(item["id"] == run_payload["result_id"] for item in export_prep["exportable_results"])
+
+    export_csv_response = client.post(
+        f"/workspace/{project_id}/exports/results-csv",
+        headers=_headers(),
+        json={"selected_result_ids": [run_payload["result_id"]]},
+    )
+    assert export_csv_response.status_code == 200
+    export_csv = export_csv_response.json()
+    export_csv_text = base64.b64decode(export_csv["artifact_base64"].encode("ascii")).decode("utf-8")
+    assert run_payload["result_id"] in export_csv_text
+
     save_response = client.post(
         "/project/save",
         headers=_headers(),

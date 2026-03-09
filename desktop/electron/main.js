@@ -152,6 +152,35 @@ ipcMain.handle("ta:save-project-archive", async (_event, payload) => {
   return { canceled: false, filePath: result.filePath };
 });
 
+ipcMain.handle("ta:save-generated-file", async (_event, payload) => {
+  const defaultName = (payload && payload.defaultName) || "thermoanalyzer_export.bin";
+  const artifactBase64 = payload && payload.artifactBase64;
+  if (!artifactBase64) {
+    throw new Error("Missing artifactBase64 payload.");
+  }
+
+  const extension = path.extname(defaultName).toLowerCase();
+  let filters = [{ name: "All Files", extensions: ["*"] }];
+  if (extension === ".csv") {
+    filters = [{ name: "CSV", extensions: ["csv"] }];
+  } else if (extension === ".docx") {
+    filters = [{ name: "Word Document", extensions: ["docx"] }];
+  }
+
+  const result = await dialog.showSaveDialog({
+    title: "Save Export/Report",
+    defaultPath: defaultName,
+    filters,
+  });
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+
+  const fileBuffer = Buffer.from(artifactBase64, "base64");
+  fs.writeFileSync(result.filePath, fileBuffer);
+  return { canceled: false, filePath: result.filePath };
+});
+
 ipcMain.handle("ta:pick-dataset-file", async () => {
   const result = await dialog.showOpenDialog({
     title: "Import Dataset",

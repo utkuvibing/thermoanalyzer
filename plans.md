@@ -835,3 +835,58 @@ Improve desktop stable-workflow usability by exposing dataset/result details and
 
 ### Notes
 - This tranche deepens usability for DSC/TGA desktop testing while preserving strict scope limits and compatibility constraints.
+
+---
+
+## Title
+Electron Migration Tranche 4 - Minimal Export/Report Desktop Usability
+
+### Objective
+Introduce a minimal but real desktop export/report preparation workflow by reusing stable core export/report logic and exposing selected saved-result outputs.
+
+### Definition Of Done
+- Backend exposes focused endpoints for:
+  - export/report preparation summary
+  - selected saved-result CSV generation
+  - selected saved-result DOCX report generation
+- Electron renderer surfaces:
+  - exportable saved-result list with selection
+  - preparation summary metadata (supported outputs, branding, compare state, skipped issues)
+  - file save flow for generated CSV/DOCX artifacts
+- Streamlit fallback remains unchanged.
+- No normalized result contract or `.thermozip` compatibility changes.
+
+### Constraints
+- No batch parity, no preview modules, no full export-format explosion.
+- No numerical algorithm changes.
+- No packaging/signing flow work.
+
+### Impact Analysis
+- Backend files: `backend/models.py`, `backend/app.py`, `backend/exports.py`.
+- Desktop files: `desktop/electron/main.js`, `desktop/electron/preload.js`, `desktop/electron/index.html`, `desktop/electron/renderer.js`, `desktop/electron/README.md`.
+- Tests: backend export contract tests + workflow integration extension.
+
+### Risks
+- DOCX generation depends on `python-docx` runtime availability (already a project dependency).
+- Artifact payload transfer via base64 can be large for bigger reports.
+- Export selection remains intentionally simple (saved results only).
+
+### Migration / Rollout Strategy
+- Reuse `core.report_generator` directly for CSV and DOCX outputs.
+- Keep endpoint and renderer scope narrow with explicit DTOs.
+- Preserve current workspace state shapes and serialization logic.
+
+### Test Strategy
+- Run focused backend tests:
+  - `pytest tests/test_backend_api.py tests/test_backend_details.py tests/test_backend_exports.py tests/test_backend_workflow.py tests/test_backend_startup.py -q`
+- Run full regression suite:
+  - `pytest -q`
+
+### Progress Log
+- [x] Add minimal export/report backend endpoints
+- [x] Add desktop export/report UI section and artifact save bridge
+- [x] Add backend contract/integration tests for export flow
+- [x] Run focused and full test suites
+
+### Notes
+- This tranche supports only `results_csv` and `report_docx` to keep risk low while enabling meaningful desktop report/export usability.

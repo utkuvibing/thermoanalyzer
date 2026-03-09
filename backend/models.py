@@ -175,3 +175,27 @@ class CompareWorkspaceUpdateRequest(BaseModel):
     analysis_type: str | None = None
     selected_datasets: list[str] | None = None
     notes: str | None = None
+
+
+class ExportPreparationResponse(BaseModel):
+    project_id: str
+    summary: ProjectSummary
+    exportable_results: list[ResultSummary]
+    skipped_record_issues: list[str]
+    supported_outputs: list[str]
+    branding: dict[str, Any]
+    compare_workspace: CompareWorkspacePayload
+
+
+class ExportGenerateRequest(BaseModel):
+    selected_result_ids: list[str] | None = None
+
+
+class ExportArtifactResponse(BaseModel):
+    project_id: str
+    output_type: str
+    file_name: str
+    mime_type: str
+    included_result_ids: list[str]
+    skipped_record_issues: list[str]
+    artifact_base64: str

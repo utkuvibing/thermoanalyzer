@@ -189,6 +189,31 @@
     </div>
 
     <div class="card">
+      <p class="small">Export / Report (Stable)</p>
+      <div class="row">
+        <button id="refreshExportPrepBtn" disabled>Refresh Export Prep</button>
+        <button id="exportCsvBtn" disabled>Export Results CSV</button>
+        <button id="exportDocxBtn" disabled>Generate DOCX Report</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Include</th>
+            <th>Result ID</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Validation</th>
+            <th>Saved At (UTC)</th>
+          </tr>
+        </thead>
+        <tbody id="exportResultsBody"></tbody>
+      </table>
+      <p id="exportPrepInfo" class="small">No export preparation data loaded.</p>
+      <pre id="exportPrepSummary"></pre>
+      <pre id="exportActionSummary"></pre>
+    </div>
+
+    <div class="card">
       <strong>Log</strong>
       <pre id="log"></pre>
     </div>

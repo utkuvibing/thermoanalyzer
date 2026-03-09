@@ -3,6 +3,7 @@ let activeProjectDefaultName = "thermoanalyzer_project.thermozip";
 let selectedDatasetKey = null;
 let selectedResultId = null;
 let currentDatasets = [];
+let exportableResults = [];
 
 function setText(id, text) {
   const node = document.getElementById(id);
@@ -26,6 +27,9 @@ function setWorkflowEnabled(enabled) {
   document.getElementById("runAnalysisBtn").disabled = !enabled || !selectedDatasetKey;
   document.getElementById("refreshCompareBtn").disabled = !enabled;
   document.getElementById("saveCompareBtn").disabled = !enabled;
+  document.getElementById("refreshExportPrepBtn").disabled = !enabled;
+  document.getElementById("exportCsvBtn").disabled = !enabled;
+  document.getElementById("exportDocxBtn").disabled = !enabled;
 }
 
 function escapeHtml(text) {
@@ -57,6 +61,12 @@ function renderCompareDatasetChecks(selectedDatasets) {
 
 function collectCompareSelectedDatasets() {
   return Array.from(document.querySelectorAll(".compare-dataset-check"))
+    .filter((node) => node.checked)
+    .map((node) => node.value);
+}
+
+function collectSelectedExportResultIds() {
+  return Array.from(document.querySelectorAll(".export-result-check"))
     .filter((node) => node.checked)
     .map((node) => node.value);
 }
@@ -204,6 +214,34 @@ function renderResults(results) {
   });
 }
 
+function renderExportableResults(results) {
+  const body = document.getElementById("exportResultsBody");
+  exportableResults = results || [];
+  if (!exportableResults.length) {
+    body.innerHTML = "<tr><td colspan='6'>No exportable saved results.</td></tr>";
+    document.getElementById("exportCsvBtn").disabled = true;
+    document.getElementById("exportDocxBtn").disabled = true;
+    return;
+  }
+
+  body.innerHTML = exportableResults
+    .map(
+      (item) => `
+      <tr>
+        <td><input type="checkbox" class="export-result-check" value="${escapeHtml(item.id)}" checked></td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${escapeHtml(item.analysis_type)}</td>
+        <td>${escapeHtml(item.status)}</td>
+        <td>${escapeHtml(item.validation_status)}</td>
+        <td>${escapeHtml(item.saved_at_utc)}</td>
+      </tr>
+    `
+    )
+    .join("");
+  document.getElementById("exportCsvBtn").disabled = false;
+  document.getElementById("exportDocxBtn").disabled = false;
+}
+
 async function refreshCompareWorkspace() {
   if (!activeProjectId) {
     setText("compareSummary", "");
@@ -217,6 +255,37 @@ async function refreshCompareWorkspace() {
     setText("compareSummary", safeJson(compare.compare_workspace));
   } catch (error) {
     setText("compareSummary", `Compare workspace read failed: ${error}`);
+  }
+}
+
+async function refreshExportPreparation() {
+  if (!activeProjectId) {
+    setText("exportPrepInfo", "No export preparation data loaded.");
+    setText("exportPrepSummary", "");
+    setText("exportActionSummary", "");
+    renderExportableResults([]);
+    return;
+  }
+
+  try {
+    const prep = await window.taDesktop.getExportPreparation(activeProjectId);
+    renderExportableResults(prep.exportable_results || []);
+    setText(
+      "exportPrepInfo",
+      `Exportable saved results: ${(prep.exportable_results || []).length} | Skipped invalid records: ${(prep.skipped_record_issues || []).length}`
+    );
+    const prepSummary = {
+      supported_outputs: prep.supported_outputs,
+      summary: prep.summary,
+      branding: prep.branding,
+      compare_workspace: prep.compare_workspace,
+      skipped_record_issues: prep.skipped_record_issues,
+    };
+    setText("exportPrepSummary", safeJson(prepSummary));
+  } catch (error) {
+    setText("exportPrepInfo", `Export preparation failed: ${error}`);
+    setText("exportPrepSummary", "");
+    renderExportableResults([]);
   }
 }
 
@@ -252,6 +321,10 @@ async function refreshWorkspaceViews() {
     renderDatasets([]);
     renderResults([]);
     setText("compareSummary", "");
+    setText("exportPrepInfo", "No export preparation data loaded.");
+    setText("exportPrepSummary", "");
+    setText("exportActionSummary", "");
+    renderExportableResults([]);
     setWorkflowEnabled(false);
     return;
   }
@@ -272,6 +345,7 @@ async function refreshWorkspaceViews() {
     await loadResultDetail(selectedResultId);
   }
   await refreshCompareWorkspace();
+  await refreshExportPreparation();
 }
 
 async function onNewWorkspace() {
@@ -395,6 +469,40 @@ async function onSaveCompareSelection() {
   }
 }
 
+async function onExportResultsCsv() {
+  if (!activeProjectId) return;
+  try {
+    const selectedResultIds = collectSelectedExportResultIds();
+    const artifact = await window.taDesktop.generateResultsCsv(activeProjectId, selectedResultIds);
+    const saved = await window.taDesktop.persistGeneratedFile(artifact.file_name, artifact.artifact_base64);
+    setText("exportActionSummary", safeJson(artifact));
+    if (!saved || saved.canceled) {
+      appendLog("Results CSV export canceled.");
+      return;
+    }
+    appendLog(`Results CSV exported to ${saved.filePath} (${artifact.included_result_ids.length} result(s)).`);
+  } catch (error) {
+    appendLog(`Results CSV export failed: ${error}`);
+  }
+}
+
+async function onGenerateDocxReport() {
+  if (!activeProjectId) return;
+  try {
+    const selectedResultIds = collectSelectedExportResultIds();
+    const artifact = await window.taDesktop.generateDocxReport(activeProjectId, selectedResultIds);
+    const saved = await window.taDesktop.persistGeneratedFile(artifact.file_name, artifact.artifact_base64);
+    setText("exportActionSummary", safeJson(artifact));
+    if (!saved || saved.canceled) {
+      appendLog("DOCX report save canceled.");
+      return;
+    }
+    appendLog(`DOCX report saved to ${saved.filePath} (${artifact.included_result_ids.length} result(s)).`);
+  } catch (error) {
+    appendLog(`DOCX report generation failed: ${error}`);
+  }
+}
+
 document.getElementById("newWorkspaceBtn").addEventListener("click", onNewWorkspace);
 document.getElementById("openProjectBtn").addEventListener("click", onOpenProject);
 document.getElementById("saveProjectBtn").addEventListener("click", onSaveProject);
@@ -402,6 +510,9 @@ document.getElementById("importDatasetBtn").addEventListener("click", onImportDa
 document.getElementById("runAnalysisBtn").addEventListener("click", onRunAnalysis);
 document.getElementById("refreshCompareBtn").addEventListener("click", refreshCompareWorkspace);
 document.getElementById("saveCompareBtn").addEventListener("click", onSaveCompareSelection);
+document.getElementById("refreshExportPrepBtn").addEventListener("click", refreshExportPreparation);
+document.getElementById("exportCsvBtn").addEventListener("click", onExportResultsCsv);
+document.getElementById("exportDocxBtn").addEventListener("click", onGenerateDocxReport);
 
 setWorkflowEnabled(false);
 refreshStatus();

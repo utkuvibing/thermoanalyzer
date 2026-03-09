@@ -77,6 +77,21 @@ contextBridge.exposeInMainWorld("taDesktop", {
       body: JSON.stringify(payload || {}),
     });
   },
+  async getExportPreparation(projectId) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/exports/preparation`, { method: "GET" });
+  },
+  async generateResultsCsv(projectId, selectedResultIds) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/exports/results-csv`, {
+      method: "POST",
+      body: JSON.stringify({ selected_result_ids: selectedResultIds || null }),
+    });
+  },
+  async generateDocxReport(projectId, selectedResultIds) {
+    return apiCall(`/workspace/${encodeURIComponent(projectId)}/exports/report-docx`, {
+      method: "POST",
+      body: JSON.stringify({ selected_result_ids: selectedResultIds || null }),
+    });
+  },
   async pickProjectArchive() {
     return ipcRenderer.invoke("ta:pick-project-archive");
   },
@@ -120,6 +135,12 @@ contextBridge.exposeInMainWorld("taDesktop", {
     return ipcRenderer.invoke("ta:save-project-archive", {
       defaultName,
       archiveBase64,
+    });
+  },
+  async persistGeneratedFile(defaultName, artifactBase64) {
+    return ipcRenderer.invoke("ta:save-generated-file", {
+      defaultName,
+      artifactBase64,
     });
   },
 });
