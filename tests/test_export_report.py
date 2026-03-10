@@ -420,6 +420,17 @@ def test_paper_display_label_prefers_user_friendly_mapping():
     assert _paper_display_label("run1", datasets) == "PMMA sample"
 
 
+def test_paper_display_label_maps_caco3_and_avoids_raw_filename_heading():
+    record = {
+        "summary": {"sample_name": "tga_CaCO3_decomposition.csv"},
+        "metadata": {"file_name": "tga_CaCO3_decomposition.csv"},
+        "dataset_key": "tga_CaCO3_decomposition.csv",
+    }
+    label = _paper_display_label("tga_CaCO3_decomposition.csv", {}, record=record)
+    assert label == "CaCO3 sample"
+    assert ".csv" not in label
+
+
 def test_final_conclusion_explicitly_contrasts_two_tga_behaviors():
     conclusion = _build_final_conclusion_paragraph(
         [
@@ -450,10 +461,32 @@ def test_final_conclusion_explicitly_contrasts_two_tga_behaviors():
     )
 
     assert "near-complete decomposition with minimal residue" in conclusion
-    assert "multi-step, residue-retaining behavior" in conclusion
+    assert "residue retention" in conclusion or "residue-forming behavior" in conclusion
     assert "Low-Residue Sample" in conclusion
     assert "High-Residue Sample" in conclusion
     assert "metadata limitations reduce mechanistic certainty" in conclusion.lower()
+
+
+def test_final_conclusion_does_not_overclaim_caco3_as_near_complete():
+    conclusion = _build_final_conclusion_paragraph(
+        [
+            {
+                "analysis_type": "TGA",
+                "status": "stable",
+                "dataset_key": "tga_CaCO3_decomposition.csv",
+                "summary": {
+                    "sample_name": "tga_CaCO3_decomposition.csv",
+                    "step_count": 2,
+                    "total_mass_loss_percent": 44.0,
+                    "residue_percent": 56.1,
+                },
+            }
+        ],
+        comparison_payload=None,
+    )
+
+    assert "near-complete decomposition with minimal residue" not in conclusion
+    assert "partial decomposition with substantial residue-forming behavior" in conclusion
 
 
 def test_generate_pdf_report_uses_paper_structure_and_hides_executive_summary(thermal_dataset):

@@ -66,6 +66,7 @@ _APPENDIX_METADATA_KEYWORDS = (
 _PAPER_DISPLAY_LABEL_OVERRIDES = {
     "tga_polymers_comparison.xlsx": "PMMA sample",
     "tga_cuso4_5h2o_dehydration.csv": "CuSO4·5H2O sample",
+    "tga_caco3_decomposition.csv": "CaCO3 sample",
 }
 
 _BULLET_SECTION_TITLES = {
@@ -206,13 +207,35 @@ def _dataset_label(dataset_key: str | None, datasets: dict) -> str:
 
 
 def _paper_display_label(dataset_key: str | None, datasets: dict, *, record: dict | None = None) -> str:
-    if record and record.get("summary"):
-        summary = record.get("summary") or {}
-        if summary.get("sample_name") not in (None, ""):
-            return normalize_report_text(summary.get("sample_name"))
+    def normalized_lookup_key(value: Any) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        return os.path.basename(raw).lower()
+
+    def paperize_fallback(value: Any) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        base = os.path.basename(raw)
+        stem, ext = os.path.splitext(base)
+        if ext.lower() in {".csv", ".xlsx", ".xls", ".txt"}:
+            cleaned = stem.replace("_", " ").replace("-", " ")
+            cleaned = " ".join(cleaned.split())
+            lowered = cleaned.lower()
+            for prefix in ("tga ", "dsc ", "dta ", "kissinger ", "ofw ", "friedman "):
+                if lowered.startswith(prefix):
+                    cleaned = cleaned[len(prefix):]
+                    break
+            if cleaned:
+                return normalize_report_text(f"{cleaned} sample")
+        return normalize_report_text(raw)
+
     if dataset_key and dataset_key in datasets:
         metadata = getattr(datasets[dataset_key], "metadata", {}) or {}
+        summary = (record or {}).get("summary") or {}
         candidates = [
+            summary.get("sample_name"),
             metadata.get("display_name"),
             metadata.get("sample_name"),
             metadata.get("file_name"),
@@ -220,7 +243,9 @@ def _paper_display_label(dataset_key: str | None, datasets: dict, *, record: dic
         ]
     else:
         metadata = (record or {}).get("metadata") or {}
+        summary = (record or {}).get("summary") or {}
         candidates = [
+            summary.get("sample_name"),
             metadata.get("display_name"),
             metadata.get("sample_name"),
             metadata.get("file_name"),
@@ -231,12 +256,12 @@ def _paper_display_label(dataset_key: str | None, datasets: dict, *, record: dic
     for value in candidates:
         if value in (None, ""):
             continue
-        lowered = str(value).strip().lower()
-        if lowered in _PAPER_DISPLAY_LABEL_OVERRIDES:
-            return normalize_report_text(_PAPER_DISPLAY_LABEL_OVERRIDES[lowered])
+        lookup = normalized_lookup_key(value)
+        if lookup in _PAPER_DISPLAY_LABEL_OVERRIDES:
+            return normalize_report_text(_PAPER_DISPLAY_LABEL_OVERRIDES[lookup])
     for value in candidates:
         if value not in (None, ""):
-            return normalize_report_text(value)
+            return paperize_fallback(value)
     return "Unnamed dataset"
 
 
@@ -683,6 +708,16 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
     if not records:
         return "No validated analysis results were available to support a final scientific conclusion."
 
+    def classify_tga_behavior(mass_loss: float, residue: float, step_count: str) -> str:
+        step_value = _safe_float(step_count)
+        if mass_loss >= 90.0 and residue <= 10.0:
+            return "near-complete decomposition with minimal residue"
+        if residue >= 40.0 or mass_loss <= 60.0:
+            return "partial decomposition with substantial residue-forming behavior"
+        if step_value is not None and step_value >= 3:
+            return "multi-step decomposition with notable residue retention"
+        return "partial decomposition with moderate residue retention"
+
     tga_records = []
     for record in records:
         if str(record.get("analysis_type") or "").upper() != "TGA":
@@ -700,16 +735,21 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
         high_residue = max(tga_records, key=lambda item: item[2])
         low_name = _paper_display_label(low_residue[0].get("dataset_key"), {}, record=low_residue[0])
         high_name = _paper_display_label(high_residue[0].get("dataset_key"), {}, record=high_residue[0])
+        low_behavior = classify_tga_behavior(low_residue[1], low_residue[2], low_residue[3])
+        high_behavior = classify_tga_behavior(high_residue[1], high_residue[2], high_residue[3])
         tga_conclusion = (
-            f"In TGA scope, {low_name} shows near-complete decomposition with minimal residue "
-            f"(mass loss {low_residue[1]:.1f}%, residue {low_residue[2]:.1f}%), whereas {high_name} "
-            f"shows multi-step, residue-retaining behavior (mass loss {high_residue[1]:.1f}%, residue {high_residue[2]:.1f}%, step count {high_residue[3]})."
+            f"In TGA scope, {low_name} shows {low_behavior} "
+            f"(mass loss {low_residue[1]:.1f}%, residue {low_residue[2]:.1f}%, step count {low_residue[3]}), "
+            f"whereas {high_name} shows {high_behavior} "
+            f"(mass loss {high_residue[1]:.1f}%, residue {high_residue[2]:.1f}%, step count {high_residue[3]})."
         )
     elif len(tga_records) == 1:
         only = tga_records[0]
         only_name = _paper_display_label(only[0].get("dataset_key"), {}, record=only[0])
+        only_behavior = classify_tga_behavior(only[1], only[2], only[3])
         tga_conclusion = (
-            f"In TGA scope, {only_name} shows mass loss {only[1]:.1f}% with residue {only[2]:.1f}%."
+            f"In TGA scope, {only_name} shows {only_behavior} "
+            f"(mass loss {only[1]:.1f}%, residue {only[2]:.1f}%, step count {only[3]})."
         )
 
     families: list[str] = []
@@ -773,17 +813,31 @@ def _build_pdf_abstract_layout(records: list[dict], datasets: dict) -> tuple[str
         "Interpretations are evidence-linked and uncertainty-qualified at the analysis level."
     )
 
+    def clean_sentence(text: str) -> str:
+        cleaned = normalize_report_text(text).strip()
+        while ".." in cleaned:
+            cleaned = cleaned.replace("..", ".")
+        cleaned = cleaned.rstrip(" ;,:")
+        if cleaned and cleaned[-1] not in ".!?":
+            cleaned = f"{cleaned}."
+        return cleaned
+
     bullets: list[str] = []
     for record in records:
         dataset_name = _paper_display_label(record.get("dataset_key"), datasets, record=record)
         analysis_label = _analysis_family_label(record.get("analysis_type")).lower()
         key_findings = _record_metric_snapshot(record) or "key findings were not fully reportable"
+        primary_line = ""
         sections = scientific_context_to_report_sections(record.get("scientific_context"))
         for title, payload in sections:
             if title == "Primary Scientific Interpretation" and isinstance(payload, dict) and payload:
-                key_findings = f"{key_findings}. {next(iter(payload.values()))}"
+                primary_line = str(next(iter(payload.values()))).split(".")[0]
                 break
-        bullets.append(normalize_report_text(f"{dataset_name} ({analysis_label}): {key_findings}."))
+        if primary_line:
+            bullet = f"{dataset_name} ({analysis_label}): {key_findings}; {primary_line}"
+        else:
+            bullet = f"{dataset_name} ({analysis_label}): {key_findings}"
+        bullets.append(clean_sentence(bullet))
     return normalize_report_text(abstract), bullets[:3]
 
 
