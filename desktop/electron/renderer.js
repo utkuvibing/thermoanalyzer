@@ -9,21 +9,167 @@ let currentActiveDatasetKey = null;
 let compareSelectedDatasetKeys = new Set();
 let currentDatasetDetail = null;
 let currentResultDetail = null;
+let currentLanguage = "tr";
+let activeView = "home";
 const lastAnalysisRuns = {
   DSC: null,
   TGA: null,
 };
 
-const viewTitles = {
-  home: "Home / Import",
-  compare: "Compare",
-  dsc: "DSC",
-  tga: "TGA",
-  export: "Export",
-  project: "Project",
-  license: "License",
-  diagnostics: "Diagnostics",
+const I18N = {
+  tr: {
+    nav: {
+      home: "Veri Al",
+      compare: "Karşılaştırma",
+      dsc: "DSC Analizi",
+      tga: "TGA Analizi",
+      export: "Rapor Merkezi",
+      project: "Proje Alanı",
+      license: "Lisans ve Marka",
+      diagnostics: "Tanılama",
+    },
+    status: {
+      healthUnknown: "Sağlık: bilinmiyor",
+      health: "Sağlık: {status}",
+      healthFailed: "Sağlık: başarısız",
+      versionUnknown: "Sürüm: bilinmiyor",
+      version: "Sürüm: {version}",
+      versionFailed: "Sürüm: başarısız",
+      workspace: "Çalışma Alanı: {workspace}",
+    },
+    common: {
+      na: "N/A",
+      none: "yok",
+      noPreviewRows: "Önizleme satırı yok.",
+      noCompareSelected: "Karşılaştırma için seçili veri seti yok.",
+      unknown: "bilinmiyor",
+      selected: "Seçili",
+      batch: "Batch",
+      available: "mevcut",
+      notRun: "çalıştırılmadı",
+      yes: "evet",
+      no: "hayır",
+    },
+    home: {
+      stepWorkspaceReady: "Çalışma alanı hazır",
+      stepWorkspacePending: "Çalışma alanı oluştur/aç",
+      stepImportDone: "{count} veri seti içe aktarıldı",
+      stepImportPending: "En az bir veri seti içe aktar",
+      stepCompareDone: "{count} karşılaştırma seçimi",
+      stepComparePending: "Karşılaştırma seçimlerini belirle",
+      stepRunDone: "{count} sonuç kaydedildi",
+      stepRunPending: "DSC/TGA analizi çalıştır",
+      nextCreate: "Yeni proje oluştur veya mevcut projeyi aç.",
+      nextImport: "İlk veri setini içe aktar.",
+      nextInspect: "Doğrulama ve karşılaştırma seçimlerini incele.",
+      nextRun: "DSC/TGA veya Compare batch adımına geç.",
+      nextSave: "Projeyi kaydet veya dışa aktarıma geç.",
+    },
+    compare: {
+      analysisType: "Analiz Tipi",
+      selectedCount: "Seçili Koşu",
+      savedAt: "Kaydedildi",
+      batchRunId: "Batch Çalıştırma ID",
+      batchTemplate: "Batch Şablonu",
+      notes: "Notlar",
+      notesEmpty: "(boş)",
+      summaryPending: "Karşılaştırma alanı özeti burada görünecek.",
+    },
+  },
+  en: {
+    nav: {
+      home: "Import Runs",
+      compare: "Compare Workspace",
+      dsc: "DSC Analysis",
+      tga: "TGA Analysis",
+      export: "Report Center",
+      project: "Project Workspace",
+      license: "License & Branding",
+      diagnostics: "Diagnostics",
+    },
+    status: {
+      healthUnknown: "Health: unknown",
+      health: "Health: {status}",
+      healthFailed: "Health: failed",
+      versionUnknown: "Version: unknown",
+      version: "Version: {version}",
+      versionFailed: "Version: failed",
+      workspace: "Workspace: {workspace}",
+    },
+    common: {
+      na: "N/A",
+      none: "none",
+      noPreviewRows: "No preview rows.",
+      noCompareSelected: "No compare-selected datasets.",
+      unknown: "unknown",
+      selected: "Selected",
+      batch: "Batch",
+      available: "available",
+      notRun: "not run",
+      yes: "yes",
+      no: "no",
+    },
+    home: {
+      stepWorkspaceReady: "Workspace ready",
+      stepWorkspacePending: "Create/open workspace",
+      stepImportDone: "{count} dataset(s) imported",
+      stepImportPending: "Import at least one dataset",
+      stepCompareDone: "{count} selected for compare",
+      stepComparePending: "Select compare datasets",
+      stepRunDone: "{count} result(s) saved",
+      stepRunPending: "Run DSC/TGA analysis",
+      nextCreate: "Create or open a workspace.",
+      nextImport: "Import your first dataset.",
+      nextInspect: "Inspect validation and compare selection.",
+      nextRun: "Run DSC/TGA analysis or batch from Compare.",
+      nextSave: "Save project or continue with export.",
+    },
+    compare: {
+      analysisType: "Analysis Type",
+      selectedCount: "Selected Runs",
+      savedAt: "Saved At",
+      batchRunId: "Batch Run ID",
+      batchTemplate: "Batch Template",
+      notes: "Notes",
+      notesEmpty: "(empty)",
+      summaryPending: "Compare workspace summary will appear here.",
+    },
+  },
 };
+const viewTitleKeys = {
+  home: "nav.home",
+  compare: "nav.compare",
+  dsc: "nav.dsc",
+  tga: "nav.tga",
+  export: "nav.export",
+  project: "nav.project",
+  license: "nav.license",
+  diagnostics: "nav.diagnostics",
+};
+
+function lookupI18n(key) {
+  const locale = I18N[currentLanguage] || I18N.tr;
+  const fallback = I18N.en;
+  const parts = String(key || "").split(".");
+  let node = locale;
+  for (const part of parts) {
+    node = node && node[part];
+  }
+  if (typeof node === "string") return node;
+  let fallbackNode = fallback;
+  for (const part of parts) {
+    fallbackNode = fallbackNode && fallbackNode[part];
+  }
+  return typeof fallbackNode === "string" ? fallbackNode : key;
+}
+
+function t(key, vars = {}) {
+  let template = lookupI18n(key);
+  for (const [name, value] of Object.entries(vars || {})) {
+    template = template.replaceAll(`{${name}}`, String(value));
+  }
+  return template;
+}
 
 function el(id) {
   return document.getElementById(id);
@@ -44,6 +190,161 @@ function setDisabled(id, disabled) {
   if (node && "disabled" in node) node.disabled = disabled;
 }
 
+function setSelectOptionText(selectId, optionValue, text) {
+  const select = el(selectId);
+  if (!select) return;
+  const option = Array.from(select.options || []).find((item) => item.value === optionValue);
+  if (option) option.textContent = text;
+}
+
+function setLanguage(lang) {
+  currentLanguage = lang === "en" ? "en" : "tr";
+  window.localStorage.setItem("taDesktopLanguage", currentLanguage);
+  const trBtn = el("langTrBtn");
+  const enBtn = el("langEnBtn");
+  if (trBtn && enBtn) {
+    trBtn.classList.toggle("active", currentLanguage === "tr");
+    enBtn.classList.toggle("active", currentLanguage === "en");
+  }
+  applyStaticLanguage();
+  switchView(activeView);
+  refreshStatus().catch(() => undefined);
+  if (activeProjectId) {
+    refreshWorkspaceViews().catch(() => undefined);
+  } else {
+    updateStatusWorkspace();
+  }
+}
+
+function applyStaticLanguage() {
+  const trBtn = el("langTrBtn");
+  const enBtn = el("langEnBtn");
+  if (trBtn && enBtn) {
+    trBtn.classList.toggle("active", currentLanguage === "tr");
+    enBtn.classList.toggle("active", currentLanguage === "en");
+  }
+  setText("primaryGroupLabel", currentLanguage === "tr" ? "Ana Akış" : "Primary");
+  setText("previewGroupLabel", currentLanguage === "tr" ? "Laboratuvar Önizlemesi" : "Lab Preview");
+  setText("systemGroupLabel", currentLanguage === "tr" ? "Sistem" : "System");
+  setText("brandSubtitle", currentLanguage === "tr" ? "Cihazdan bağımsız DSC/TGA çalışma alanı" : "Vendor-independent DSC/TGA workbench");
+  setText(
+    "previewToggleLabel",
+    currentLanguage === "tr"
+      ? "Laboratuvar Önizleme Modüllerini Göster"
+      : "Show Lab Preview Modules"
+  );
+  setText(
+    "sidebarAboutTitle",
+    currentLanguage === "tr" ? "ThermoAnalyzer Hakkında" : "About ThermoAnalyzer"
+  );
+  setText(
+    "sidebarAboutCopy",
+    currentLanguage === "tr"
+      ? "Kararlı kapsam: DSC/TGA, Karşılaştırma Alanı, Toplu Şablon Uygulayıcı, proje arşivi ve CSV/DOCX çıktıları."
+      : "Stable scope: DSC/TGA, Compare Workspace, Batch Template Runner, project archive, and CSV/DOCX outputs."
+  );
+  setText("navHomeBtn", t("nav.home"));
+  setText("navCompareBtn", t("nav.compare"));
+  setText("navDscBtn", t("nav.dsc"));
+  setText("navTgaBtn", t("nav.tga"));
+  setText("navExportBtn", t("nav.export"));
+  setText("navProjectBtn", t("nav.project"));
+  setText("navLicenseBtn", t("nav.license"));
+  setText("navDiagnosticsBtn", t("nav.diagnostics"));
+  setText(
+    "navPreviewDtaBtn",
+    currentLanguage === "tr" ? "DTA Analizi (Deneysel)" : "DTA Analysis (Experimental)"
+  );
+  setText(
+    "navPreviewKineticsBtn",
+    currentLanguage === "tr" ? "Kinetik Analiz (Deneysel)" : "Kinetic Analysis (Experimental)"
+  );
+  setText(
+    "navPreviewDeconvBtn",
+    currentLanguage === "tr" ? "Pik Dekonvolüsyonu (Deneysel)" : "Peak Deconvolution (Experimental)"
+  );
+
+  setText("homeViewTitle", t("nav.home"));
+  setText(
+    "homeViewCopy",
+    currentLanguage === "tr"
+      ? "Termal analiz koşularını içe aktar, metadata’yı gözden geçir ve kararlı DSC/TGA akışına hazırla."
+      : "Import thermal runs, review metadata, and prepare stable DSC/TGA workflow execution."
+  );
+  setText("homeHeroTitle", currentLanguage === "tr" ? "Çalışma Başlangıcı" : "Workspace Entry");
+  setText(
+    "homeHeroCopy",
+    currentLanguage === "tr"
+      ? "Projeyi aç, veriyi içe aktar ve analiz/karşılaştırma öncesi doğrulama sinyallerini kontrol et."
+      : "Open your project, import data, and confirm validation signals before analysis/compare."
+  );
+  setText("newWorkspaceBtn", currentLanguage === "tr" ? "Yeni Proje" : "New Project");
+  setText("openProjectBtn", currentLanguage === "tr" ? ".thermozip Aç" : "Open .thermozip");
+  setText("saveProjectBtn", currentLanguage === "tr" ? "Projeyi Kaydet" : "Save Workspace");
+  setText("refreshWorkspaceContextBtn", currentLanguage === "tr" ? "Bağlamı Yenile" : "Refresh Context");
+  setText("homeWorkflowTitle", currentLanguage === "tr" ? "Program Rehberi ve İş Akışı" : "Program Guide and Workflow");
+  setText(
+    "homeWorkflowSubtitle",
+    currentLanguage === "tr"
+      ? "Kararlı zincir: Veri Al → Karşılaştırma → DSC/TGA → Toplu Şablon → Rapor/Proje"
+      : "Stable chain: Import → Compare → DSC/TGA → Batch Template → Report/Project"
+  );
+  setText("homeImportTitle", currentLanguage === "tr" ? "Veri İçe Aktar" : "Import Runs");
+  setText(
+    "homeImportSubtitle",
+    currentLanguage === "tr"
+      ? "Dosyayı yükle, import güvenini ve doğrulama uyarılarını incele, sonra analize geç."
+      : "Upload run files, review import confidence and validation warnings, then continue to analysis."
+  );
+  setText("importDatasetBtn", currentLanguage === "tr" ? "Veri Seti İçe Aktar" : "Import Dataset");
+  setText("datasetTypeOverrideLabel", currentLanguage === "tr" ? "Tip Geçersiz Kılma" : "Type Override");
+  setSelectOptionText("datasetTypeSelect", "", currentLanguage === "tr" ? "Otomatik" : "Auto");
+  setText("homeWorkspaceDatasetsTitle", currentLanguage === "tr" ? "Çalışma Alanı Veri Setleri" : "Workspace Datasets");
+  setText(
+    "homeWorkspaceDatasetsSubtitle",
+    currentLanguage === "tr"
+      ? "Aktif veri setini seç, karşılaştırma seçimini güncelle ve doğrulama durumunu denetle."
+      : "Set active dataset, update compare selection, and inspect validation readiness."
+  );
+  setText("homeDatasetDetailTitle", currentLanguage === "tr" ? "Seçili Veri Seti Detayı" : "Selected Dataset Detail");
+
+  setText("compareViewTitle", t("nav.compare"));
+  setText(
+    "compareViewCopy",
+    currentLanguage === "tr"
+      ? "Uyumlu koşuları seç, çalışma alanı notlarını kaydet ve ortak şablonla toplu yürütmeye geç."
+      : "Select compatible runs, keep workspace notes, and execute a shared template batch."
+  );
+  setText(
+    "compareStep1Title",
+    currentLanguage === "tr"
+      ? "Adım 1 - Karşılaştırma alanı durumunu gözden geçir"
+      : "Step 1 - Review compare workspace status"
+  );
+  setText(
+    "compareStep2Title",
+    currentLanguage === "tr"
+      ? "Adım 2 - Seçili veri setlerini ve notları yönet"
+      : "Step 2 - Manage selected datasets and notes"
+  );
+  setText(
+    "compareStep3Title",
+    currentLanguage === "tr"
+      ? "Adım 3 - Seçili veri setlerinde toplu şablonu çalıştır"
+      : "Step 3 - Run batch template on selected datasets"
+  );
+  setText("compareAnalysisTypeLabel", t("compare.analysisType"));
+  setText("addSelectedToCompareBtn", currentLanguage === "tr" ? "Seçili Veri Setini Ekle" : "Add Selected Dataset");
+  setText("removeSelectedFromCompareBtn", currentLanguage === "tr" ? "Seçili Veri Setini Çıkar" : "Remove Selected Dataset");
+  setText("clearCompareSelectionBtn", currentLanguage === "tr" ? "Karşılaştırma Seçimini Temizle" : "Clear Compare Selection");
+  setText("compareNotesLabel", currentLanguage === "tr" ? "Çalışma Alanı Notları" : "Workspace Notes");
+  setText("refreshCompareBtn", currentLanguage === "tr" ? "Karşılaştırmayı Yenile" : "Refresh Compare");
+  setText("saveCompareBtn", currentLanguage === "tr" ? "Karşılaştırma Seçimini Kaydet" : "Save Compare Selection");
+  setText("batchAnalysisLabel", currentLanguage === "tr" ? "Analiz" : "Analysis");
+  setText("batchTemplateLabel", currentLanguage === "tr" ? "Şablon ID" : "Template ID");
+  setText("runBatchBtn", currentLanguage === "tr" ? "Karşılaştırma Seçiminde Batch Çalıştır" : "Run Batch On Compare Selection");
+}
+
 function appendLog(message) {
   const node = el("log");
   if (!node) return;
@@ -52,17 +353,19 @@ function appendLog(message) {
 }
 
 function switchView(name) {
+  activeView = name;
   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
   document.querySelectorAll(".nav-item[data-view]").forEach((node) => node.classList.remove("active"));
   const view = el(`view-${name}`);
   if (view) view.classList.add("active");
   const nav = document.querySelector(`.nav-item[data-view="${name}"]`);
   if (nav) nav.classList.add("active");
-  setText("pageTitle", viewTitles[name] || "ThermoAnalyzer Desktop");
+  const titleKey = viewTitleKeys[name];
+  setText("pageTitle", titleKey ? t(titleKey) : "ThermoAnalyzer Desktop");
 }
 
 function updateStatusWorkspace() {
-  setText("statusWorkspace", `Workspace: ${activeProjectId || "none"}`);
+  setText("statusWorkspace", t("status.workspace", { workspace: activeProjectId || t("common.none") }));
 }
 
 function updateAnalysisActionState() {
@@ -138,7 +441,7 @@ function keyGrid(items) {
 
 function renderIssueList(title, items) {
   if (!items || !items.length) {
-    return `<p class="small muted">${escapeHtml(title)}: none</p>`;
+    return `<p class="small muted">${escapeHtml(title)}: ${escapeHtml(t("common.none"))}</p>`;
   }
   return `<p class="small"><strong>${escapeHtml(title)}:</strong></p><ul class="list-box">${items
     .map((item) => `<li>${escapeHtml(item)}</li>`)
@@ -147,9 +450,9 @@ function renderIssueList(title, items) {
 
 function renderRowsPreview(rows) {
   const data = Array.isArray(rows) ? rows.slice(0, 8) : [];
-  if (!data.length) return '<p class="small muted">No preview rows.</p>';
+  if (!data.length) return `<p class="small muted">${escapeHtml(t("common.noPreviewRows"))}</p>`;
   const keys = Object.keys(data[0] || {}).slice(0, 6);
-  if (!keys.length) return '<p class="small muted">No preview rows.</p>';
+  if (!keys.length) return `<p class="small muted">${escapeHtml(t("common.noPreviewRows"))}</p>`;
   return `<table><thead><tr>${keys.map((key) => `<th>${escapeHtml(key)}</th>`).join("")}</tr></thead><tbody>${data
     .map((row) => `<tr>${keys.map((key) => `<td>${escapeHtml(row[key])}</td>`).join("")}</tr>`)
     .join("")}</tbody></table>`;
@@ -172,13 +475,13 @@ function toneBadgeClass(statusToken) {
 function renderCompareSelectionChips(selectedKeys) {
   const keys = selectedKeys || [];
   if (!keys.length) {
-    setHtml("compareSelectedDatasetsPanel", '<span class="dataset-chip">No compare-selected datasets.</span>');
+    setHtml("compareSelectedDatasetsPanel", `<span class="dataset-chip">${escapeHtml(t("common.noCompareSelected"))}</span>`);
     return;
   }
   const chips = keys
     .map((key) => {
       const dataset = currentDatasets.find((item) => item.key === key);
-      const suffix = dataset ? `${dataset.data_type}` : "unknown";
+      const suffix = dataset ? `${dataset.data_type}` : t("common.unknown");
       return `<span class="dataset-chip">${escapeHtml(key)} (${escapeHtml(suffix)})</span>`;
     })
     .join("");
@@ -192,16 +495,16 @@ function renderHomeWorkflowSteps(context) {
   const resultCount = Number(summary.result_count || 0);
   const selectedCompareCount = (compareWorkspace.selected_datasets || []).length;
 
-  setText("homeStepWorkspaceStatus", activeProjectId ? "Workspace ready" : "Create/open workspace");
-  setText("homeStepImportStatus", datasetCount > 0 ? `${datasetCount} dataset(s) imported` : "Import at least one dataset");
-  setText("homeStepCompareStatus", selectedCompareCount > 0 ? `${selectedCompareCount} selected for compare` : "Select compare datasets");
-  setText("homeStepRunStatus", resultCount > 0 ? `${resultCount} result(s) saved` : "Run DSC/TGA analysis");
+  setText("homeStepWorkspaceStatus", activeProjectId ? t("home.stepWorkspaceReady") : t("home.stepWorkspacePending"));
+  setText("homeStepImportStatus", datasetCount > 0 ? t("home.stepImportDone", { count: datasetCount }) : t("home.stepImportPending"));
+  setText("homeStepCompareStatus", selectedCompareCount > 0 ? t("home.stepCompareDone", { count: selectedCompareCount }) : t("home.stepComparePending"));
+  setText("homeStepRunStatus", resultCount > 0 ? t("home.stepRunDone", { count: resultCount }) : t("home.stepRunPending"));
 
-  let nextStep = "Create or open a workspace.";
-  if (activeProjectId) nextStep = "Import your first dataset.";
-  if (datasetCount > 0) nextStep = "Inspect validation and set compare selection.";
-  if (selectedCompareCount > 0) nextStep = "Run DSC/TGA analysis or batch from Compare.";
-  if (resultCount > 0) nextStep = "Save project or continue with export.";
+  let nextStep = t("home.nextCreate");
+  if (activeProjectId) nextStep = t("home.nextImport");
+  if (datasetCount > 0) nextStep = t("home.nextInspect");
+  if (selectedCompareCount > 0) nextStep = t("home.nextRun");
+  if (resultCount > 0) nextStep = t("home.nextSave");
   setText("homeNextStepValue", nextStep);
 }
 
@@ -212,16 +515,16 @@ function renderCompareWorkspaceSummary(compareWorkspace) {
     "compareSummaryPanel",
     `
     ${keyGrid([
-      { label: "Analysis Type", value: valueOr(payload.analysis_type, "DSC") },
-      { label: "Selected Count", value: String(selectedCount) },
-      { label: "Saved At", value: valueOr(payload.saved_at, "N/A") },
-      { label: "Batch Run ID", value: valueOr(payload.batch_run_id, "none") },
-      { label: "Batch Template", value: valueOr(payload.batch_template_id, "none") },
-      { label: "Notes", value: valueOr(payload.notes, "(empty)") },
+      { label: t("compare.analysisType"), value: valueOr(payload.analysis_type, "DSC") },
+      { label: t("compare.selectedCount"), value: String(selectedCount) },
+      { label: t("compare.savedAt"), value: valueOr(payload.saved_at, t("common.na")) },
+      { label: t("compare.batchRunId"), value: valueOr(payload.batch_run_id, t("common.none")) },
+      { label: t("compare.batchTemplate"), value: valueOr(payload.batch_template_id, t("common.none")) },
+      { label: t("compare.notes"), value: valueOr(payload.notes, t("compare.notesEmpty")) },
     ])}
     <div style="margin-top:8px;">
-      <span class="${toneBadgeClass(selectedCount > 0 ? "ok" : "warning")}">Selected: ${selectedCount}</span>
-      <span class="${toneBadgeClass(payload.batch_run_id ? "saved" : "neutral")}">Batch: ${payload.batch_run_id ? "available" : "not run"}</span>
+      <span class="${toneBadgeClass(selectedCount > 0 ? "ok" : "warning")}">${escapeHtml(t("common.selected"))}: ${selectedCount}</span>
+      <span class="${toneBadgeClass(payload.batch_run_id ? "saved" : "neutral")}">${escapeHtml(t("common.batch"))}: ${payload.batch_run_id ? escapeHtml(t("common.available")) : escapeHtml(t("common.notRun"))}</span>
     </div>
     `
   );
@@ -406,18 +709,22 @@ function applyWorkspaceContext(context) {
   const compareCount = context.compare_workspace && context.compare_workspace.selected_datasets
     ? context.compare_workspace.selected_datasets.length
     : 0;
-  const latestResultText = context.latest_result && context.latest_result.id ? context.latest_result.id : "none";
+  const latestResultText = context.latest_result && context.latest_result.id ? context.latest_result.id : t("common.none");
   const compareWorkspace = context.compare_workspace || {};
 
   setText(
     "homeProjectInfo",
-    `Workspace ${activeProjectId} | datasets=${context.summary.dataset_count} | results=${context.summary.result_count}`
+    currentLanguage === "tr"
+      ? `Çalışma Alanı ${activeProjectId} | veri=${context.summary.dataset_count} | sonuç=${context.summary.result_count}`
+      : `Workspace ${activeProjectId} | datasets=${context.summary.dataset_count} | results=${context.summary.result_count}`
   );
   setText("homeDatasetCountValue", String(context.summary.dataset_count || 0));
   setText("homeResultCountValue", String(context.summary.result_count || 0));
   setText(
     "projectViewInfo",
-    `Workspace ${activeProjectId} | figures=${context.summary.figure_count} | history=${context.summary.analysis_history_count}`
+    currentLanguage === "tr"
+      ? `Çalışma Alanı ${activeProjectId} | görsel=${context.summary.figure_count} | geçmiş=${context.summary.analysis_history_count}`
+      : `Workspace ${activeProjectId} | figures=${context.summary.figure_count} | history=${context.summary.analysis_history_count}`
   );
   setText("projectDatasetCountValue", String(context.summary.dataset_count || 0));
   setText("projectResultCountValue", String(context.summary.result_count || 0));
@@ -425,18 +732,26 @@ function applyWorkspaceContext(context) {
   setText("projectFigureCountValue", String(context.summary.figure_count || 0));
   const projectConfidence =
     Number(context.summary.dataset_count || 0) === 0
-      ? "Import datasets to establish project archive baseline."
+      ? (currentLanguage === "tr"
+        ? "Proje arşivi için temel oluşturmak üzere veri seti içe aktar."
+        : "Import datasets to establish project archive baseline.")
       : Number(context.summary.result_count || 0) === 0
-      ? "Datasets imported. Run analyses to build saved result history."
-      : "Workspace has saved results and is ready for archive save/export.";
+      ? (currentLanguage === "tr"
+        ? "Veriler içe aktarıldı. Sonuç geçmişi için analizleri çalıştır."
+        : "Datasets imported. Run analyses to build saved result history.")
+      : (currentLanguage === "tr"
+        ? "Çalışma alanında kayıtlı sonuçlar var; proje arşivi ve export için hazır."
+        : "Workspace has saved results and is ready for archive save/export.");
   setText("projectConfidenceMessage", projectConfidence);
-  setText("homeActiveDatasetValue", currentActiveDatasetKey || "none");
+  setText("homeActiveDatasetValue", currentActiveDatasetKey || t("common.none"));
   setText("homeLatestResultValue", latestResultText);
   setText("homeCompareCountValue", String(compareCount));
-  setText("homeWorkspaceSavedAtValue", valueOr(compareWorkspace.saved_at, "N/A"));
+  setText("homeWorkspaceSavedAtValue", valueOr(compareWorkspace.saved_at, t("common.na")));
   setText(
     "compareMeta",
-    `Selected datasets: ${compareCount} | Saved at: ${valueOr(compareWorkspace.saved_at, "N/A")}`
+    currentLanguage === "tr"
+      ? `Seçili koşu: ${compareCount} | Kaydedildi: ${valueOr(compareWorkspace.saved_at, t("common.na"))}`
+      : `Selected datasets: ${compareCount} | Saved at: ${valueOr(compareWorkspace.saved_at, t("common.na"))}`
   );
   renderCompareWorkspaceSummary(compareWorkspace);
   renderHomeWorkflowSteps(context);
@@ -454,7 +769,7 @@ function applyWorkspaceContext(context) {
 function renderCompareDatasetChecks(selectedDatasets) {
   const container = el("compareDatasetChecks");
   if (!currentDatasets.length) {
-    container.innerHTML = "<div class='panel-soft small'>No datasets available.</div>";
+    container.innerHTML = `<div class='panel-soft small'>${escapeHtml(currentLanguage === "tr" ? "Kullanılabilir veri seti yok." : "No datasets available.")}</div>`;
     return;
   }
 
@@ -463,18 +778,20 @@ function renderCompareDatasetChecks(selectedDatasets) {
     .map((dataset) => {
       const checked = selected.has(dataset.key) ? "checked" : "";
       const cardClass = selected.has(dataset.key) ? "compare-pick selected" : "compare-pick";
-      const isActive = dataset.key === currentActiveDatasetKey ? "Active workspace dataset" : "Not active";
+      const isActive = dataset.key === currentActiveDatasetKey
+        ? (currentLanguage === "tr" ? "Aktif çalışma alanı veri seti" : "Active workspace dataset")
+        : (currentLanguage === "tr" ? "Aktif değil" : "Not active");
       return `
       <label class="${cardClass}">
         <div class="small">
           <input type="checkbox" class="compare-dataset-check" value="${escapeHtml(dataset.key)}" ${checked}>
           <strong>${escapeHtml(dataset.key)}</strong> (${escapeHtml(dataset.data_type)})
         </div>
-        <div class="small muted">${escapeHtml(valueOr(dataset.sample_name, "sample not named"))}</div>
+        <div class="small muted">${escapeHtml(valueOr(dataset.sample_name, currentLanguage === "tr" ? "numune adı yok" : "sample not named"))}</div>
         <div class="small">
-          <span class="${toneBadgeClass(dataset.validation_status)}">Validation: ${escapeHtml(valueOr(dataset.validation_status, "unknown"))}</span>
-          <span class="badge badge-neutral">Warnings: ${escapeHtml(valueOr(dataset.warning_count, "0"))}</span>
-          <span class="badge badge-neutral">Issues: ${escapeHtml(valueOr(dataset.issue_count, "0"))}</span>
+          <span class="${toneBadgeClass(dataset.validation_status)}">${currentLanguage === "tr" ? "Doğrulama" : "Validation"}: ${escapeHtml(valueOr(dataset.validation_status, t("common.unknown")))}</span>
+          <span class="badge badge-neutral">${currentLanguage === "tr" ? "Uyarı" : "Warnings"}: ${escapeHtml(valueOr(dataset.warning_count, "0"))}</span>
+          <span class="badge badge-neutral">${currentLanguage === "tr" ? "Sorun" : "Issues"}: ${escapeHtml(valueOr(dataset.issue_count, "0"))}</span>
         </div>
         <div class="small muted">${escapeHtml(isActive)}</div>
       </label>`;
@@ -840,25 +1157,32 @@ function renderBatchWorkspaceState(compareWorkspace) {
   const canRun = Boolean(activeProjectId) && selectedCount > 0;
   setDisabled("runBatchBtn", !canRun);
   if (!selectedCount) {
-    setText("batchInfo", "No compare-selected datasets available for batch.");
+    setText("batchInfo", currentLanguage === "tr" ? "Batch için seçili karşılaştırma veri seti yok." : "No compare-selected datasets available for batch.");
   } else if (payload.batch_run_id) {
     setText(
       "batchInfo",
-      `Last batch ${payload.batch_run_id}: saved=${feedback.saved || 0}, blocked=${feedback.blocked || 0}, failed=${feedback.failed || 0}`
+      currentLanguage === "tr"
+        ? `Son batch ${payload.batch_run_id}: kaydedilen=${feedback.saved || 0}, bloklanan=${feedback.blocked || 0}, başarısız=${feedback.failed || 0}`
+        : `Last batch ${payload.batch_run_id}: saved=${feedback.saved || 0}, blocked=${feedback.blocked || 0}, failed=${feedback.failed || 0}`
     );
   } else {
-    setText("batchInfo", `Ready for batch run on ${selectedCount} compare-selected dataset(s).`);
+    setText(
+      "batchInfo",
+      currentLanguage === "tr"
+        ? `${selectedCount} seçili koşu için batch çalıştırmaya hazır.`
+        : `Ready for batch run on ${selectedCount} compare-selected dataset(s).`
+    );
   }
   setHtml(
     "compareBatchStatsPanel",
     `
     <div>
-      <span class="badge badge-neutral">Selected datasets: ${selectedCount}</span>
-      <span class="badge badge-ok">Saved: ${feedback.saved || 0}</span>
-      <span class="badge badge-warn">Blocked: ${feedback.blocked || 0}</span>
-      <span class="badge badge-fail">Failed: ${feedback.failed || 0}</span>
-      <span class="badge badge-neutral">Template: ${escapeHtml(valueOr(payload.batch_template_id, "n/a"))}</span>
-      <span class="badge badge-neutral">Run ID: ${escapeHtml(valueOr(payload.batch_run_id, "not run"))}</span>
+      <span class="badge badge-neutral">${currentLanguage === "tr" ? "Seçili koşu" : "Selected datasets"}: ${selectedCount}</span>
+      <span class="badge badge-ok">${currentLanguage === "tr" ? "Kaydedilen" : "Saved"}: ${feedback.saved || 0}</span>
+      <span class="badge badge-warn">${currentLanguage === "tr" ? "Bloklanan" : "Blocked"}: ${feedback.blocked || 0}</span>
+      <span class="badge badge-fail">${currentLanguage === "tr" ? "Başarısız" : "Failed"}: ${feedback.failed || 0}</span>
+      <span class="badge badge-neutral">${currentLanguage === "tr" ? "Şablon" : "Template"}: ${escapeHtml(valueOr(payload.batch_template_id, "n/a"))}</span>
+      <span class="badge badge-neutral">${currentLanguage === "tr" ? "Çalıştırma ID" : "Run ID"}: ${escapeHtml(valueOr(payload.batch_run_id, currentLanguage === "tr" ? "çalıştırılmadı" : "not run"))}</span>
     </div>
     `
   );
@@ -876,8 +1200,8 @@ function renderBatchWorkspaceState(compareWorkspace) {
 
 async function refreshCompareWorkspace() {
   if (!activeProjectId) {
-    setText("compareMeta", "No compare metadata loaded.");
-    setHtml("compareSummaryPanel", "Compare workspace summary will appear here.");
+    setText("compareMeta", currentLanguage === "tr" ? "Karşılaştırma metadata bilgisi henüz yüklenmedi." : "No compare metadata loaded.");
+    setHtml("compareSummaryPanel", currentLanguage === "tr" ? "Karşılaştırma alanı özeti burada görünecek." : t("compare.summaryPending"));
     setHtml("compareBatchStatsPanel", "");
     renderCompareSelectionChips([]);
     setDiagnostic("compare", {});
@@ -893,7 +1217,9 @@ async function refreshCompareWorkspace() {
     renderCompareWorkspaceSummary(compare.compare_workspace);
     setText(
       "compareMeta",
-      `Selected datasets: ${(compare.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(compare.compare_workspace.saved_at, "N/A")}`
+      currentLanguage === "tr"
+        ? `Seçili koşu: ${(compare.compare_workspace.selected_datasets || []).length} | Kaydedildi: ${valueOr(compare.compare_workspace.saved_at, t("common.na"))}`
+        : `Selected datasets: ${(compare.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(compare.compare_workspace.saved_at, t("common.na"))}`
     );
     if (currentDatasets.length) {
       renderDatasets(currentDatasets);
@@ -901,11 +1227,14 @@ async function refreshCompareWorkspace() {
     renderBatchWorkspaceState(compare.compare_workspace);
     setDiagnostic("compare", compare.compare_workspace);
   } catch (error) {
-    setText("compareMeta", "Compare metadata unavailable.");
-    setHtml("compareSummaryPanel", `<p class='fail'>Compare workspace read failed: ${escapeHtml(String(error))}</p>`);
+    setText("compareMeta", currentLanguage === "tr" ? "Karşılaştırma metadata bilgisi okunamadı." : "Compare metadata unavailable.");
+    setHtml(
+      "compareSummaryPanel",
+      `<p class='fail'>${currentLanguage === "tr" ? "Karşılaştırma alanı okunamadı" : "Compare workspace read failed"}: ${escapeHtml(String(error))}</p>`
+    );
     setHtml("compareBatchStatsPanel", "");
     renderCompareSelectionChips([]);
-    setText("batchInfo", "Batch summary unavailable.");
+    setText("batchInfo", currentLanguage === "tr" ? "Batch özeti alınamadı." : "Batch summary unavailable.");
     renderBatchSummaryRows([]);
     setDiagnostic("compare", { error: String(error) });
   }
@@ -913,7 +1242,7 @@ async function refreshCompareWorkspace() {
 
 async function refreshWorkspaceContext() {
   if (!activeProjectId) {
-    setText("homeProjectInfo", "No workspace context loaded.");
+    setText("homeProjectInfo", currentLanguage === "tr" ? "Çalışma alanı bağlamı yüklenmedi." : "No workspace context loaded.");
     setDiagnostic("workspace", {});
     return null;
   }
@@ -926,7 +1255,9 @@ async function refreshWorkspaceContext() {
     renderCompareDatasetChecks(context.compare_workspace.selected_datasets || []);
     setText(
       "compareMeta",
-      `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(context.compare_workspace.saved_at, "N/A")}`
+      currentLanguage === "tr"
+        ? `Seçili koşu: ${(context.compare_workspace.selected_datasets || []).length} | Kaydedildi: ${valueOr(context.compare_workspace.saved_at, t("common.na"))}`
+        : `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(context.compare_workspace.saved_at, t("common.na"))}`
     );
     renderCompareWorkspaceSummary(context.compare_workspace);
     renderBatchWorkspaceState(context.compare_workspace);
@@ -936,7 +1267,10 @@ async function refreshWorkspaceContext() {
     }
     return context;
   } catch (error) {
-    setText("homeProjectInfo", `Workspace context failed: ${error}`);
+    setText(
+      "homeProjectInfo",
+      currentLanguage === "tr" ? `Çalışma alanı bağlamı başarısız: ${error}` : `Workspace context failed: ${error}`
+    );
     setDiagnostic("workspace", { error: String(error) });
     return null;
   }
@@ -963,7 +1297,9 @@ async function updateCompareSelection(operation, datasetKeys) {
   renderCompareDatasetChecks(response.compare_workspace.selected_datasets || []);
   setText(
     "compareMeta",
-    `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(response.compare_workspace.saved_at, "N/A")}`
+    currentLanguage === "tr"
+      ? `Seçili koşu: ${(response.compare_workspace.selected_datasets || []).length} | Kaydedildi: ${valueOr(response.compare_workspace.saved_at, t("common.na"))}`
+      : `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(response.compare_workspace.saved_at, t("common.na"))}`
   );
   renderCompareWorkspaceSummary(response.compare_workspace);
   setDiagnostic("compare", response.compare_workspace);
@@ -1026,27 +1362,27 @@ async function refreshStatus() {
   const bootstrap = window.taDesktop.getBackendBootstrap();
   setHtml(
     "diagBootstrap",
-    `Backend URL: <code>${escapeHtml(bootstrap.backendUrl || "N/A")}</code> | Token: <strong>${bootstrap.hasToken ? "present" : "missing"}</strong>`
+    `Backend URL: <code>${escapeHtml(bootstrap.backendUrl || t("common.na"))}</code> | Token: <strong>${bootstrap.hasToken ? (currentLanguage === "tr" ? "var" : "present") : (currentLanguage === "tr" ? "yok" : "missing")}</strong>`
   );
 
   try {
     const health = await window.taDesktop.checkHealth();
-    setText("statusHealth", `Health: ${health.status}`);
-    setHtml("diagHealth", `Health: <span class="ok">${escapeHtml(health.status)}</span> (API ${escapeHtml(health.api_version)})`);
+    setText("statusHealth", t("status.health", { status: health.status }));
+    setHtml("diagHealth", `${currentLanguage === "tr" ? "Sağlık" : "Health"}: <span class="ok">${escapeHtml(health.status)}</span> (API ${escapeHtml(health.api_version)})`);
   } catch (error) {
-    setText("statusHealth", "Health: failed");
-    setHtml("diagHealth", `Health: <span class="fail">failed</span> (${escapeHtml(String(error))})`);
+    setText("statusHealth", t("status.healthFailed"));
+    setHtml("diagHealth", `${currentLanguage === "tr" ? "Sağlık" : "Health"}: <span class="fail">${currentLanguage === "tr" ? "başarısız" : "failed"}</span> (${escapeHtml(String(error))})`);
   }
 
   try {
     const version = await window.taDesktop.getVersion();
-    setText("statusVersion", `Version: ${version.app_version}`);
-    setText("licenseVersionValue", valueOr(version.app_version, "unknown"));
-    setText("licenseProjectExtValue", valueOr(version.project_extension, "unknown"));
-    setHtml("diagVersion", `ThermoAnalyzer app version: <strong>${escapeHtml(version.app_version)}</strong> | Project extension: <code>${escapeHtml(version.project_extension)}</code>`);
+    setText("statusVersion", t("status.version", { version: version.app_version }));
+    setText("licenseVersionValue", valueOr(version.app_version, t("common.unknown")));
+    setText("licenseProjectExtValue", valueOr(version.project_extension, t("common.unknown")));
+    setHtml("diagVersion", `${currentLanguage === "tr" ? "ThermoAnalyzer uygulama sürümü" : "ThermoAnalyzer app version"}: <strong>${escapeHtml(version.app_version)}</strong> | ${currentLanguage === "tr" ? "Proje uzantısı" : "Project extension"}: <code>${escapeHtml(version.project_extension)}</code>`);
   } catch (error) {
-    setText("statusVersion", "Version: failed");
-    setHtml("diagVersion", `Version call failed: <span class="fail">${escapeHtml(String(error))}</span>`);
+    setText("statusVersion", t("status.versionFailed"));
+    setHtml("diagVersion", `${currentLanguage === "tr" ? "Sürüm çağrısı başarısız" : "Version call failed"}: <span class="fail">${escapeHtml(String(error))}</span>`);
   }
 }
 
@@ -1061,53 +1397,58 @@ async function refreshWorkspaceViews() {
     currentResults = [];
     selectedDatasetKey = null;
     selectedResultId = null;
-    setText("homeProjectInfo", "No workspace active.");
+    setText("homeProjectInfo", currentLanguage === "tr" ? "Aktif çalışma alanı yok." : "No workspace active.");
     setText("homeDatasetCountValue", "0");
     setText("homeResultCountValue", "0");
-    setText("homeActiveDatasetValue", "none");
-    setText("homeLatestResultValue", "none");
+    setText("homeActiveDatasetValue", t("common.none"));
+    setText("homeLatestResultValue", t("common.none"));
     setText("homeCompareCountValue", "0");
-    setText("homeNextStepValue", "Create or open a workspace.");
-    setText("homeWorkspaceSavedAtValue", "N/A");
-    setText("homeStepWorkspaceStatus", "Create/open workspace");
-    setText("homeStepImportStatus", "Import at least one dataset");
-    setText("homeStepCompareStatus", "Select compare datasets");
-    setText("homeStepRunStatus", "Run DSC/TGA analysis");
-    setText("projectViewInfo", "No workspace active.");
+    setText("homeNextStepValue", t("home.nextCreate"));
+    setText("homeWorkspaceSavedAtValue", t("common.na"));
+    setText("homeStepWorkspaceStatus", t("home.stepWorkspacePending"));
+    setText("homeStepImportStatus", t("home.stepImportPending"));
+    setText("homeStepCompareStatus", t("home.stepComparePending"));
+    setText("homeStepRunStatus", t("home.stepRunPending"));
+    setText("projectViewInfo", currentLanguage === "tr" ? "Aktif çalışma alanı yok." : "No workspace active.");
     setText("projectDatasetCountValue", "0");
     setText("projectResultCountValue", "0");
     setText("projectHistoryCountValue", "0");
     setText("projectFigureCountValue", "0");
-    setText("projectConfidenceMessage", "Open or create a workspace to establish project archive context.");
+    setText(
+      "projectConfidenceMessage",
+      currentLanguage === "tr"
+        ? "Proje arşivi bağlamı için çalışma alanı aç veya oluştur."
+        : "Open or create a workspace to establish project archive context."
+    );
     renderDatasets([]);
     renderResults([]);
-    setText("compareMeta", "No compare metadata loaded.");
-    setHtml("compareSummaryPanel", "Compare workspace summary will appear here.");
-    setHtml("compareSelectedDatasetsPanel", "<span class='dataset-chip'>No compare-selected datasets.</span>");
+    setText("compareMeta", currentLanguage === "tr" ? "Karşılaştırma metadata bilgisi henüz yüklenmedi." : "No compare metadata loaded.");
+    setHtml("compareSummaryPanel", currentLanguage === "tr" ? "Karşılaştırma alanı özeti burada görünecek." : t("compare.summaryPending"));
+    setHtml("compareSelectedDatasetsPanel", `<span class='dataset-chip'>${escapeHtml(t("common.noCompareSelected"))}</span>`);
     setHtml("compareBatchStatsPanel", "");
-    setText("batchInfo", "No batch run executed.");
+    setText("batchInfo", currentLanguage === "tr" ? "Henüz batch çalıştırılmadı." : "No batch run executed.");
     renderBatchSummaryRows([]);
-    setText("exportPrepInfo", "Open or create a workspace to prepare export context.");
-    setText("exportSelectionHint", "Select the saved results to include in your export package.");
-    setHtml("exportPrepPanel", "Refresh export context after loading or analyzing datasets.");
+    setText("exportPrepInfo", currentLanguage === "tr" ? "Export hazırlığı için çalışma alanı aç veya oluştur." : "Open or create a workspace to prepare export context.");
+    setText("exportSelectionHint", currentLanguage === "tr" ? "Export paketine eklenecek kayıtlı sonuçları seç." : "Select the saved results to include in your export package.");
+    setHtml("exportPrepPanel", currentLanguage === "tr" ? "Veri yükleme veya analiz sonrası export bağlamını yenile." : "Refresh export context after loading or analyzing datasets.");
     setHtml("exportActionPanel", "");
-    setHtml("homeImportFeedbackPanel", "No import action yet.");
-    setHtml("homeImportQualityPanel", "Import confidence and review guidance will appear here after dataset inspection.");
-    setHtml("homeSelectedDatasetPanel", "No active dataset selected.");
-    setHtml("dscActiveDatasetContextPanel", "Select a dataset from Home / Import to begin DSC context.");
-    setHtml("dscMethodContextPanel", "DSC processing context will appear here.");
-    setHtml("dscValidationPanel", "Validation summary will appear after dataset inspection.");
-    setHtml("dscTemplateContextPanel", "Workflow template context will appear here.");
-    setHtml("dscResultSummaryPanel", "No DSC result context yet.");
-    setText("dscAnalysisInfo", "No DSC analysis executed yet.");
-    setHtml("tgaActiveDatasetContextPanel", "Select a dataset from Home / Import to begin TGA context.");
-    setHtml("tgaUnitContextPanel", "TGA unit and import-review context will appear here.");
-    setHtml("tgaValidationPanel", "Validation summary will appear after dataset inspection.");
-    setHtml("tgaTemplateContextPanel", "Workflow template context will appear here.");
-    setHtml("tgaResultSummaryPanel", "No TGA result context yet.");
-    setText("tgaAnalysisInfo", "No TGA analysis executed yet.");
-    setHtml("datasetDetailPanel", "Select a dataset to inspect metadata, validation, and preview rows.");
-    setHtml("resultDetailPanel", "Select a saved result to inspect processing, provenance, and validation.");
+    setHtml("homeImportFeedbackPanel", currentLanguage === "tr" ? "Henüz bir içe aktarma işlemi yapılmadı." : "No import action yet.");
+    setHtml("homeImportQualityPanel", currentLanguage === "tr" ? "Import güveni ve review rehberi, veri seti incelendikten sonra burada görünür." : "Import confidence and review guidance will appear here after dataset inspection.");
+    setHtml("homeSelectedDatasetPanel", currentLanguage === "tr" ? "Aktif veri seti seçilmedi." : "No active dataset selected.");
+    setHtml("dscActiveDatasetContextPanel", currentLanguage === "tr" ? "DSC bağlamını başlatmak için Veri Al sayfasından bir veri seti seç." : "Select a dataset from Home / Import to begin DSC context.");
+    setHtml("dscMethodContextPanel", currentLanguage === "tr" ? "DSC işlem bağlamı burada görünecek." : "DSC processing context will appear here.");
+    setHtml("dscValidationPanel", currentLanguage === "tr" ? "Doğrulama özeti, veri seti incelendikten sonra görünür." : "Validation summary will appear after dataset inspection.");
+    setHtml("dscTemplateContextPanel", currentLanguage === "tr" ? "İş akışı şablon bağlamı burada görünecek." : "Workflow template context will appear here.");
+    setHtml("dscResultSummaryPanel", currentLanguage === "tr" ? "Henüz DSC sonuç bağlamı yok." : "No DSC result context yet.");
+    setText("dscAnalysisInfo", currentLanguage === "tr" ? "Henüz DSC analizi çalıştırılmadı." : "No DSC analysis executed yet.");
+    setHtml("tgaActiveDatasetContextPanel", currentLanguage === "tr" ? "TGA bağlamını başlatmak için Veri Al sayfasından bir veri seti seç." : "Select a dataset from Home / Import to begin TGA context.");
+    setHtml("tgaUnitContextPanel", currentLanguage === "tr" ? "TGA birim ve import-review bağlamı burada görünecek." : "TGA unit and import-review context will appear here.");
+    setHtml("tgaValidationPanel", currentLanguage === "tr" ? "Doğrulama özeti, veri seti incelendikten sonra görünür." : "Validation summary will appear after dataset inspection.");
+    setHtml("tgaTemplateContextPanel", currentLanguage === "tr" ? "İş akışı şablon bağlamı burada görünecek." : "Workflow template context will appear here.");
+    setHtml("tgaResultSummaryPanel", currentLanguage === "tr" ? "Henüz TGA sonuç bağlamı yok." : "No TGA result context yet.");
+    setText("tgaAnalysisInfo", currentLanguage === "tr" ? "Henüz TGA analizi çalıştırılmadı." : "No TGA analysis executed yet.");
+    setHtml("datasetDetailPanel", currentLanguage === "tr" ? "Metadata, doğrulama ve önizleme satırları için bir veri seti seç." : "Select a dataset to inspect metadata, validation, and preview rows.");
+    setHtml("resultDetailPanel", currentLanguage === "tr" ? "İşleme, provenance ve doğrulama detayları için kayıtlı bir sonuç seç." : "Select a saved result to inspect processing, provenance, and validation.");
     renderExportableResults([]);
     setDiagnostic("workspace", {});
     setDiagnostic("compare", {});
@@ -1141,7 +1482,9 @@ async function refreshWorkspaceViews() {
   renderCompareDatasetChecks(context.compare_workspace.selected_datasets || []);
   setText(
     "compareMeta",
-    `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(context.compare_workspace.saved_at, "N/A")}`
+    currentLanguage === "tr"
+      ? `Seçili koşu: ${(context.compare_workspace.selected_datasets || []).length} | Kaydedildi: ${valueOr(context.compare_workspace.saved_at, t("common.na"))}`
+      : `Selected datasets: ${(context.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(context.compare_workspace.saved_at, t("common.na"))}`
   );
   renderCompareWorkspaceSummary(context.compare_workspace);
   setDiagnostic("compare", context.compare_workspace);
@@ -1294,7 +1637,9 @@ async function onSaveCompareSelection() {
     compareSelectedDatasetKeys = new Set(response.compare_workspace.selected_datasets || []);
     setText(
       "compareMeta",
-      `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(response.compare_workspace.saved_at, "N/A")}`
+      currentLanguage === "tr"
+        ? `Seçili koşu: ${(response.compare_workspace.selected_datasets || []).length} | Kaydedildi: ${valueOr(response.compare_workspace.saved_at, t("common.na"))}`
+        : `Selected datasets: ${(response.compare_workspace.selected_datasets || []).length} | Saved at: ${valueOr(response.compare_workspace.saved_at, t("common.na"))}`
     );
     renderCompareWorkspaceSummary(response.compare_workspace);
     setDiagnostic("compare", response.compare_workspace);
@@ -1362,7 +1707,9 @@ async function onRunBatch() {
     });
     setText(
       "batchInfo",
-      `Batch ${response.batch_run_id}: saved=${response.outcomes.saved}, blocked=${response.outcomes.blocked}, failed=${response.outcomes.failed}`
+      currentLanguage === "tr"
+        ? `Batch ${response.batch_run_id}: kaydedilen=${response.outcomes.saved}, bloklanan=${response.outcomes.blocked}, başarısız=${response.outcomes.failed}`
+        : `Batch ${response.batch_run_id}: saved=${response.outcomes.saved}, blocked=${response.outcomes.blocked}, failed=${response.outcomes.failed}`
     );
     setDiagnostic("batch", response);
     renderBatchSummaryRows(response.batch_summary || []);
@@ -1478,9 +1825,22 @@ el("runBatchBtn").addEventListener("click", onRunBatch);
 el("refreshExportPrepBtn").addEventListener("click", refreshExportPreparation);
 el("exportCsvBtn").addEventListener("click", onExportResultsCsv);
 el("exportDocxBtn").addEventListener("click", onGenerateDocxReport);
+el("langTrBtn").addEventListener("click", () => setLanguage("tr"));
+el("langEnBtn").addEventListener("click", () => setLanguage("en"));
+el("previewModulesToggle").addEventListener("change", (event) => {
+  const previewGroup = el("previewNavGroup");
+  if (previewGroup) {
+    previewGroup.style.display = event.target.checked ? "block" : "none";
+  }
+});
 
+const savedLang = window.localStorage.getItem("taDesktopLanguage");
+currentLanguage = savedLang === "en" ? "en" : "tr";
+applyStaticLanguage();
 switchView("home");
 setWorkflowEnabled(false);
 updateStatusWorkspace();
+setText("statusHealth", t("status.healthUnknown"));
+setText("statusVersion", t("status.versionUnknown"));
 refreshWorkspaceViews();
 refreshStatus();

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="tr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -50,6 +50,35 @@
     }
     .nav-group {
       margin-top: 14px;
+    }
+    .lang-switch {
+      display: flex;
+      gap: 6px;
+      margin: 4px 6px 10px;
+    }
+    .lang-btn {
+      background: transparent;
+      color: var(--sidebar-text);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .lang-btn.active {
+      background: rgba(14, 116, 144, 0.34);
+      border-color: rgba(125, 211, 252, 0.55);
+    }
+    .toggle-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 6px;
+      color: var(--sidebar-text);
+      font-size: 0.8rem;
+    }
+    .toggle-line input[type="checkbox"] {
+      accent-color: #0e7490;
     }
     .group-label {
       color: var(--sidebar-muted);
@@ -442,149 +471,164 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">THERMOANALYZER</div>
-      <div class="brand-sub">Desktop Analysis Workbench</div>
+      <div class="brand-sub" id="brandSubtitle">Cihazdan bağımsız DSC/TGA çalışma alanı</div>
+      <div class="lang-switch">
+        <button class="lang-btn active" id="langTrBtn" type="button">TR</button>
+        <button class="lang-btn" id="langEnBtn" type="button">EN</button>
+      </div>
+      <label class="toggle-line">
+        <input id="previewModulesToggle" type="checkbox" />
+        <span id="previewToggleLabel">Laboratuvar Önizleme Modüllerini Göster</span>
+      </label>
 
       <div class="nav-group">
-        <div class="group-label">Primary</div>
-        <button class="nav-item active" data-view="home">Home / Import</button>
-        <button class="nav-item" data-view="compare">Compare</button>
-        <button class="nav-item" data-view="dsc">DSC</button>
-        <button class="nav-item" data-view="tga">TGA</button>
-        <button class="nav-item" data-view="export">Export</button>
-        <button class="nav-item" data-view="project">Project</button>
+        <div class="group-label" id="primaryGroupLabel">Ana Akış</div>
+        <button class="nav-item active" data-view="home" id="navHomeBtn">Veri Al</button>
+        <button class="nav-item" data-view="compare" id="navCompareBtn">Karşılaştırma</button>
+        <button class="nav-item" data-view="dsc" id="navDscBtn">DSC Analizi</button>
+        <button class="nav-item" data-view="tga" id="navTgaBtn">TGA Analizi</button>
+        <button class="nav-item" data-view="export" id="navExportBtn">Rapor Merkezi</button>
+        <button class="nav-item" data-view="project" id="navProjectBtn">Proje Alanı</button>
+      </div>
+
+      <div class="nav-group" id="previewNavGroup" style="display:none;">
+        <div class="group-label" id="previewGroupLabel">Laboratuvar Önizlemesi</div>
+        <button class="nav-item preview-locked" disabled id="navPreviewDtaBtn">DTA Analizi (Deneysel)</button>
+        <button class="nav-item preview-locked" disabled id="navPreviewKineticsBtn">Kinetik Analiz (Deneysel)</button>
+        <button class="nav-item preview-locked" disabled id="navPreviewDeconvBtn">Pik Dekonvolüsyonu (Deneysel)</button>
       </div>
 
       <div class="nav-group">
-        <div class="group-label">Preview</div>
-        <button class="nav-item preview-locked" disabled>DTA (Preview)</button>
-        <button class="nav-item preview-locked" disabled>Kinetics (Preview)</button>
-        <button class="nav-item preview-locked" disabled>Deconvolution (Preview)</button>
+        <div class="group-label" id="systemGroupLabel">Sistem</div>
+        <button class="nav-item" data-view="license" id="navLicenseBtn">Lisans ve Marka</button>
+        <button class="nav-item" data-view="diagnostics" id="navDiagnosticsBtn">Tanılama</button>
       </div>
 
       <div class="nav-group">
-        <div class="group-label">System</div>
-        <button class="nav-item" data-view="license">License</button>
-        <button class="nav-item" data-view="diagnostics">Diagnostics</button>
+        <div class="group-label" id="sidebarAboutTitle">ThermoAnalyzer Hakkında</div>
+        <p class="small" id="sidebarAboutCopy">
+          Kararlı kapsam: DSC/TGA, Karşılaştırma Alanı, Toplu Şablon Uygulayıcı, proje arşivi ve CSV/DOCX çıktıları.
+        </p>
       </div>
     </aside>
 
     <div class="main">
       <header class="topbar">
-        <h1 id="pageTitle">Home / Import</h1>
+        <h1 id="pageTitle">Veri Al</h1>
         <div class="status-pills">
-          <span class="pill" id="statusHealth">Health: unknown</span>
-          <span class="pill" id="statusVersion">Version: unknown</span>
-          <span class="pill" id="statusWorkspace">Workspace: none</span>
+          <span class="pill" id="statusHealth">Sağlık: bilinmiyor</span>
+          <span class="pill" id="statusVersion">Sürüm: bilinmiyor</span>
+          <span class="pill" id="statusWorkspace">Çalışma Alanı: yok</span>
         </div>
       </header>
 
       <main class="content">
         <section class="view active" id="view-home">
-          <h2 class="view-title">Home / Import</h2>
-          <p class="view-copy">Set up your workspace, import lab runs, and prepare compare-ready datasets for stable DSC/TGA workflows.</p>
+          <h2 class="view-title" id="homeViewTitle">Veri Al</h2>
+          <p class="view-copy" id="homeViewCopy">Termal analiz koşularını içe aktar, metadata’yı gözden geçir ve kararlı DSC/TGA akışına hazırla.</p>
 
           <div class="card hero-card">
-            <h3 class="hero-title">ThermoAnalyzer Desktop Workflow</h3>
-            <p class="hero-copy">Use this page as your daily start point: open your project, import thermal data, and verify quality before analysis or compare.</p>
+            <h3 class="hero-title" id="homeHeroTitle">Çalışma Başlangıcı</h3>
+            <p class="hero-copy" id="homeHeroCopy">Projeyi aç, veriyi içe aktar ve analiz/karşılaştırma öncesi doğrulama sinyallerini kontrol et.</p>
             <div class="row hero-actions">
-              <button id="newWorkspaceBtn">New Workspace</button>
-              <button id="openProjectBtn">Open .thermozip</button>
-              <button id="saveProjectBtn" disabled>Save Workspace</button>
-              <button id="refreshWorkspaceContextBtn" disabled>Refresh Context</button>
+              <button id="newWorkspaceBtn">Yeni Proje</button>
+              <button id="openProjectBtn">.thermozip Aç</button>
+              <button id="saveProjectBtn" disabled>Projeyi Kaydet</button>
+              <button id="refreshWorkspaceContextBtn" disabled>Bağlamı Yenile</button>
             </div>
-            <p id="homeProjectInfo" class="small">No workspace active.</p>
+            <p id="homeProjectInfo" class="small">Aktif çalışma alanı yok.</p>
             <div class="kv-grid">
               <div class="kv-item">
-                <div class="kv-label">Dataset Count</div>
+                <div class="kv-label">Yüklü Koşu</div>
                 <div class="kv-value" id="homeDatasetCountValue">0</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Result Count</div>
+                <div class="kv-label">Kayıtlı Sonuç</div>
                 <div class="kv-value" id="homeResultCountValue">0</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Active Dataset</div>
+                <div class="kv-label">Aktif Veri Seti</div>
                 <div class="kv-value" id="homeActiveDatasetValue">none</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Latest Result</div>
+                <div class="kv-label">Son Sonuç</div>
                 <div class="kv-value" id="homeLatestResultValue">none</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Compare Selected</div>
+                <div class="kv-label">Karşılaştırma Seçimi</div>
                 <div class="kv-value" id="homeCompareCountValue">0</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Recommended Next Step</div>
-                <div class="kv-value" id="homeNextStepValue">Create or open a workspace.</div>
+                <div class="kv-label">Önerilen Sonraki Adım</div>
+                <div class="kv-value" id="homeNextStepValue">Yeni proje oluştur veya mevcut projeyi aç.</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Saved At</div>
+                <div class="kv-label">Kaydedilme Zamanı</div>
                 <div class="kv-value" id="homeWorkspaceSavedAtValue">N/A</div>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <h3 class="section-title">Workflow Guidance</h3>
-            <p class="section-subtitle">Follow these steps for a stable workflow before running analysis.</p>
+            <h3 class="section-title" id="homeWorkflowTitle">Program Rehberi ve İş Akışı</h3>
+            <p class="section-subtitle" id="homeWorkflowSubtitle">Kararlı zincir: Veri Al → Karşılaştırma → DSC/TGA → Toplu Şablon → Rapor/Proje</p>
             <div class="step-list">
               <div class="step-item">
-                <div class="step-label">Step 1</div>
-                <div class="step-value" id="homeStepWorkspaceStatus">Create/open workspace</div>
+                <div class="step-label">Adım 1</div>
+                <div class="step-value" id="homeStepWorkspaceStatus">Çalışma alanı oluştur/aç</div>
               </div>
               <div class="step-item">
-                <div class="step-label">Step 2</div>
-                <div class="step-value" id="homeStepImportStatus">Import at least one dataset</div>
+                <div class="step-label">Adım 2</div>
+                <div class="step-value" id="homeStepImportStatus">En az bir veri seti içe aktar</div>
               </div>
               <div class="step-item">
-                <div class="step-label">Step 3</div>
-                <div class="step-value" id="homeStepCompareStatus">Select compare datasets</div>
+                <div class="step-label">Adım 3</div>
+                <div class="step-value" id="homeStepCompareStatus">Karşılaştırma seçimlerini belirle</div>
               </div>
               <div class="step-item">
-                <div class="step-label">Step 4</div>
-                <div class="step-value" id="homeStepRunStatus">Run DSC/TGA analysis</div>
+                <div class="step-label">Adım 4</div>
+                <div class="step-value" id="homeStepRunStatus">DSC/TGA analizi çalıştır</div>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <h3 class="section-title">Import Dataset</h3>
-            <p class="section-subtitle">Bring in a run file, review import confidence and validation, then decide whether it is analysis-ready.</p>
+            <h3 class="section-title" id="homeImportTitle">Veri İçe Aktar</h3>
+            <p class="section-subtitle" id="homeImportSubtitle">Dosyayı yükle, import güvenini ve doğrulama uyarılarını incele, sonra analize geç.</p>
             <div class="row">
-              <button id="importDatasetBtn" disabled>Import Dataset</button>
-              <label for="datasetTypeSelect" class="small">Type Override</label>
+              <button id="importDatasetBtn" disabled>Veri Seti İçe Aktar</button>
+              <label for="datasetTypeSelect" class="small" id="datasetTypeOverrideLabel">Tip Geçersiz Kılma</label>
               <select id="datasetTypeSelect">
-                <option value="">Auto</option>
+                <option value="">Otomatik</option>
                 <option value="DSC">DSC</option>
                 <option value="TGA">TGA</option>
                 <option value="DTA">DTA</option>
               </select>
             </div>
             <div class="split-2" style="margin-top:10px;">
-              <div class="panel-soft" id="homeImportFeedbackPanel">No import action yet.</div>
-              <div class="panel-soft" id="homeImportQualityPanel">Import confidence and review guidance will appear here after dataset inspection.</div>
+              <div class="panel-soft" id="homeImportFeedbackPanel">Henüz bir içe aktarma işlemi yapılmadı.</div>
+              <div class="panel-soft" id="homeImportQualityPanel">Import güveni ve review rehberi, veri seti incelendikten sonra burada görünür.</div>
             </div>
           </div>
 
           <div class="card">
-            <h3 class="section-title">Workspace Datasets</h3>
-            <p class="section-subtitle">Choose the active dataset, adjust compare selection, and inspect validation status.</p>
-            <div id="homeSelectedDatasetPanel" class="panel-soft">No active dataset selected.</div>
+            <h3 class="section-title" id="homeWorkspaceDatasetsTitle">Çalışma Alanı Veri Setleri</h3>
+            <p class="section-subtitle" id="homeWorkspaceDatasetsSubtitle">Aktif veri setini seç, karşılaştırma seçimini güncelle ve doğrulama durumunu denetle.</p>
+            <div id="homeSelectedDatasetPanel" class="panel-soft">Aktif veri seti seçilmedi.</div>
             <div class="table-wrap" style="margin-top:10px;">
               <table>
                 <thead>
                   <tr>
-                    <th>Use</th>
-                    <th>Active</th>
-                    <th>Compare</th>
-                    <th>Inspect</th>
-                    <th>Key</th>
-                    <th>Type</th>
-                    <th>Sample</th>
-                    <th>Validation</th>
-                    <th>Warnings</th>
-                    <th>Issues</th>
+                    <th>Kullan</th>
+                    <th>Aktif</th>
+                    <th>Karşılaştırma</th>
+                    <th>İncele</th>
+                    <th>Anahtar</th>
+                    <th>Tip</th>
+                    <th>Numune</th>
+                    <th>Doğrulama</th>
+                    <th>Uyarı</th>
+                    <th>Sorun</th>
                   </tr>
                 </thead>
                 <tbody id="datasetsBody"></tbody>
@@ -593,75 +637,75 @@
           </div>
 
           <div class="card">
-            <h3 class="section-title">Selected Dataset Detail</h3>
-            <p id="datasetDetailInfo" class="small">No dataset detail selected.</p>
-            <div id="datasetDetailPanel" class="muted">Select a dataset to inspect metadata, validation, and preview rows.</div>
+            <h3 class="section-title" id="homeDatasetDetailTitle">Seçili Veri Seti Detayı</h3>
+            <p id="datasetDetailInfo" class="small">Veri seti detayı seçilmedi.</p>
+            <div id="datasetDetailPanel" class="muted">Metadata, doğrulama ve önizleme satırları için bir veri seti seç.</div>
           </div>
         </section>
 
         <section class="view" id="view-compare">
-          <h2 class="view-title">Compare Workspace</h2>
-          <p class="view-copy">Build a compare-focused workspace: choose compatible datasets, capture notes, then run one shared template in batch.</p>
+          <h2 class="view-title" id="compareViewTitle">Karşılaştırma Alanı</h2>
+          <p class="view-copy" id="compareViewCopy">Uyumlu koşuları seç, çalışma alanı notlarını kaydet ve ortak şablonla toplu yürütmeye geç.</p>
 
           <div class="card">
             <div class="compare-flow">
-              <p class="compare-step">Step 1 - Review compare workspace status</p>
-              <p id="compareMeta" class="small">No compare metadata loaded.</p>
+              <p class="compare-step" id="compareStep1Title">Adım 1 - Karşılaştırma alanı durumunu gözden geçir</p>
+              <p id="compareMeta" class="small">Karşılaştırma metadata bilgisi henüz yüklenmedi.</p>
             </div>
-            <div id="compareSummaryPanel" class="muted">Compare workspace summary will appear here.</div>
+            <div id="compareSummaryPanel" class="muted">Karşılaştırma alanı özeti burada görünecek.</div>
             <div id="compareSelectedDatasetsPanel" class="dataset-chip-wrap"></div>
           </div>
 
           <div class="card">
             <div class="compare-flow">
-              <p class="compare-step">Step 2 - Manage selected datasets and notes</p>
+              <p class="compare-step" id="compareStep2Title">Adım 2 - Seçili veri setlerini ve notları yönet</p>
             </div>
             <div class="row">
-              <label for="compareTypeSelect">Analysis Type</label>
+              <label for="compareTypeSelect" id="compareAnalysisTypeLabel">Analiz Tipi</label>
               <select id="compareTypeSelect">
                 <option value="DSC">DSC</option>
                 <option value="TGA">TGA</option>
               </select>
-              <button id="addSelectedToCompareBtn" disabled>Add Selected Dataset</button>
-              <button id="removeSelectedFromCompareBtn" disabled>Remove Selected Dataset</button>
-              <button id="clearCompareSelectionBtn" disabled>Clear Compare Selection</button>
+              <button id="addSelectedToCompareBtn" disabled>Seçili Veri Setini Ekle</button>
+              <button id="removeSelectedFromCompareBtn" disabled>Seçili Veri Setini Çıkar</button>
+              <button id="clearCompareSelectionBtn" disabled>Karşılaştırma Seçimini Temizle</button>
             </div>
             <div id="compareDatasetChecks" class="compare-picks"></div>
-            <label for="compareNotes" style="display:block;margin-top:10px;">Workspace Notes</label>
+            <label for="compareNotes" style="display:block;margin-top:10px;" id="compareNotesLabel">Çalışma Alanı Notları</label>
             <textarea id="compareNotes" rows="4" style="width:100%;"></textarea>
             <div class="row" style="margin-top:10px;">
-              <button id="refreshCompareBtn" disabled>Refresh Compare</button>
-              <button id="saveCompareBtn" disabled>Save Compare Selection</button>
+              <button id="refreshCompareBtn" disabled>Karşılaştırmayı Yenile</button>
+              <button id="saveCompareBtn" disabled>Karşılaştırma Seçimini Kaydet</button>
             </div>
           </div>
 
           <div class="card">
             <div class="compare-flow">
-              <p class="compare-step">Step 3 - Run batch template on selected datasets</p>
+              <p class="compare-step" id="compareStep3Title">Adım 3 - Seçili veri setlerinde toplu şablonu çalıştır</p>
             </div>
             <div class="row">
-              <label for="batchAnalysisTypeSelect">Analysis</label>
+              <label for="batchAnalysisTypeSelect" id="batchAnalysisLabel">Analiz</label>
               <select id="batchAnalysisTypeSelect">
                 <option value="DSC">DSC</option>
                 <option value="TGA">TGA</option>
               </select>
-              <label for="batchTemplateIdInput">Template ID</label>
+              <label for="batchTemplateIdInput" id="batchTemplateLabel">Şablon ID</label>
               <input id="batchTemplateIdInput" value="dsc.general" style="min-width:220px;" />
-              <button id="runBatchBtn" disabled>Run Batch On Compare Selection</button>
+              <button id="runBatchBtn" disabled>Karşılaştırma Seçiminde Batch Çalıştır</button>
             </div>
             <div id="compareBatchSummaryPanel" class="panel-soft" style="margin-top:10px;">
               <div id="compareBatchStatsPanel"></div>
-              <p id="batchInfo" class="small">No batch run executed.</p>
+              <p id="batchInfo" class="small">Henüz batch çalıştırılmadı.</p>
             </div>
             <div class="table-wrap" style="margin-top:10px;">
               <table>
                 <thead>
                   <tr>
-                    <th>Dataset</th>
-                    <th>Status</th>
-                    <th>Validation</th>
-                    <th>Result ID</th>
-                    <th>Failure Reason</th>
+                    <th>Veri Seti</th>
+                    <th>Durum</th>
+                    <th>Doğrulama</th>
+                    <th>Sonuç ID</th>
+                    <th>Başarısızlık Nedeni</th>
                   </tr>
                 </thead>
                 <tbody id="batchSummaryBody"></tbody>
