@@ -40,11 +40,23 @@ from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 from utils.reference_data import render_reference_comparison
+from utils.session_state import (
+    advance_analysis_render_revision,
+    init_analysis_state_history,
+    push_analysis_undo_snapshot,
+    redo_analysis_state,
+    reset_analysis_state,
+    undo_analysis_state,
+)
 
 
-def _plot_with_status(fig, status_text):
+def _chart_key(selected_key, slot, state):
+    return f"tga_chart_{selected_key}_{slot}_{state.get('_render_revision', 0)}"
+
+
+def _plot_with_status(fig, status_text, *, chart_key):
     """Render a plotly chart followed by a status bar."""
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=chart_key)
     st.markdown(
         f'<div class="status-bar">{status_text}</div>',
         unsafe_allow_html=True,
@@ -186,14 +198,18 @@ def render():
     )
     dataset = tga_datasets[selected_key]
     state_key = f"tga_state_{selected_key}"
+    default_state = {
+        "smoothed": None,
+        "dtg": None,
+        "tga_result": None,
+        "processing": ensure_processing_payload(analysis_type="TGA", workflow_template="General TGA"),
+    }
     if state_key not in st.session_state:
         st.session_state[state_key] = {
-            "smoothed": None,
-            "dtg": None,
-            "tga_result": None,
-            "processing": ensure_processing_payload(analysis_type="TGA", workflow_template="General TGA"),
+            **default_state,
         }
     state = st.session_state[state_key]
+    init_analysis_state_history(state)
     state["processing"] = ensure_processing_payload(state.get("processing"), analysis_type="TGA")
     workflow_catalog = get_workflow_templates("TGA")
     workflow_labels = {
@@ -259,6 +275,53 @@ def render():
     mass_signal = dataset.data["signal"].values
     temp_unit = dataset.units.get("temperature", "°C")
     mass_unit = dataset.units.get("signal", "%")
+    tracked_keys = tuple(default_state.keys())
+
+    undo_count = len(state.get("_undo_stack", []))
+    redo_count = len(state.get("_redo_stack", []))
+    control_cols = st.columns([1, 1, 1, 3])
+    with control_cols[0]:
+        if st.button(tx("Geri Al", "Undo"), key=f"tga_undo_{selected_key}", disabled=undo_count == 0):
+            if undo_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("İşlem Geri Alındı", "Undo Applied"),
+                    tx("TGA görünümü bir önceki adıma döndürüldü.", "TGA view restored to the previous step."),
+                    t("tga.title"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[1]:
+        if st.button(tx("İleri Al", "Redo"), key=f"tga_redo_{selected_key}", disabled=redo_count == 0):
+            if redo_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("İşlem İleri Alındı", "Redo Applied"),
+                    tx("TGA görünümü bir sonraki adıma taşındı.", "TGA view advanced to the next step."),
+                    t("tga.title"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[2]:
+        if st.button(tx("Varsayılana Dön", "Reset to Default"), key=f"tga_reset_{selected_key}"):
+            if reset_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("Varsayılana Dönüldü", "Reset to Default"),
+                    tx("TGA işlem durumu temizlendi.", "TGA processing state was cleared."),
+                    t("tga.title"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[3]:
+        st.caption(
+            tx(
+                "Geçmiş: {undo} geri alınabilir, {redo} ileri alınabilir.",
+                "History: {undo} undo available, {redo} redo available.",
+                undo=undo_count,
+                redo=redo_count,
+            )
+        )
 
     tab_raw, tab_smooth, tab_steps, tab_results = st.tabs(
         [
@@ -291,6 +354,7 @@ def render():
                 mass_max=float(mass_signal.max()),
                 mass_unit=mass_unit,
             ),
+            chart_key=_chart_key(selected_key, "raw", state),
         )
 
         render_quality_dashboard(temperature, mass_signal, key_prefix=f"tga_qd_{selected_key}")
@@ -417,6 +481,7 @@ def render():
             if st.button(tx("Yumuşatmayı Uygula", "Apply Smoothing"), key="tga_apply_smooth"):
                 try:
                     smoothed = smooth_signal(mass_signal, method=smooth_method, **smooth_kwargs)
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["smoothed"] = smoothed
                     _log_event(
                         tx("Yumuşatma Uygulandı", "Smoothing Applied"),
@@ -441,6 +506,7 @@ def render():
                         },
                         analysis_type="TGA",
                     )
+                    advance_analysis_render_revision(state)
                     st.success(tx("Yumuşatma uygulandı. DTG hesaplandı.", "Smoothing applied. DTG computed."))
                 except Exception as exc:
                     error_id = record_exception(
@@ -480,7 +546,12 @@ def render():
                     **({"secondary_y": False} if dtg_for_plot is not None else {}),
                 )
 
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "smoothing", state),
+            )
 
         if not show_dtg and state.get("dtg") is not None:
             fig_dtg = create_thermal_plot(
@@ -491,7 +562,12 @@ def render():
                 y_label="DTG (%/°C)",
                 color=THERMAL_COLORS[1],
             )
-            st.plotly_chart(fig_dtg, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_dtg,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "dtg_only", state),
+            )
 
     with tab_steps:
         st.subheader(tx("Kütle Kaybı Adım Tespiti", "Mass-Loss Step Detection"))
@@ -581,6 +657,7 @@ def render():
                         min_mass_loss=min_mass_loss,
                         **step_smooth_kwargs,
                     )
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["tga_result"] = result
                     state["smoothed"] = result.smoothed_signal
                     state["dtg"] = result.dtg_signal
@@ -595,6 +672,7 @@ def render():
                         },
                         analysis_type="TGA",
                     )
+                    advance_analysis_render_revision(state)
 
                     n_steps = len(result.steps)
                     _log_event(
@@ -655,7 +733,12 @@ def render():
                 dtg=dtg_display,
                 steps=steps_display,
             )
-            st.plotly_chart(fig_steps, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_steps,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "steps", state),
+            )
 
         if state.get("tga_result") is not None:
             result = state["tga_result"]

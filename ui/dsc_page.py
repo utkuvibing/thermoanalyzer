@@ -30,11 +30,23 @@ from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 from utils.reference_data import render_reference_comparison
+from utils.session_state import (
+    advance_analysis_render_revision,
+    init_analysis_state_history,
+    push_analysis_undo_snapshot,
+    redo_analysis_state,
+    reset_analysis_state,
+    undo_analysis_state,
+)
 
 
-def _plot_with_status(fig, status_text):
+def _chart_key(selected_key, slot, state):
+    return f"dsc_chart_{selected_key}_{slot}_{state.get('_render_revision', 0)}"
+
+
+def _plot_with_status(fig, status_text, *, chart_key):
     """Render a plotly chart followed by a status bar."""
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=chart_key)
     st.markdown(
         f'<div class="status-bar">{status_text}</div>',
         unsafe_allow_html=True,
@@ -143,17 +155,21 @@ def render():
     selected_key = st.selectbox(tx("Veri Seti Seç", "Select Dataset"), list(dsc_datasets.keys()), key="dsc_dataset_select")
     dataset = dsc_datasets[selected_key]
     state_key = f"dsc_state_{selected_key}"
+    default_state = {
+        "smoothed": None,
+        "baseline": None,
+        "corrected": None,
+        "peaks": None,
+        "glass_transitions": [],
+        "processing": ensure_processing_payload(analysis_type="DSC", workflow_template=tx("Genel DSC", "General DSC")),
+    }
     if state_key not in st.session_state:
         st.session_state[state_key] = {
-            "smoothed": None,
-            "baseline": None,
-            "corrected": None,
-            "peaks": None,
-            "glass_transitions": [],
             "processor": None,
-            "processing": ensure_processing_payload(analysis_type="DSC", workflow_template=tx("Genel DSC", "General DSC")),
+            **default_state,
         }
     state = st.session_state[state_key]
+    init_analysis_state_history(state)
     state["processing"] = ensure_processing_payload(state.get("processing"), analysis_type="DSC")
 
     workflow_catalog = get_workflow_templates("DSC")
@@ -187,6 +203,53 @@ def render():
     temperature = dataset.data["temperature"].values
     signal = dataset.data["signal"].values
     y_label = f"Heat Flow ({dataset.units.get('signal', 'mW')})"
+    tracked_keys = tuple(default_state.keys())
+
+    undo_count = len(state.get("_undo_stack", []))
+    redo_count = len(state.get("_redo_stack", []))
+    control_cols = st.columns([1, 1, 1, 3])
+    with control_cols[0]:
+        if st.button(tx("Geri Al", "Undo"), key=f"dsc_undo_{selected_key}", disabled=undo_count == 0):
+            if undo_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("İşlem Geri Alındı", "Undo Applied"),
+                    tx("DSC görünümü bir önceki adıma döndürüldü.", "DSC view restored to the previous step."),
+                    t("dsc.title"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[1]:
+        if st.button(tx("İleri Al", "Redo"), key=f"dsc_redo_{selected_key}", disabled=redo_count == 0):
+            if redo_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("İşlem İleri Alındı", "Redo Applied"),
+                    tx("DSC görünümü bir sonraki adıma taşındı.", "DSC view advanced to the next step."),
+                    t("dsc.title"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[2]:
+        if st.button(tx("Varsayılana Dön", "Reset to Default"), key=f"dsc_reset_{selected_key}"):
+            if reset_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("Varsayılana Dönüldü", "Reset to Default"),
+                    tx("DSC işlem durumu temizlendi.", "DSC processing state was cleared."),
+                    t("dsc.title"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[3]:
+        st.caption(
+            tx(
+                "Geçmiş: {undo} geri alınabilir, {redo} ileri alınabilir.",
+                "History: {undo} undo available, {redo} redo available.",
+                undo=undo_count,
+                redo=redo_count,
+            )
+        )
 
     tab_raw, tab_smooth, tab_baseline, tab_tg, tab_peaks, tab_results = st.tabs(
         [
@@ -217,6 +280,7 @@ def render():
                 t_max=float(temperature.max()),
                 points=f"{len(temperature):,}",
             ),
+            chart_key=_chart_key(selected_key, "raw", state),
         )
 
         render_quality_dashboard(temperature, signal, key_prefix=f"dsc_qd_{selected_key}")
@@ -291,6 +355,7 @@ def render():
 
             if st.button(tx("Yumuşatmayı Uygula", "Apply Smoothing"), key="dsc_apply_smooth"):
                 smoothed = smooth_signal(signal, method=smooth_method, **smooth_kwargs)
+                push_analysis_undo_snapshot(state, tracked_keys)
                 state["smoothed"] = smoothed
                 state["baseline"] = None
                 state["corrected"] = None
@@ -302,6 +367,7 @@ def render():
                     {"method": smooth_method, **smooth_kwargs},
                     analysis_type="DSC",
                 )
+                advance_analysis_render_revision(state)
                 _log_event(
                     tx("Yumuşatma Uygulandı", "Smoothing Applied"),
                     f"{tx('Yöntem', 'Method')}: {smooth_method}",
@@ -319,7 +385,12 @@ def render():
                 y_label=y_label,
                 smoothed=state.get("smoothed"),
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "smoothing", state),
+            )
 
         if st.checkbox(tx("Türevi Göster", "Show Derivative"), key="dsc_show_deriv"):
             working_signal = state.get("smoothed") if state.get("smoothed") is not None else signal
@@ -331,7 +402,12 @@ def render():
                 y_label=tx("dHF/dT", "dHF/dT"),
                 color="#2EC4B6",
             )
-            st.plotly_chart(fig_d, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_d,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "smoothing_derivative", state),
+            )
 
     with tab_baseline:
         st.subheader(tx("Baz Çizgisi Düzeltmesi", "Baseline Correction"))
@@ -378,6 +454,7 @@ def render():
                         region=region,
                         **bl_kwargs,
                     )
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["baseline"] = baseline
                     state["corrected"] = corrected
                     state["peaks"] = None
@@ -392,6 +469,7 @@ def render():
                         },
                         analysis_type="DSC",
                     )
+                    advance_analysis_render_revision(state)
                     _log_event(
                         tx("Baz Çizgisi Düzeltildi", "Baseline Corrected"),
                         f"{tx('Yöntem', 'Method')}: {baseline_method}",
@@ -420,7 +498,12 @@ def render():
                 y_label=y_label,
                 baseline=state.get("baseline"),
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "baseline", state),
+            )
 
             if state.get("corrected") is not None:
                 fig2 = create_thermal_plot(
@@ -430,7 +513,12 @@ def render():
                     y_label=tx("Düzeltilmiş {label}", "Corrected {label}", label=y_label),
                     color="#2EC4B6",
                 )
-                st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
+                st.plotly_chart(
+                    fig2,
+                    use_container_width=True,
+                    config=PLOTLY_CONFIG,
+                    key=_chart_key(selected_key, "baseline_corrected", state),
+                )
 
     with tab_tg:
         st.subheader(tx("Cam Geçişi Tespiti", "Glass Transition Detection"))
@@ -458,6 +546,7 @@ def render():
                     )
                     processor.detect_glass_transition(region=tg_region)
                     glass_transitions = processor.get_result().glass_transitions
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["glass_transitions"] = glass_transitions
                     state["processing"] = update_processing_step(
                         state.get("processing"),
@@ -465,6 +554,7 @@ def render():
                         {"region": tg_region, "event_count": len(glass_transitions)},
                         analysis_type="DSC",
                     )
+                    advance_analysis_render_revision(state)
                     _log_event(
                         tx("Cam Geçişi Tespit Edildi", "Glass Transition Detected"),
                         tx("{count} Tg olayı", "{count} Tg event(s)", count=len(glass_transitions)),
@@ -498,7 +588,12 @@ def render():
                 fig_tg.add_vline(x=tg.tg_onset, line_dash="dot", line_color="#6B7280", annotation_text=tx("Başlangıç {value:.1f}°C", "Onset {value:.1f}°C", value=tg.tg_onset))
                 fig_tg.add_vline(x=tg.tg_midpoint, line_dash="dash", line_color="#0B5394", annotation_text=tx("Tg {value:.1f}°C", "Tg {value:.1f}°C", value=tg.tg_midpoint))
                 fig_tg.add_vline(x=tg.tg_endset, line_dash="dot", line_color="#6B7280", annotation_text=tx("Bitiş {value:.1f}°C", "Endset {value:.1f}°C", value=tg.tg_endset))
-            st.plotly_chart(fig_tg, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_tg,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "tg", state),
+            )
 
         if state.get("glass_transitions"):
             st.subheader(tx("Tespit Edilen Tg Olayları", "Detected Tg Events"))
@@ -562,6 +657,7 @@ def render():
                     peaks = find_thermal_peaks(temperature, working, **kwargs)
                     baseline_for_peaks = np.zeros_like(working) if state.get("corrected") is not None else state.get("baseline")
                     peaks = characterize_peaks(temperature, working, peaks, baseline=baseline_for_peaks)
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["peaks"] = peaks
                     state["processing"] = update_processing_step(
                         state.get("processing"),
@@ -569,6 +665,7 @@ def render():
                         {"peak_count": len(peaks), **kwargs},
                         analysis_type="DSC",
                     )
+                    advance_analysis_render_revision(state)
                     _log_event(
                         tx("Pikler Tespit Edildi", "Peaks Detected"),
                         tx("{count} pik bulundu", "{count} peak(s) found", count=len(peaks)),
@@ -597,7 +694,12 @@ def render():
                 baseline=state.get("baseline"),
                 peaks=state.get("peaks"),
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "peaks", state),
+            )
 
         if state.get("peaks"):
             st.subheader(tx("Pik Sonuçları", "Peak Results"))

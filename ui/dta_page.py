@@ -22,15 +22,27 @@ from ui.components.history_tracker import _log_event
 from ui.components.quality_dashboard import render_quality_dashboard
 from utils.reference_data import render_reference_comparison
 from utils.i18n import tx
+from utils.session_state import (
+    advance_analysis_render_revision,
+    init_analysis_state_history,
+    push_analysis_undo_snapshot,
+    redo_analysis_state,
+    reset_analysis_state,
+    undo_analysis_state,
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _plot_with_status(fig, status_text):
+def _chart_key(selected_key, slot, state):
+    return f"dta_chart_{selected_key}_{slot}_{state.get('_render_revision', 0)}"
+
+
+def _plot_with_status(fig, status_text, *, chart_key):
     """Render a plotly chart followed by a status bar."""
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=chart_key)
     st.markdown(
         f'<div class="status-bar">{status_text}</div>',
         unsafe_allow_html=True,
@@ -111,17 +123,66 @@ def render():
 
     # Initialise per-dataset processing state
     state_key = f"dta_state_{selected_key}"
+    default_state = {
+        "smoothed": None,
+        "baseline": None,
+        "corrected": None,
+        "peaks": None,
+    }
     if state_key not in st.session_state:
-        st.session_state[state_key] = {
-            "smoothed": None,
-            "baseline": None,
-            "corrected": None,
-            "peaks": None,
-        }
+        st.session_state[state_key] = dict(default_state)
     state = st.session_state[state_key]
+    init_analysis_state_history(state)
+    tracked_keys = tuple(default_state.keys())
 
     # y-axis label: DTA uses delta-T in µV
     y_label = f"\u0394T ({dataset.units.get('signal', '\u00b5V')})"
+
+    undo_count = len(state.get("_undo_stack", []))
+    redo_count = len(state.get("_redo_stack", []))
+    control_cols = st.columns([1, 1, 1, 3])
+    with control_cols[0]:
+        if st.button(tx("Geri Al", "Undo"), key=f"dta_undo_{selected_key}", disabled=undo_count == 0):
+            if undo_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("İşlem Geri Alındı", "Undo Applied"),
+                    tx("DTA görünümü bir önceki adıma döndürüldü.", "DTA view restored to the previous step."),
+                    tx("DTA Analizi", "DTA Analysis"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[1]:
+        if st.button(tx("İleri Al", "Redo"), key=f"dta_redo_{selected_key}", disabled=redo_count == 0):
+            if redo_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("İşlem İleri Alındı", "Redo Applied"),
+                    tx("DTA görünümü bir sonraki adıma taşındı.", "DTA view advanced to the next step."),
+                    tx("DTA Analizi", "DTA Analysis"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[2]:
+        if st.button(tx("Varsayılana Dön", "Reset to Default"), key=f"dta_reset_{selected_key}"):
+            if reset_analysis_state(state, default_state):
+                advance_analysis_render_revision(state)
+                _log_event(
+                    tx("Varsayılana Dönüldü", "Reset to Default"),
+                    tx("DTA işlem durumu temizlendi.", "DTA processing state was cleared."),
+                    tx("DTA Analizi", "DTA Analysis"),
+                    dataset_key=selected_key,
+                )
+                st.rerun()
+    with control_cols[3]:
+        st.caption(
+            tx(
+                "Geçmiş: {undo} geri alınabilir, {redo} ileri alınabilir.",
+                "History: {undo} undo available, {redo} redo available.",
+                undo=undo_count,
+                redo=redo_count,
+            )
+        )
 
     # Build tabs
     tab_raw, tab_smooth, tab_baseline, tab_peaks, tab_results = st.tabs(
@@ -155,6 +216,7 @@ def render():
                     points=f"{len(temperature):,}",
                     delta=float(signal.max() - signal.min()),
                 ),
+            chart_key=_chart_key(selected_key, "raw", state),
         )
 
         render_quality_dashboard(temperature, signal, key_prefix=f"dta_qd_{selected_key}")
@@ -241,7 +303,9 @@ def render():
                     smoothed = smooth_signal(
                         signal, method=smooth_method, **smooth_kwargs
                     )
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["smoothed"] = smoothed
+                    advance_analysis_render_revision(state)
                     _log_event(tx("Yumuşatma Uygulandı", "Smoothing Applied"), f"{tx('Yöntem', 'Method')}: {smooth_method}", tx("DTA Analizi", "DTA Analysis"))
                     # Reset downstream results when input signal changes
                     state["baseline"] = None
@@ -259,7 +323,12 @@ def render():
                 title=tx("Yumuşatılmış DTA Sinyali", "Smoothed DTA Signal"),
                 smoothed=smoothed_for_plot,
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "smoothing", state),
+            )
 
         # Optional first-derivative view
         if st.checkbox(tx("Türevi Göster", "Show Derivative"), key="dta_show_deriv"):
@@ -276,7 +345,12 @@ def render():
                 y_label=tx("d(ΔT)/dT", "d(ΔT)/dT"),
                 color="#2EC4B6",
             )
-            st.plotly_chart(fig_d, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_d,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "smoothing_derivative", state),
+            )
 
     # =========================================================================
     # TAB 3 - BASELINE CORRECTION
@@ -356,10 +430,12 @@ def render():
                         region=bl_region,
                         **bl_kwargs,
                     )
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["baseline"] = baseline
                     state["corrected"] = corrected
                     # Reset peaks when baseline changes
                     state["peaks"] = None
+                    advance_analysis_render_revision(state)
                     _log_event(tx("Baz Çizgisi Düzeltildi", "Baseline Corrected"), f"{tx('Yöntem', 'Method')}: {baseline_method}", tx("DTA Analizi", "DTA Analysis"))
                     st.success(tx("Baz çizgisi düzeltmesi uygulandı ({method}).", "Baseline correction applied ({method}).", method=baseline_method))
                 except Exception as exc:
@@ -379,7 +455,12 @@ def render():
                 title=tx("Baz Çizgisi Düzeltmesi", "Baseline Correction"),
                 baseline=state.get("baseline"),
             )
-            st.plotly_chart(fig_bl, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_bl,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "baseline", state),
+            )
 
             # Show the corrected signal when available
             if state.get("corrected") is not None:
@@ -390,7 +471,12 @@ def render():
                     y_label=tx("Düzeltilmiş {label}", "Corrected {label}", label=y_label),
                     color="#2EC4B6",
                 )
-                st.plotly_chart(fig_corr, use_container_width=True, config=PLOTLY_CONFIG)
+                st.plotly_chart(
+                    fig_corr,
+                    use_container_width=True,
+                    config=PLOTLY_CONFIG,
+                    key=_chart_key(selected_key, "baseline_corrected", state),
+                )
 
     # =========================================================================
     # TAB 4 - PEAK ANALYSIS
@@ -483,7 +569,9 @@ def render():
                             baseline=baseline_arr,
                         )
 
+                    push_analysis_undo_snapshot(state, tracked_keys)
                     state["peaks"] = result.peaks
+                    advance_analysis_render_revision(state)
                     _log_event(tx("Pikler Tespit Edildi", "Peaks Detected"), tx("{count} pik bulundu", "{count} peak(s) found", count=len(result.peaks)), tx("DTA Analizi", "DTA Analysis"))
                     st.success(tx("{count} pik bulundu.", "Found {count} peak(s).", count=len(result.peaks)))
                 except Exception as exc:
@@ -505,7 +593,12 @@ def render():
                 baseline=state.get("baseline"),
                 peaks=state.get("peaks"),
             )
-            st.plotly_chart(fig_peaks, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(
+                fig_peaks,
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=_chart_key(selected_key, "peaks", state),
+            )
 
         # Peak results table
         if state.get("peaks"):
