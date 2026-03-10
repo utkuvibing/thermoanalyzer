@@ -442,7 +442,7 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">THERMOANALYZER</div>
-      <div class="brand-sub">Desktop Workflow Shell</div>
+      <div class="brand-sub">Desktop Analysis Workbench</div>
 
       <div class="nav-group">
         <div class="group-label">Primary</div>
@@ -747,73 +747,127 @@
         </section>
 
         <section class="view" id="view-export">
-          <h2 class="view-title">Export / Report</h2>
-          <p class="view-copy">Select stable saved results and generate CSV or DOCX artifacts.</p>
+          <h2 class="view-title">Export & Reports</h2>
+          <p class="view-copy">Prepare a clean export set from saved results, then generate professor-ready CSV and DOCX artifacts.</p>
 
           <div class="card">
+            <div class="analysis-step">
+              <p class="analysis-step-title">Step 1 - Prepare export context</p>
+            </div>
             <div class="row">
-              <button id="refreshExportPrepBtn" disabled>Refresh Export Prep</button>
-              <button id="exportCsvBtn" disabled>Export Results CSV</button>
+              <button id="refreshExportPrepBtn" disabled>Refresh Export Context</button>
+            </div>
+            <p id="exportPrepInfo" class="small">No export context loaded yet.</p>
+            <div id="exportPrepPanel" class="muted">Export summary metadata will appear here.</div>
+          </div>
+
+          <div class="card">
+            <div class="analysis-step">
+              <p class="analysis-step-title">Step 2 - Choose saved results</p>
+            </div>
+            <p id="exportSelectionHint" class="small">Select the saved results to include in your export package.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Include</th>
+                    <th>Result ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Validation</th>
+                    <th>Saved At (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody id="exportResultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="analysis-step">
+              <p class="analysis-step-title">Step 3 - Generate deliverables</p>
+            </div>
+            <div class="row">
+              <button id="exportCsvBtn" disabled>Generate Results CSV</button>
               <button id="exportDocxBtn" disabled>Generate DOCX Report</button>
             </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Include</th>
-                  <th>Result ID</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Validation</th>
-                  <th>Saved At (UTC)</th>
-                </tr>
-              </thead>
-              <tbody id="exportResultsBody"></tbody>
-            </table>
-            <p id="exportPrepInfo" class="small">No export preparation data loaded.</p>
-            <div id="exportPrepPanel" class="muted">Export summary metadata will appear here.</div>
+            <p class="small">Artifacts are generated from the current workspace and saved to your chosen path.</p>
             <div id="exportActionPanel" class="muted"></div>
           </div>
         </section>
 
         <section class="view" id="view-project">
           <h2 class="view-title">Project Workspace</h2>
-          <p class="view-copy">Inspect saved results for the active workspace and persist project archives.</p>
+          <p class="view-copy">Manage archive confidence for your current workspace, inspect saved results, and persist project state safely.</p>
 
           <div class="card">
+            <div class="analysis-step">
+              <p class="analysis-step-title">Project archive controls</p>
+            </div>
             <div class="row">
               <button id="saveProjectBtnProjectView" disabled>Save Workspace</button>
               <button id="refreshWorkspaceContextBtnProjectView" disabled>Refresh Context</button>
             </div>
             <p id="projectViewInfo" class="small">No workspace active.</p>
+            <div class="kv-grid">
+              <div class="kv-item">
+                <div class="kv-label">Datasets</div>
+                <div class="kv-value" id="projectDatasetCountValue">0</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Saved Results</div>
+                <div class="kv-value" id="projectResultCountValue">0</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">History Entries</div>
+                <div class="kv-value" id="projectHistoryCountValue">0</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Figures</div>
+                <div class="kv-value" id="projectFigureCountValue">0</div>
+              </div>
+            </div>
+            <p id="projectConfidenceMessage" class="small">Open or create a workspace to establish project archive context.</p>
           </div>
 
           <div class="card">
-            <p class="small">Results</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Selected</th>
-                  <th>Inspect</th>
-                  <th>ID</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Dataset</th>
-                  <th>Validation</th>
-                  <th>Calib</th>
-                  <th>Reference</th>
-                  <th>Saved At (UTC)</th>
-                </tr>
-              </thead>
-              <tbody id="resultsBody"></tbody>
-            </table>
+            <div class="analysis-step">
+              <p class="analysis-step-title">Saved results archive</p>
+            </div>
+            <p class="small">Inspect saved records, verify validation/provenance status, and select a result for deeper review.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Selected</th>
+                    <th>Inspect</th>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Dataset</th>
+                    <th>Validation</th>
+                    <th>Calib</th>
+                    <th>Reference</th>
+                    <th>Saved At (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody id="resultsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="analysis-step">
+              <p class="analysis-step-title">Selected result detail</p>
+            </div>
             <p id="resultDetailInfo" class="small">No result detail selected.</p>
             <div id="resultDetailPanel" class="muted">Select a saved result to inspect processing, provenance, and validation.</div>
           </div>
         </section>
 
         <section class="view" id="view-license">
-          <h2 class="view-title">License & Branding</h2>
-          <p class="view-copy">Desktop shell placeholder for Streamlit-equivalent license and branding areas.</p>
+          <h2 class="view-title">Product & License</h2>
+          <p class="view-copy">ThermoAnalyzer Desktop build information, release scope, and professor-demo notes.</p>
           <div class="card">
             <div class="kv-grid">
               <div class="kv-item">
@@ -825,11 +879,19 @@
                 <div class="kv-value" id="licenseProjectExtValue">unknown</div>
               </div>
               <div class="kv-item">
-                <div class="kv-label">Desktop Scope</div>
-                <div class="kv-value">Stable DSC/TGA + compare + export + project archive</div>
+                <div class="kv-label">Desktop Release Focus</div>
+                <div class="kv-value">Stable DSC/TGA workflows, compare workspace, project archive, CSV/DOCX outputs</div>
               </div>
             </div>
-            <p class="small">Streamlit license page remains the reference implementation. This desktop view is intentionally limited in this tranche.</p>
+          </div>
+          <div class="card">
+            <p class="section-title">Professor Demo Notes</p>
+            <p class="section-subtitle">This desktop build is optimized for stable teaching/demo workflows.</p>
+            <ul class="list-box">
+              <li>Stable focus: DSC/TGA analysis, compare workspace, save/load project archives, CSV/DOCX artifacts.</li>
+              <li>Preview modules (DTA, kinetics, deconvolution) are intentionally out of scope for demo promise.</li>
+              <li>Streamlit remains available as fallback/reference implementation without modification.</li>
+            </ul>
           </div>
         </section>
 

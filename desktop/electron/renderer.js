@@ -419,6 +419,17 @@ function applyWorkspaceContext(context) {
     "projectViewInfo",
     `Workspace ${activeProjectId} | figures=${context.summary.figure_count} | history=${context.summary.analysis_history_count}`
   );
+  setText("projectDatasetCountValue", String(context.summary.dataset_count || 0));
+  setText("projectResultCountValue", String(context.summary.result_count || 0));
+  setText("projectHistoryCountValue", String(context.summary.analysis_history_count || 0));
+  setText("projectFigureCountValue", String(context.summary.figure_count || 0));
+  const projectConfidence =
+    Number(context.summary.dataset_count || 0) === 0
+      ? "Import datasets to establish project archive baseline."
+      : Number(context.summary.result_count || 0) === 0
+      ? "Datasets imported. Run analyses to build saved result history."
+      : "Workspace has saved results and is ready for archive save/export.";
+  setText("projectConfidenceMessage", projectConfidence);
   setText("homeActiveDatasetValue", currentActiveDatasetKey || "none");
   setText("homeLatestResultValue", latestResultText);
   setText("homeCompareCountValue", String(compareCount));
@@ -771,7 +782,8 @@ function renderExportableResults(results) {
   const body = el("exportResultsBody");
   exportableResults = results || [];
   if (!exportableResults.length) {
-    body.innerHTML = "<tr><td colspan='6'>No exportable saved results.</td></tr>";
+    body.innerHTML = "<tr><td colspan='6'>No saved results are currently available for export. Run analysis and save results first.</td></tr>";
+    setText("exportSelectionHint", "No exportable saved results yet. Generate at least one stable result first.");
     setDisabled("exportCsvBtn", true);
     setDisabled("exportDocxBtn", true);
     return;
@@ -791,6 +803,10 @@ function renderExportableResults(results) {
     `
     )
     .join("");
+  setText(
+    "exportSelectionHint",
+    `Select the saved results to include. ${exportableResults.length} result(s) currently eligible for export/report generation.`
+  );
   setDisabled("exportCsvBtn", false);
   setDisabled("exportDocxBtn", false);
 }
@@ -969,8 +985,9 @@ async function onToggleCompareDataset(datasetKey) {
 
 async function refreshExportPreparation() {
   if (!activeProjectId) {
-    setText("exportPrepInfo", "No export preparation data loaded.");
-    setHtml("exportPrepPanel", "Export summary metadata will appear here.");
+    setText("exportPrepInfo", "Open or create a workspace to prepare export context.");
+    setText("exportSelectionHint", "Select the saved results to include in your export package.");
+    setHtml("exportPrepPanel", "Refresh export context after loading or analyzing datasets.");
     setHtml("exportActionPanel", "");
     renderExportableResults([]);
     setDiagnostic("export", {});
@@ -982,7 +999,7 @@ async function refreshExportPreparation() {
     renderExportableResults(prep.exportable_results || []);
     setText(
       "exportPrepInfo",
-      `Exportable saved results: ${(prep.exportable_results || []).length} | Skipped invalid records: ${(prep.skipped_record_issues || []).length}`
+      `Export context ready: ${(prep.exportable_results || []).length} exportable result(s), ${(prep.skipped_record_issues || []).length} skipped invalid record issue(s).`
     );
     setHtml(
       "exportPrepPanel",
@@ -1057,6 +1074,11 @@ async function refreshWorkspaceViews() {
     setText("homeStepCompareStatus", "Select compare datasets");
     setText("homeStepRunStatus", "Run DSC/TGA analysis");
     setText("projectViewInfo", "No workspace active.");
+    setText("projectDatasetCountValue", "0");
+    setText("projectResultCountValue", "0");
+    setText("projectHistoryCountValue", "0");
+    setText("projectFigureCountValue", "0");
+    setText("projectConfidenceMessage", "Open or create a workspace to establish project archive context.");
     renderDatasets([]);
     renderResults([]);
     setText("compareMeta", "No compare metadata loaded.");
@@ -1065,8 +1087,9 @@ async function refreshWorkspaceViews() {
     setHtml("compareBatchStatsPanel", "");
     setText("batchInfo", "No batch run executed.");
     renderBatchSummaryRows([]);
-    setText("exportPrepInfo", "No export preparation data loaded.");
-    setHtml("exportPrepPanel", "Export summary metadata will appear here.");
+    setText("exportPrepInfo", "Open or create a workspace to prepare export context.");
+    setText("exportSelectionHint", "Select the saved results to include in your export package.");
+    setHtml("exportPrepPanel", "Refresh export context after loading or analyzing datasets.");
     setHtml("exportActionPanel", "");
     setHtml("homeImportFeedbackPanel", "No import action yet.");
     setHtml("homeImportQualityPanel", "Import confidence and review guidance will appear here after dataset inspection.");
@@ -1356,14 +1379,24 @@ async function onExportResultsCsv() {
   if (!activeProjectId) return;
   try {
     const selectedResultIds = collectSelectedExportResultIds();
+    if (!selectedResultIds.length) {
+      setHtml(
+        "exportActionPanel",
+        "<span class='badge badge-warn'>No results selected</span><p class='small'>Select at least one saved result before generating CSV.</p>"
+      );
+      return;
+    }
     const artifact = await window.taDesktop.generateResultsCsv(activeProjectId, selectedResultIds);
     const saved = await window.taDesktop.persistGeneratedFile(artifact.file_name, artifact.artifact_base64);
     setHtml(
       "exportActionPanel",
-      keyGrid([
-        { label: "Last Artifact", value: artifact.file_name },
+      `
+      <span class="badge badge-ok">CSV artifact generated</span>
+      ${keyGrid([
+        { label: "Artifact", value: artifact.file_name },
         { label: "Included Results", value: String((artifact.included_result_ids || []).length) },
-      ])
+      ])}
+      `
     );
     setDiagnostic("export", { action: "results_csv", artifact });
     if (!saved || saved.canceled) {
@@ -1380,14 +1413,24 @@ async function onGenerateDocxReport() {
   if (!activeProjectId) return;
   try {
     const selectedResultIds = collectSelectedExportResultIds();
+    if (!selectedResultIds.length) {
+      setHtml(
+        "exportActionPanel",
+        "<span class='badge badge-warn'>No results selected</span><p class='small'>Select at least one saved result before generating DOCX.</p>"
+      );
+      return;
+    }
     const artifact = await window.taDesktop.generateDocxReport(activeProjectId, selectedResultIds);
     const saved = await window.taDesktop.persistGeneratedFile(artifact.file_name, artifact.artifact_base64);
     setHtml(
       "exportActionPanel",
-      keyGrid([
-        { label: "Last Artifact", value: artifact.file_name },
+      `
+      <span class="badge badge-ok">DOCX artifact generated</span>
+      ${keyGrid([
+        { label: "Artifact", value: artifact.file_name },
         { label: "Included Results", value: String((artifact.included_result_ids || []).length) },
-      ])
+      ])}
+      `
     );
     setDiagnostic("export", { action: "report_docx", artifact });
     if (!saved || saved.canceled) {

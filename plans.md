@@ -1342,3 +1342,54 @@ Upgrade Electron DSC/TGA pages from shallow run panels to guided product-like an
 
 ### Notes
 - This tranche focuses strictly on DSC/TGA product impression for demo readiness; export/project deep parity and final visual polish remain for later.
+
+---
+
+## Title
+Electron UI Parity Tranche 4 - Final Professor Demo Polish (Copy + Export/Project/License)
+
+### Objective
+Deliver a final high-impact, low-risk product-facing polish pass for tomorrow's professor demo by improving copy, branding tone, and Export/Project/License presentation without changing behavior or backend contracts.
+
+### Definition Of Done
+- Remove internal/demo-shell tone from desktop-facing copy where visible.
+- Export page feels workflow-driven (prepare context -> choose results -> generate artifacts) with clearer empty states.
+- Project page emphasizes archive confidence and saved-result context with clearer hierarchy.
+- License/Product page reads like a release-facing info page (not placeholder text).
+- Diagnostics remains technical and separate.
+
+### Constraints
+- Do not edit `app.py` or `ui/*`.
+- No core numerical/backend contract changes.
+- No normalized result/export contract changes.
+- No `.thermozip` compatibility changes.
+- No packaging work.
+
+### Impact Analysis
+- `desktop/electron/index.html`
+- `desktop/electron/renderer.js`
+- `plans.md`
+
+### Risks
+- Copy/markup changes can accidentally break renderer ID wiring.
+- Empty-state wording must remain consistent with existing behavior.
+
+### Migration / Rollout Strategy
+- Keep all existing action IDs and backend calls unchanged.
+- Apply copy/hierarchy improvements in page markup and renderer text/panel rendering only.
+- Verify with syntax check, desktop smoke tests, and full regression suite.
+
+### Test Strategy
+- `node --check desktop/electron/renderer.js`
+- `npm run test:desktop-smoke` (from `desktop/electron`)
+- `pytest -q`
+
+### Progress Log
+- [x] Polish product-facing copy/branding tone in desktop shell
+- [x] Reframe Export page with workflow hierarchy and better empty states
+- [x] Reframe Project page with archive-confidence hierarchy
+- [x] Remove License placeholder tone and improve release-facing presentation
+- [x] Run syntax, smoke, and regression tests
+
+### Notes
+- This is a polish-only tranche; no feature expansion or backend redesign was introduced.
