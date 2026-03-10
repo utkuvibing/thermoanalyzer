@@ -24,6 +24,10 @@ def test_run_kinetic_analysis_returns_report_ready_kissinger_payload():
     assert len(payload["rows"]) == 1
     assert payload["scientific_context"]["equations"]
     assert payload["scientific_context"]["numerical_interpretation"]
+    assert payload["scientific_context"]["scientific_claims"]
+    assert payload["scientific_context"]["evidence_map"]
+    assert payload["scientific_context"]["uncertainty_assessment"]
+    assert payload["scientific_context"]["next_experiments"]
 
 
 def test_run_kinetic_analysis_returns_report_ready_ofw_payload():
@@ -51,6 +55,8 @@ def test_run_kinetic_analysis_returns_report_ready_ofw_payload():
     assert payload["summary"]["conversion_point_count"] >= 2
     assert payload["rows"]
     assert payload["scientific_context"]["fit_quality"]["evaluated_rows"] == len(payload["rows"])
+    assert payload["scientific_context"]["scientific_claims"]
+    assert payload["scientific_context"]["alternative_hypotheses"]
 
 
 def test_run_kinetic_analysis_returns_report_ready_friedman_payload():
@@ -83,3 +89,5 @@ def test_run_kinetic_analysis_returns_report_ready_friedman_payload():
     assert payload["method_id"] == "friedman"
     assert payload["summary"]["conversion_point_count"] >= 2
     assert payload["scientific_context"]["equations"]
+    assert payload["scientific_context"]["scientific_claims"]
+    assert payload["scientific_context"]["next_experiments"]

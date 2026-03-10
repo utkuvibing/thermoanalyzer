@@ -63,6 +63,15 @@ _APPENDIX_METADATA_KEYWORDS = (
     "encoding",
 )
 
+_BULLET_SECTION_TITLES = {
+    "Scientific Interpretation",
+    "Primary Scientific Interpretation",
+    "Evidence Supporting This Interpretation",
+    "Alternative Explanations",
+    "Uncertainty and Methodological Limits",
+    "Recommended Follow-Up Experiments",
+}
+
 
 def _set_cell_bg(cell, hex_color: str) -> None:
     tc = cell._tc
@@ -599,8 +608,9 @@ def _build_executive_summary_rows(records: list[dict], datasets: dict, compariso
         status = str(record.get("status") or "unknown")
         interpretation_sections = scientific_context_to_report_sections(record.get("scientific_context"))
         interpretation_line = "No interpretation statement recorded."
+        preferred_titles = ("Primary Scientific Interpretation", "Scientific Interpretation")
         for title, payload in interpretation_sections:
-            if title == "Scientific Interpretation" and isinstance(payload, dict) and payload:
+            if title in preferred_titles and isinstance(payload, dict) and payload:
                 interpretation_line = str(next(iter(payload.values())))
                 break
         rows.append(
@@ -904,17 +914,28 @@ def _record_main_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
         if tga_narrative:
             ordered_sections = [
                 section for section in ordered_sections
-                if section[0] != "Scientific Interpretation"
+                if section[0] != "Primary Scientific Interpretation"
             ]
             insert_index = 1 if (ordered_sections and ordered_sections[0][0] == "Equations and Formulation") else 0
             ordered_sections.insert(
                 insert_index,
                 (
-                    "Scientific Interpretation",
+                    "Primary Scientific Interpretation",
                     {f"Observation {idx}": line for idx, line in enumerate(tga_narrative, start=1)},
                 ),
             )
 
+    section_priority = {
+        "Equations and Formulation": 10,
+        "Primary Scientific Interpretation": 20,
+        "Evidence Supporting This Interpretation": 30,
+        "Alternative Explanations": 40,
+        "Uncertainty and Methodological Limits": 50,
+        "Recommended Follow-Up Experiments": 60,
+        "Scientific Interpretation": 70,
+        "Fit Quality": 80,
+    }
+    ordered_sections.sort(key=lambda item: section_priority.get(item[0], 999))
     sections.extend(ordered_sections)
 
     grouped = condense_warning_limitations(
@@ -961,9 +982,12 @@ def _render_record_mapping(doc: Document, title: str, payload: dict | None) -> N
         return
 
     doc.add_paragraph(normalize_report_text(title), style="Heading 3")
-    if title == "Scientific Interpretation":
-        for value in payload.values():
-            doc.add_paragraph(normalize_report_text(value), style="List Bullet")
+    if title in _BULLET_SECTION_TITLES:
+        for key, value in payload.items():
+            bullet = normalize_report_text(value)
+            if title not in {"Scientific Interpretation", "Alternative Explanations", "Recommended Follow-Up Experiments"}:
+                bullet = normalize_report_text(f"{key}: {value}")
+            doc.add_paragraph(bullet, style="List Bullet")
         doc.add_paragraph()
         return
 
@@ -1404,9 +1428,12 @@ def generate_pdf_report(
 
         for title, payload in _record_main_sections(record):
             story.append(Paragraph(normalize_report_text(title), styles["Heading3"]))
-            if title == "Scientific Interpretation":
-                for value in payload.values():
-                    story.append(Paragraph(normalize_report_text(f"- {value}"), styles["Normal"]))
+            if title in _BULLET_SECTION_TITLES:
+                for key, value in payload.items():
+                    bullet = normalize_report_text(value)
+                    if title not in {"Scientific Interpretation", "Alternative Explanations", "Recommended Follow-Up Experiments"}:
+                        bullet = normalize_report_text(f"{key}: {value}")
+                    story.append(Paragraph(normalize_report_text(f"- {bullet}"), styles["Normal"]))
             elif title == "Warnings and Limitations":
                 for group, values in payload.items():
                     story.append(Paragraph(normalize_report_text(group), styles["Heading4"]))

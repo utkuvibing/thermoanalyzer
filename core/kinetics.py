@@ -21,6 +21,7 @@ from core.scientific_sections import (
     build_interpretation,
     build_scientific_context,
 )
+from core.scientific_reasoning import build_scientific_reasoning
 
 GAS_CONSTANT_R = 8.314462  # J/(mol·K)
 
@@ -514,7 +515,7 @@ def _kinetics_scientific_context(method_id: str, label: str, results: list[Kinet
             "max_r_squared": max(r2) if r2 else None,
         }
     )
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology={
             "analysis_family": "Kinetic Analysis",
             "method": label,
@@ -527,6 +528,17 @@ def _kinetics_scientific_context(method_id: str, label: str, results: list[Kinet
             "Interpretation quality depends on heating-rate spread and conversion interpolation quality.",
         ],
     )
+    reasoning = build_scientific_reasoning(
+        analysis_type=label,
+        summary=_kinetics_summary(method_id, results),
+        rows=_kinetics_rows(method_id, results),
+        metadata={},
+        fit_quality=fit_quality,
+        validation={},
+    )
+    merged = dict(base_context)
+    merged.update(reasoning)
+    return merged
 
 
 def run_kinetic_analysis(

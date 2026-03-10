@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 from core.dsc_processor import GlassTransition
 from core.peak_analysis import ThermalPeak
+from core.scientific_reasoning import build_scientific_reasoning
 from core.scientific_sections import (
     build_equation,
     build_fit_quality,
@@ -99,9 +100,34 @@ def _validation_warnings(validation: dict[str, Any] | None) -> list[str]:
     return warnings
 
 
+def _attach_reasoning(
+    *,
+    base_context: dict[str, Any],
+    analysis_type: str,
+    summary: dict[str, Any] | None,
+    rows: list[dict[str, Any]] | None,
+    metadata: dict[str, Any] | None,
+    fit_quality: dict[str, Any] | None = None,
+    validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    reasoning = build_scientific_reasoning(
+        analysis_type=analysis_type,
+        summary=summary or {},
+        rows=rows or [],
+        metadata=metadata or {},
+        fit_quality=fit_quality or {},
+        validation=validation or {},
+    )
+    merged = copy.deepcopy(base_context or {})
+    merged.update(reasoning)
+    return normalize_scientific_context(merged)
+
+
 def _build_dsc_scientific_context(
     summary: dict[str, Any],
     *,
+    rows: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
     processing: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -149,7 +175,7 @@ def _build_dsc_scientific_context(
         "Interpretation requires domain review when calibration/reference checks are not accepted.",
     ]
     warnings = _validation_warnings(validation)
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology=methodology,
         equations=equations,
         numerical_interpretation=interpretation,
@@ -157,11 +183,22 @@ def _build_dsc_scientific_context(
         warnings=warnings,
         limitations=limitations,
     )
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="DSC",
+        summary=summary,
+        rows=rows or [],
+        metadata=metadata or {},
+        fit_quality=(base_context or {}).get("fit_quality"),
+        validation=validation,
+    )
 
 
 def _build_tga_scientific_context(
     summary: dict[str, Any],
     *,
+    rows: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
     processing: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -203,7 +240,7 @@ def _build_tga_scientific_context(
         "Absolute mass-loss conversion requires trusted initial-mass metadata.",
     ]
     warnings = _validation_warnings(validation)
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology=methodology,
         equations=equations,
         numerical_interpretation=interpretation,
@@ -211,11 +248,22 @@ def _build_tga_scientific_context(
         warnings=warnings,
         limitations=limitations,
     )
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="TGA",
+        summary=summary,
+        rows=rows or [],
+        metadata=metadata or {},
+        fit_quality=(base_context or {}).get("fit_quality"),
+        validation=validation,
+    )
 
 
 def _build_dta_scientific_context(
     summary: dict[str, Any],
     *,
+    rows: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     equations = [
@@ -241,7 +289,7 @@ def _build_dta_scientific_context(
         ],
         warnings=_validation_warnings(validation),
     )
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology={"analysis_family": "Differential Thermal Analysis"},
         equations=equations,
         numerical_interpretation=interpretation,
@@ -249,9 +297,18 @@ def _build_dta_scientific_context(
         warnings=limitation_payload["warnings"],
         limitations=limitation_payload["limitations"],
     )
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="DTA",
+        summary=summary,
+        rows=rows or [],
+        metadata=metadata or {},
+        fit_quality=(base_context or {}).get("fit_quality"),
+        validation=validation,
+    )
 
 
-def _build_kissinger_scientific_context(result: Any) -> dict[str, Any]:
+def _build_kissinger_scientific_context(result: Any, *, validation: dict[str, Any] | None = None) -> dict[str, Any]:
     equations = [
         build_equation(
             "Kissinger Linearization",
@@ -273,7 +330,7 @@ def _build_kissinger_scientific_context(result: Any) -> dict[str, Any]:
             "model": "linear_regression",
         }
     )
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology={"analysis_family": "Kinetic Analysis", "method": "Kissinger"},
         equations=equations,
         numerical_interpretation=interpretation,
@@ -282,9 +339,28 @@ def _build_kissinger_scientific_context(result: Any) -> dict[str, Any]:
             "Assumes a dominant single-step process and representative peak temperatures.",
         ],
     )
+    summary = {
+        "activation_energy_kj_mol": _clean_scalar(getattr(result, "activation_energy", None)),
+        "r_squared": _clean_scalar(getattr(result, "r_squared", None)),
+    }
+    rows = [
+        {
+            "activation_energy_kj_mol": _clean_scalar(getattr(result, "activation_energy", None)),
+            "r_squared": _clean_scalar(getattr(result, "r_squared", None)),
+        }
+    ]
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="Kissinger",
+        summary=summary,
+        rows=rows,
+        metadata={},
+        fit_quality=fit_quality,
+        validation=validation,
+    )
 
 
-def _build_ofw_scientific_context(results: list[Any]) -> dict[str, Any]:
+def _build_ofw_scientific_context(results: list[Any], *, validation: dict[str, Any] | None = None) -> dict[str, Any]:
     r2_values = [float(item.r_squared) for item in results if getattr(item, "r_squared", None) is not None]
     mean_r2 = sum(r2_values) / len(r2_values) if r2_values else None
     ea_values = [float(item.activation_energy) for item in results if getattr(item, "activation_energy", None) is not None]
@@ -305,7 +381,7 @@ def _build_ofw_scientific_context(results: list[Any]) -> dict[str, Any]:
                 unit="kJ/mol",
             )
         )
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology={"analysis_family": "Kinetic Analysis", "method": "Ozawa-Flynn-Wall"},
         equations=[
             build_equation(
@@ -325,12 +401,32 @@ def _build_ofw_scientific_context(results: list[Any]) -> dict[str, Any]:
             "Accuracy degrades near low/high conversion tails where interpolation is unstable.",
         ],
     )
+    rows = []
+    for item in results:
+        plot_data = getattr(item, "plot_data", {}) or {}
+        rows.append(
+            {
+                "alpha": _clean_scalar(plot_data.get("alpha")),
+                "activation_energy_kj_mol": _clean_scalar(getattr(item, "activation_energy", None)),
+                "r_squared": _clean_scalar(getattr(item, "r_squared", None)),
+            }
+        )
+    summary = {"conversion_point_count": len(rows)}
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="Ozawa-Flynn-Wall",
+        summary=summary,
+        rows=rows,
+        metadata={},
+        fit_quality=(base_context or {}).get("fit_quality"),
+        validation=validation,
+    )
 
 
-def _build_friedman_scientific_context(results: list[Any]) -> dict[str, Any]:
+def _build_friedman_scientific_context(results: list[Any], *, validation: dict[str, Any] | None = None) -> dict[str, Any]:
     r2_values = [float(item.r_squared) for item in results if getattr(item, "r_squared", None) is not None]
     mean_r2 = sum(r2_values) / len(r2_values) if r2_values else None
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology={"analysis_family": "Kinetic Analysis", "method": "Friedman"},
         equations=[
             build_equation(
@@ -356,9 +452,36 @@ def _build_friedman_scientific_context(results: list[Any]) -> dict[str, Any]:
             "Derivative-based method is sensitive to noise and smoothing choices.",
         ],
     )
+    rows = []
+    for item in results:
+        plot_data = getattr(item, "plot_data", {}) or {}
+        rows.append(
+            {
+                "alpha": _clean_scalar(plot_data.get("alpha")),
+                "activation_energy_kj_mol": _clean_scalar(getattr(item, "activation_energy", None)),
+                "r_squared": _clean_scalar(getattr(item, "r_squared", None)),
+            }
+        )
+    summary = {"conversion_point_count": len(rows)}
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="Friedman",
+        summary=summary,
+        rows=rows,
+        metadata={},
+        fit_quality=(base_context or {}).get("fit_quality"),
+        validation=validation,
+    )
 
 
-def _build_deconvolution_scientific_context(result: dict[str, Any], peak_shape: str, n_peaks: int) -> dict[str, Any]:
+def _build_deconvolution_scientific_context(
+    result: dict[str, Any],
+    peak_shape: str,
+    n_peaks: int,
+    *,
+    metadata: dict[str, Any] | None = None,
+    validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     fit_quality = {
         "r_squared": _clean_scalar(result.get("r_squared")),
     }
@@ -376,7 +499,7 @@ def _build_deconvolution_scientific_context(result: dict[str, Any], peak_shape: 
             unit="components",
         )
     ]
-    return build_scientific_context(
+    base_context = build_scientific_context(
         methodology={
             "analysis_family": "Peak Deconvolution",
             "fit_engine": "lmfit",
@@ -396,6 +519,20 @@ def _build_deconvolution_scientific_context(result: dict[str, Any], peak_shape: 
             "Parameter identifiability may degrade for strongly overlapping peaks.",
             "Model-shape choice can bias component amplitudes and widths.",
         ],
+    )
+    summary = {
+        "peak_shape": peak_shape,
+        "peak_count": n_peaks,
+        "r_squared": _clean_scalar(result.get("r_squared")),
+    }
+    return _attach_reasoning(
+        base_context=base_context,
+        analysis_type="Peak Deconvolution",
+        summary=summary,
+        rows=[],
+        metadata=metadata or {},
+        fit_quality=fit_quality,
+        validation=validation or {},
     )
 
 
@@ -544,7 +681,13 @@ def serialize_dsc_result(
         validation=validation,
         review=review,
         scientific_context=scientific_context
-        or _build_dsc_scientific_context(summary, processing=processing, validation=validation),
+        or _build_dsc_scientific_context(
+            summary,
+            rows=rows,
+            metadata=dataset.metadata,
+            processing=processing,
+            validation=validation,
+        ),
     )
 
 
@@ -593,7 +736,13 @@ def serialize_tga_result(
         validation=validation,
         review=review,
         scientific_context=scientific_context
-        or _build_tga_scientific_context(summary, processing=processing, validation=validation),
+        or _build_tga_scientific_context(
+            summary,
+            rows=rows,
+            metadata=dataset.metadata,
+            processing=processing,
+            validation=validation,
+        ),
     )
 
 
@@ -637,7 +786,12 @@ def serialize_dta_result(
         validation=validation,
         review=review,
         scientific_context=scientific_context
-        or _build_dta_scientific_context(summary, validation=validation),
+        or _build_dta_scientific_context(
+            summary,
+            rows=rows,
+            metadata=dataset.metadata,
+            validation=validation,
+        ),
     )
 
 
@@ -669,7 +823,7 @@ def serialize_kissinger_result(
         provenance=provenance,
         validation=validation,
         review=review,
-        scientific_context=scientific_context or _build_kissinger_scientific_context(result),
+        scientific_context=scientific_context or _build_kissinger_scientific_context(result, validation=validation),
     )
 
 
@@ -708,7 +862,7 @@ def serialize_ofw_results(
         provenance=provenance,
         validation=validation,
         review=review,
-        scientific_context=scientific_context or _build_ofw_scientific_context(results),
+        scientific_context=scientific_context or _build_ofw_scientific_context(results, validation=validation),
     )
 
 
@@ -748,7 +902,7 @@ def serialize_friedman_results(
         provenance=provenance,
         validation=validation,
         review=review,
-        scientific_context=scientific_context or _build_friedman_scientific_context(results),
+        scientific_context=scientific_context or _build_friedman_scientific_context(results, validation=validation),
     )
 
 
@@ -800,7 +954,13 @@ def serialize_deconvolution_result(
         validation=validation,
         review=review,
         scientific_context=scientific_context
-        or _build_deconvolution_scientific_context(result, peak_shape, n_peaks),
+        or _build_deconvolution_scientific_context(
+            result,
+            peak_shape,
+            n_peaks,
+            metadata=dataset.metadata,
+            validation=validation,
+        ),
     )
 
 

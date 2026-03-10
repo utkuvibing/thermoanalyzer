@@ -56,6 +56,11 @@ def test_split_valid_results_backfills_scientific_context():
         "fit_quality": {},
         "warnings": [],
         "limitations": [],
+        "scientific_claims": [],
+        "evidence_map": {},
+        "uncertainty_assessment": {},
+        "alternative_hypotheses": [],
+        "next_experiments": [],
     }
 
 

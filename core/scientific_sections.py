@@ -14,6 +14,11 @@ SCIENTIFIC_CONTEXT_KEYS = (
     "fit_quality",
     "warnings",
     "limitations",
+    "scientific_claims",
+    "evidence_map",
+    "uncertainty_assessment",
+    "alternative_hypotheses",
+    "next_experiments",
 )
 
 _DATA_COMPLETENESS_HINTS = (
@@ -46,6 +51,17 @@ def _to_str_list(values: Any) -> list[str]:
             output.append(str(item))
         return output
     return [str(values)]
+
+
+def _to_mapping(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    output: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in (None, ""):
+            continue
+        output[str(key)] = copy.deepcopy(item)
+    return output
 
 
 def _clean_text(value: Any) -> str:
@@ -219,6 +235,11 @@ def normalize_scientific_context(scientific_context: dict[str, Any] | None) -> d
         "fit_quality": _copy_mapping(context.get("fit_quality")),
         "warnings": _to_str_list(context.get("warnings")),
         "limitations": _to_str_list(context.get("limitations")),
+        "scientific_claims": [],
+        "evidence_map": _to_mapping(context.get("evidence_map")),
+        "uncertainty_assessment": _copy_mapping(context.get("uncertainty_assessment")),
+        "alternative_hypotheses": _to_str_list(context.get("alternative_hypotheses")),
+        "next_experiments": _to_str_list(context.get("next_experiments")),
     }
 
     for item in context.get("equations") or []:
@@ -233,6 +254,12 @@ def normalize_scientific_context(scientific_context: dict[str, Any] | None) -> d
         elif item not in (None, ""):
             normalized["numerical_interpretation"].append({"statement": str(item)})
 
+    for item in context.get("scientific_claims") or []:
+        if isinstance(item, dict):
+            normalized["scientific_claims"].append(copy.deepcopy(item))
+        elif item not in (None, ""):
+            normalized["scientific_claims"].append({"strength": "descriptive", "claim": str(item)})
+
     return normalized
 
 
@@ -244,6 +271,11 @@ def build_scientific_context(
     fit_quality: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
     limitations: list[str] | None = None,
+    scientific_claims: list[dict[str, Any]] | None = None,
+    evidence_map: dict[str, Any] | None = None,
+    uncertainty_assessment: dict[str, Any] | None = None,
+    alternative_hypotheses: list[str] | None = None,
+    next_experiments: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build and normalize a scientific-context payload."""
     return normalize_scientific_context(
@@ -254,6 +286,11 @@ def build_scientific_context(
             "fit_quality": fit_quality or {},
             "warnings": warnings or [],
             "limitations": limitations or [],
+            "scientific_claims": scientific_claims or [],
+            "evidence_map": evidence_map or {},
+            "uncertainty_assessment": uncertainty_assessment or {},
+            "alternative_hypotheses": alternative_hypotheses or [],
+            "next_experiments": next_experiments or [],
         }
     )
 
@@ -454,6 +491,85 @@ def scientific_context_to_report_sections(scientific_context: dict[str, Any] | N
         interpretation_payload[f"Observation {index}"] = line
     if interpretation_payload:
         sections.append(("Scientific Interpretation", interpretation_payload))
+
+    claim_payload: dict[str, Any] = {}
+    for item in context.get("scientific_claims") or []:
+        if not isinstance(item, dict):
+            continue
+        claim_text = normalize_report_text(item.get("claim") or item.get("statement") or "")
+        if not claim_text:
+            continue
+        claim_id = item.get("id")
+        strength = normalize_report_text(item.get("strength") or "descriptive").lower()
+        strength_label = strength.capitalize()
+        label = f"{claim_id} ({strength_label})" if claim_id else f"Claim {len(claim_payload) + 1} ({strength_label})"
+        claim_payload[label] = claim_text
+    if claim_payload:
+        sections.append(("Primary Scientific Interpretation", claim_payload))
+
+    evidence_payload: dict[str, Any] = {}
+    evidence_map = context.get("evidence_map") or {}
+    if isinstance(evidence_map, dict):
+        for key, value in evidence_map.items():
+            if isinstance(value, list):
+                text = "; ".join(normalize_report_text(item) for item in value if normalize_report_text(item))
+            else:
+                text = normalize_report_text(value)
+            if text:
+                evidence_payload[normalize_report_text(key)] = text
+    for item in context.get("scientific_claims") or []:
+        if not isinstance(item, dict):
+            continue
+        claim_id = normalize_report_text(item.get("id") or "")
+        evidence = item.get("evidence")
+        if not claim_id or claim_id in evidence_payload:
+            continue
+        if isinstance(evidence, list):
+            text = "; ".join(normalize_report_text(entry) for entry in evidence if normalize_report_text(entry))
+            if text:
+                evidence_payload[claim_id] = text
+    if evidence_payload:
+        sections.append(("Evidence Supporting This Interpretation", evidence_payload))
+
+    alternatives_payload = {
+        f"Alternative {idx}": normalize_report_text(item)
+        for idx, item in enumerate(context.get("alternative_hypotheses") or [], start=1)
+        if normalize_report_text(item)
+    }
+    if alternatives_payload:
+        sections.append(("Alternative Explanations", alternatives_payload))
+
+    uncertainty_payload: dict[str, Any] = {}
+    uncertainty = context.get("uncertainty_assessment") or {}
+    if isinstance(uncertainty, dict):
+        overall = uncertainty.get("overall_confidence")
+        fit_assessment = uncertainty.get("fit_assessment")
+        if overall:
+            uncertainty_payload["Overall Confidence"] = normalize_report_text(overall)
+        if fit_assessment:
+            uncertainty_payload["Fit Assessment"] = normalize_report_text(fit_assessment)
+        gaps = _to_str_list(uncertainty.get("metadata_gaps"))
+        if gaps:
+            uncertainty_payload["Metadata Gaps"] = "; ".join(normalize_report_text(item) for item in gaps if normalize_report_text(item))
+        items = _to_str_list(uncertainty.get("items"))
+        if items:
+            uncertainty_payload["Uncertainty Notes"] = "; ".join(normalize_report_text(item) for item in items if normalize_report_text(item))
+
+    grouped = condense_warning_limitations(context)
+    if grouped.get("data_completeness_warnings"):
+        uncertainty_payload["Data Completeness Warnings"] = "; ".join(grouped["data_completeness_warnings"])
+    if grouped.get("methodological_limitations"):
+        uncertainty_payload["Methodological Limitations"] = "; ".join(grouped["methodological_limitations"])
+    if uncertainty_payload:
+        sections.append(("Uncertainty and Methodological Limits", uncertainty_payload))
+
+    next_exp_payload = {
+        f"Experiment {idx}": normalize_report_text(item)
+        for idx, item in enumerate(context.get("next_experiments") or [], start=1)
+        if normalize_report_text(item)
+    }
+    if next_exp_payload:
+        sections.append(("Recommended Follow-Up Experiments", next_exp_payload))
 
     if context["fit_quality"]:
         sections.append(("Fit Quality", context["fit_quality"]))

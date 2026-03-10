@@ -50,3 +50,6 @@ def test_serialize_deconvolution_result_populates_scientific_context():
     assert record["scientific_context"]["fit_quality"]["r_squared"] is not None
     assert record["scientific_context"]["methodology"]["peak_shape"] == "gaussian"
     assert record["scientific_context"]["methodology"]["initial_guesses"]
+    assert record["scientific_context"]["scientific_claims"]
+    assert record["scientific_context"]["uncertainty_assessment"]
+    assert record["scientific_context"]["next_experiments"]

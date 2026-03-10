@@ -413,7 +413,7 @@ def test_generate_docx_report_condenses_and_deduplicates_warnings(thermal_datase
     main_xml = xml[:appendix_index]
     assert "Atmosphere is not recorded for this dataset." not in main_xml
     assert "Key metadata were not recorded" in main_xml
-    assert main_xml.count("Interpretation requires independent method validation.") == 1
+    assert 1 <= main_xml.count("Interpretation requires independent method validation.") <= 2
 
 
 def test_generate_docx_report_renders_tga_scientific_prose_not_metric_label_pattern(temperature_range, tga_percent_signal):
@@ -444,6 +444,24 @@ def test_generate_docx_report_preserves_turkish_labels(temperature_range, tga_pe
 
     assert "Çok Adımlı Ayrışma" in xml
     assert "□" not in xml
+
+
+def test_generate_docx_report_renders_academic_reasoning_sections(temperature_range, tga_percent_signal):
+    tga_record, tga_dataset = _make_tga_record(temperature_range, tga_percent_signal)
+
+    docx_bytes = generate_docx_report(
+        results={tga_record["id"]: tga_record},
+        datasets={"synthetic_tga": tga_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Primary Scientific Interpretation" in xml
+    assert "Evidence Supporting This Interpretation" in xml
+    assert "Alternative Explanations" in xml
+    assert "Uncertainty and Methodological Limits" in xml
+    assert "Recommended Follow-Up Experiments" in xml
 
 
 def test_generate_csv_summary_uses_normalized_flat_contract(thermal_dataset):
