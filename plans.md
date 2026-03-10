@@ -1168,3 +1168,61 @@ Switch Windows desktop packaging from portable EXE to a standard NSIS installer 
 
 ### Notes
 - Portable output is intentionally removed from primary build target in this tranche.
+
+---
+
+## Title
+Electron UI Parity Tranche 1 - Shell and Navigation Baseline
+
+### Objective
+Replace the desktop debug-style single-page layout with a product-like shell (sidebar navigation + page views) while keeping all existing desktop actions and backend contracts intact.
+
+### Definition Of Done
+- Electron renderer uses a multi-view app shell with grouped navigation (`Primary`, `Preview`, `System`).
+- Main product pages no longer present raw JSON dumps as the primary surface.
+- Raw payload/debug visibility is moved to a dedicated `Diagnostics` view.
+- Existing desktop actions still work:
+  - workspace create/open/save
+  - dataset import
+  - single DSC/TGA run
+  - dataset/result inspect
+  - compare selection + batch run
+  - CSV/DOCX export
+- Streamlit fallback remains untouched (`app.py`, `ui/*` unchanged).
+
+### Constraints
+- No Streamlit-side edits.
+- No backend contract changes.
+- No numerical/core logic changes.
+- No packaging work.
+
+### Impact Analysis
+- Desktop shell files:
+  - `desktop/electron/index.html`
+  - `desktop/electron/renderer.js`
+- Planning/worklog:
+  - `plans.md`
+  - `bugs.md`
+
+### Risks
+- Renderer ID wiring can break existing actions if any old control IDs remain.
+- Navigation/state refresh order can regress button enable/disable logic.
+
+### Migration / Rollout Strategy
+- Keep `preload.js` and backend API calls unchanged.
+- Refactor only renderer/view wiring to new shell IDs.
+- Keep payload introspection in Diagnostics for troubleshooting without cluttering product pages.
+
+### Test Strategy
+- `npm run test:desktop-smoke`
+- `pytest -q`
+- Manual desktop sanity check through navigation and core actions.
+
+### Progress Log
+- [x] Introduce desktop app shell with grouped navigation and page views
+- [x] Move payload/debug-heavy output to Diagnostics view
+- [x] Rewire existing desktop actions to new shell controls
+- [x] Run desktop smoke and full pytest regression suite
+
+### Notes
+- This tranche is intentionally UI-structure-first; deeper visual parity and page-by-page Streamlit behavior parity remain for later phases.

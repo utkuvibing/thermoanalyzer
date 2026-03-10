@@ -5,24 +5,137 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ThermoAnalyzer Desktop</title>
   <style>
+    :root {
+      --bg: #f3f6f9;
+      --surface: #ffffff;
+      --border: #dbe3ed;
+      --text: #1f2937;
+      --muted: #4b5563;
+      --brand: #0e7490;
+      --brand-dark: #115e75;
+      --sidebar-bg: #0f172a;
+      --sidebar-text: #dbe7f6;
+      --sidebar-muted: #8fa3bf;
+    }
+    * {
+      box-sizing: border-box;
+    }
     body {
       margin: 0;
       font-family: "Segoe UI", Tahoma, sans-serif;
-      background: #f3f6f9;
-      color: #1f2937;
+      background: var(--bg);
+      color: var(--text);
     }
-    main {
-      max-width: 900px;
-      margin: 24px auto;
-      padding: 0 16px 32px;
+    .app-shell {
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      min-height: 100vh;
     }
-    h1 {
-      margin: 0 0 8px;
-      font-size: 1.4rem;
+    .sidebar {
+      background: linear-gradient(180deg, #0f172a 0%, #14223a 100%);
+      color: var(--sidebar-text);
+      padding: 14px 12px;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .brand {
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: 0.04em;
+      margin: 2px 6px 2px;
+    }
+    .brand-sub {
+      color: var(--sidebar-muted);
+      font-size: 0.75rem;
+      margin: 0 6px 12px;
+    }
+    .nav-group {
+      margin-top: 14px;
+    }
+    .group-label {
+      color: var(--sidebar-muted);
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 8px 6px;
+      font-weight: 600;
+    }
+    .nav-item {
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--sidebar-text);
+      text-align: left;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin: 2px 0;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .nav-item.active {
+      background: rgba(14, 116, 144, 0.22);
+      border-color: rgba(125, 211, 252, 0.35);
+    }
+    .main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(4px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .status-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .pill {
+      background: #edf2f8;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+    .content {
+      padding: 16px 18px 28px;
+      overflow-x: hidden;
+    }
+    .view {
+      display: none;
+    }
+    .view.active {
+      display: block;
+    }
+    .view-title {
+      margin: 0 0 12px;
+      font-size: 1.2rem;
+    }
+    .view-copy {
+      color: var(--muted);
+      margin: 0 0 14px;
+      font-size: 0.92rem;
     }
     .card {
-      background: white;
-      border: 1px solid #dbe3ed;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 14px 16px;
       margin-bottom: 14px;
@@ -34,12 +147,16 @@
       align-items: center;
     }
     button {
-      background: #0e7490;
+      background: var(--brand);
       color: white;
       border: none;
       border-radius: 8px;
       padding: 8px 12px;
       cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover {
+      background: var(--brand-dark);
     }
     button:disabled {
       opacity: 0.5;
@@ -59,13 +176,20 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
+    input[type="text"], input:not([type]), select, textarea {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 9px;
+      font-size: 0.9rem;
+      background: #fff;
+      color: var(--text);
+    }
     select {
       min-width: 180px;
-      padding: 6px;
     }
     .small {
       font-size: 0.9rem;
-      color: #4b5563;
+      color: var(--muted);
     }
     table {
       width: 100%;
@@ -82,180 +206,392 @@
     }
     .ok { color: #0f766e; }
     .fail { color: #b91c1c; }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    .kv-item {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .kv-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 3px;
+    }
+    .kv-value {
+      font-size: 0.9rem;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .list-box {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    .preview-locked {
+      opacity: 0.65;
+      cursor: default;
+    }
+    @media (max-width: 1020px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .nav-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .group-label {
+        width: 100%;
+      }
+      .nav-item {
+        width: auto;
+      }
+      .topbar {
+        position: static;
+      }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <h1>ThermoAnalyzer Desktop Demo Workflow</h1>
-    <div class="card">
-      <div id="bootstrap"></div>
-      <div id="health"></div>
-      <div id="version"></div>
-    </div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">THERMOANALYZER</div>
+      <div class="brand-sub">Desktop Workflow Shell</div>
 
-    <div class="card">
-      <div class="row">
-        <button id="newWorkspaceBtn">New Workspace</button>
-        <button id="openProjectBtn">Open .thermozip</button>
-        <button id="saveProjectBtn" disabled>Save Workspace</button>
-        <button id="refreshWorkspaceContextBtn" disabled>Refresh Context</button>
+      <div class="nav-group">
+        <div class="group-label">Primary</div>
+        <button class="nav-item active" data-view="home">Home / Import</button>
+        <button class="nav-item" data-view="compare">Compare</button>
+        <button class="nav-item" data-view="dsc">DSC</button>
+        <button class="nav-item" data-view="tga">TGA</button>
+        <button class="nav-item" data-view="export">Export</button>
+        <button class="nav-item" data-view="project">Project</button>
       </div>
-      <p id="projectInfo">No workspace active.</p>
-      <pre id="projectSummary"></pre>
-      <p id="workspaceContextInfo" class="small">No workspace context loaded.</p>
-      <pre id="workspaceContextSummary"></pre>
-    </div>
 
-    <div class="card">
-      <div class="row">
-        <button id="importDatasetBtn" disabled>Import Dataset</button>
-        <label for="datasetTypeSelect" class="small">Import Type Override:</label>
-        <select id="datasetTypeSelect">
-          <option value="">Auto</option>
-          <option value="DSC">DSC</option>
-          <option value="TGA">TGA</option>
-          <option value="DTA">DTA</option>
-        </select>
+      <div class="nav-group">
+        <div class="group-label">Preview</div>
+        <button class="nav-item preview-locked" disabled>DTA (Preview)</button>
+        <button class="nav-item preview-locked" disabled>Kinetics (Preview)</button>
+        <button class="nav-item preview-locked" disabled>Deconvolution (Preview)</button>
       </div>
-      <p class="small">Datasets</p>
-      <table>
-        <thead>
-          <tr>
-            <th>Use</th>
-            <th>Active</th>
-            <th>Compare</th>
-            <th>Inspect</th>
-            <th>Key</th>
-            <th>Type</th>
-            <th>Sample</th>
-            <th>Validation</th>
-            <th>Warnings</th>
-            <th>Issues</th>
-          </tr>
-        </thead>
-        <tbody id="datasetsBody"></tbody>
-      </table>
-      <p id="datasetDetailInfo" class="small">No dataset detail selected.</p>
-      <pre id="datasetDetail"></pre>
-    </div>
 
-    <div class="card">
-      <div class="row">
-        <label for="analysisTypeSelect">Analysis:</label>
-        <select id="analysisTypeSelect">
-          <option value="DSC">DSC</option>
-          <option value="TGA">TGA</option>
-        </select>
-        <button id="runAnalysisBtn" disabled>Run Analysis</button>
+      <div class="nav-group">
+        <div class="group-label">System</div>
+        <button class="nav-item" data-view="license">License</button>
+        <button class="nav-item" data-view="diagnostics">Diagnostics</button>
       </div>
-      <p id="analysisInfo" class="small">No analysis executed yet.</p>
-      <pre id="analysisSummary"></pre>
-    </div>
+    </aside>
 
-    <div class="card">
-      <p class="small">Results</p>
-      <table>
-        <thead>
-          <tr>
-            <th>Selected</th>
-            <th>Inspect</th>
-            <th>ID</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>Dataset</th>
-            <th>Validation</th>
-            <th>Calib</th>
-            <th>Reference</th>
-            <th>Saved At (UTC)</th>
-          </tr>
-        </thead>
-        <tbody id="resultsBody"></tbody>
-      </table>
-      <p id="resultDetailInfo" class="small">No result detail selected.</p>
-      <pre id="resultDetail"></pre>
-    </div>
+    <div class="main">
+      <header class="topbar">
+        <h1 id="pageTitle">Home / Import</h1>
+        <div class="status-pills">
+          <span class="pill" id="statusHealth">Health: unknown</span>
+          <span class="pill" id="statusVersion">Version: unknown</span>
+          <span class="pill" id="statusWorkspace">Workspace: none</span>
+        </div>
+      </header>
 
-    <div class="card">
-      <p class="small">Compare Workspace (Basic)</p>
-      <div class="row">
-        <label for="compareTypeSelect">Type:</label>
-        <select id="compareTypeSelect">
-          <option value="DSC">DSC</option>
-          <option value="TGA">TGA</option>
-        </select>
-        <button id="addSelectedToCompareBtn" disabled>Add Selected Dataset</button>
-        <button id="removeSelectedFromCompareBtn" disabled>Remove Selected Dataset</button>
-        <button id="clearCompareSelectionBtn" disabled>Clear Compare Selection</button>
-      </div>
-      <div id="compareDatasetChecks" class="small"></div>
-      <label for="compareNotes">Notes</label>
-      <textarea id="compareNotes" rows="4" style="width:100%;"></textarea>
-      <div class="row">
-        <button id="refreshCompareBtn" disabled>Refresh Compare</button>
-        <button id="saveCompareBtn" disabled>Save Compare Selection</button>
-      </div>
-      <p id="compareMeta" class="small">No compare metadata loaded.</p>
-      <pre id="compareSummary"></pre>
-    </div>
+      <main class="content">
+        <section class="view active" id="view-home">
+          <h2 class="view-title">Import Workspace</h2>
+          <p class="view-copy">Create or open a project archive, import datasets, and select the active run for analysis pages.</p>
 
-    <div class="card">
-      <p class="small">Batch Runner (Minimal Stable)</p>
-      <div class="row">
-        <label for="batchAnalysisTypeSelect">Analysis:</label>
-        <select id="batchAnalysisTypeSelect">
-          <option value="DSC">DSC</option>
-          <option value="TGA">TGA</option>
-        </select>
-        <label for="batchTemplateIdInput">Template ID:</label>
-        <input id="batchTemplateIdInput" value="dsc.general" style="min-width:220px;" />
-        <button id="runBatchBtn" disabled>Run Batch On Compare Selection</button>
-      </div>
-      <p id="batchInfo" class="small">No batch run executed.</p>
-      <pre id="batchOutcomeSummary"></pre>
-      <table>
-        <thead>
-          <tr>
-            <th>Dataset</th>
-            <th>Status</th>
-            <th>Validation</th>
-            <th>Result ID</th>
-            <th>Failure Reason</th>
-          </tr>
-        </thead>
-        <tbody id="batchSummaryBody"></tbody>
-      </table>
-    </div>
+          <div class="card">
+            <div class="row">
+              <button id="newWorkspaceBtn">New Workspace</button>
+              <button id="openProjectBtn">Open .thermozip</button>
+              <button id="saveProjectBtn" disabled>Save Workspace</button>
+              <button id="refreshWorkspaceContextBtn" disabled>Refresh Context</button>
+            </div>
+            <p id="homeProjectInfo" class="small">No workspace active.</p>
+            <div class="kv-grid">
+              <div class="kv-item">
+                <div class="kv-label">Active Dataset</div>
+                <div class="kv-value" id="homeActiveDatasetValue">none</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Latest Result</div>
+                <div class="kv-value" id="homeLatestResultValue">none</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Compare Selected</div>
+                <div class="kv-value" id="homeCompareCountValue">0</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Saved At</div>
+                <div class="kv-value" id="homeWorkspaceSavedAtValue">N/A</div>
+              </div>
+            </div>
+          </div>
 
-    <div class="card">
-      <p class="small">Export / Report (Stable)</p>
-      <div class="row">
-        <button id="refreshExportPrepBtn" disabled>Refresh Export Prep</button>
-        <button id="exportCsvBtn" disabled>Export Results CSV</button>
-        <button id="exportDocxBtn" disabled>Generate DOCX Report</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Include</th>
-            <th>Result ID</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>Validation</th>
-            <th>Saved At (UTC)</th>
-          </tr>
-        </thead>
-        <tbody id="exportResultsBody"></tbody>
-      </table>
-      <p id="exportPrepInfo" class="small">No export preparation data loaded.</p>
-      <pre id="exportPrepSummary"></pre>
-      <pre id="exportActionSummary"></pre>
-    </div>
+          <div class="card">
+            <div class="row">
+              <button id="importDatasetBtn" disabled>Import Dataset</button>
+              <label for="datasetTypeSelect" class="small">Import Type Override:</label>
+              <select id="datasetTypeSelect">
+                <option value="">Auto</option>
+                <option value="DSC">DSC</option>
+                <option value="TGA">TGA</option>
+                <option value="DTA">DTA</option>
+              </select>
+            </div>
+            <p class="small">Datasets</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Use</th>
+                  <th>Active</th>
+                  <th>Compare</th>
+                  <th>Inspect</th>
+                  <th>Key</th>
+                  <th>Type</th>
+                  <th>Sample</th>
+                  <th>Validation</th>
+                  <th>Warnings</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody id="datasetsBody"></tbody>
+            </table>
+          </div>
 
-    <div class="card">
-      <strong>Log</strong>
-      <pre id="log"></pre>
+          <div class="card">
+            <p id="datasetDetailInfo" class="small">No dataset detail selected.</p>
+            <div id="datasetDetailPanel" class="muted">Select a dataset to inspect metadata, validation, and preview rows.</div>
+          </div>
+        </section>
+
+        <section class="view" id="view-compare">
+          <h2 class="view-title">Compare Workspace</h2>
+          <p class="view-copy">Manage compare-selected datasets, notes, and run stable batch templates across selected runs.</p>
+
+          <div class="card">
+            <p class="small">Compare Selection</p>
+            <div class="row">
+              <label for="compareTypeSelect">Type:</label>
+              <select id="compareTypeSelect">
+                <option value="DSC">DSC</option>
+                <option value="TGA">TGA</option>
+              </select>
+              <button id="addSelectedToCompareBtn" disabled>Add Selected Dataset</button>
+              <button id="removeSelectedFromCompareBtn" disabled>Remove Selected Dataset</button>
+              <button id="clearCompareSelectionBtn" disabled>Clear Compare Selection</button>
+            </div>
+            <div id="compareDatasetChecks" class="small"></div>
+            <label for="compareNotes">Notes</label>
+            <textarea id="compareNotes" rows="4" style="width:100%;"></textarea>
+            <div class="row">
+              <button id="refreshCompareBtn" disabled>Refresh Compare</button>
+              <button id="saveCompareBtn" disabled>Save Compare Selection</button>
+            </div>
+            <p id="compareMeta" class="small">No compare metadata loaded.</p>
+            <div id="compareSummaryPanel" class="muted">Compare workspace summary will appear here.</div>
+          </div>
+
+          <div class="card">
+            <p class="small">Batch Runner (Stable)</p>
+            <div class="row">
+              <label for="batchAnalysisTypeSelect">Analysis:</label>
+              <select id="batchAnalysisTypeSelect">
+                <option value="DSC">DSC</option>
+                <option value="TGA">TGA</option>
+              </select>
+              <label for="batchTemplateIdInput">Template ID:</label>
+              <input id="batchTemplateIdInput" value="dsc.general" style="min-width:220px;" />
+              <button id="runBatchBtn" disabled>Run Batch On Compare Selection</button>
+            </div>
+            <p id="batchInfo" class="small">No batch run executed.</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Dataset</th>
+                  <th>Status</th>
+                  <th>Validation</th>
+                  <th>Result ID</th>
+                  <th>Failure Reason</th>
+                </tr>
+              </thead>
+              <tbody id="batchSummaryBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-dsc">
+          <h2 class="view-title">DSC Analysis</h2>
+          <p class="view-copy">Run stable DSC analysis for the selected dataset from the Home page.</p>
+          <div class="card">
+            <p class="small">Active dataset drives this run.</p>
+            <div class="row">
+              <button id="runDscAnalysisBtn" disabled>Run DSC Analysis</button>
+              <button id="inspectSelectedDatasetBtn">Inspect Selected Dataset</button>
+            </div>
+            <p id="dscAnalysisInfo" class="small">No DSC analysis executed yet.</p>
+          </div>
+        </section>
+
+        <section class="view" id="view-tga">
+          <h2 class="view-title">TGA Analysis</h2>
+          <p class="view-copy">Run stable TGA analysis for the selected dataset from the Home page.</p>
+          <div class="card">
+            <p class="small">Active dataset drives this run.</p>
+            <div class="row">
+              <button id="runTgaAnalysisBtn" disabled>Run TGA Analysis</button>
+              <button id="inspectSelectedDatasetBtn2">Inspect Selected Dataset</button>
+            </div>
+            <p id="tgaAnalysisInfo" class="small">No TGA analysis executed yet.</p>
+          </div>
+        </section>
+
+        <section class="view" id="view-export">
+          <h2 class="view-title">Export / Report</h2>
+          <p class="view-copy">Select stable saved results and generate CSV or DOCX artifacts.</p>
+
+          <div class="card">
+            <div class="row">
+              <button id="refreshExportPrepBtn" disabled>Refresh Export Prep</button>
+              <button id="exportCsvBtn" disabled>Export Results CSV</button>
+              <button id="exportDocxBtn" disabled>Generate DOCX Report</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Include</th>
+                  <th>Result ID</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Validation</th>
+                  <th>Saved At (UTC)</th>
+                </tr>
+              </thead>
+              <tbody id="exportResultsBody"></tbody>
+            </table>
+            <p id="exportPrepInfo" class="small">No export preparation data loaded.</p>
+            <div id="exportPrepPanel" class="muted">Export summary metadata will appear here.</div>
+            <div id="exportActionPanel" class="muted"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-project">
+          <h2 class="view-title">Project Workspace</h2>
+          <p class="view-copy">Inspect saved results for the active workspace and persist project archives.</p>
+
+          <div class="card">
+            <div class="row">
+              <button id="saveProjectBtnProjectView" disabled>Save Workspace</button>
+              <button id="refreshWorkspaceContextBtnProjectView" disabled>Refresh Context</button>
+            </div>
+            <p id="projectViewInfo" class="small">No workspace active.</p>
+          </div>
+
+          <div class="card">
+            <p class="small">Results</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Selected</th>
+                  <th>Inspect</th>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Dataset</th>
+                  <th>Validation</th>
+                  <th>Calib</th>
+                  <th>Reference</th>
+                  <th>Saved At (UTC)</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+            <p id="resultDetailInfo" class="small">No result detail selected.</p>
+            <div id="resultDetailPanel" class="muted">Select a saved result to inspect processing, provenance, and validation.</div>
+          </div>
+        </section>
+
+        <section class="view" id="view-license">
+          <h2 class="view-title">License & Branding</h2>
+          <p class="view-copy">Desktop shell placeholder for Streamlit-equivalent license and branding areas.</p>
+          <div class="card">
+            <div class="kv-grid">
+              <div class="kv-item">
+                <div class="kv-label">App Version</div>
+                <div class="kv-value" id="licenseVersionValue">unknown</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Project Extension</div>
+                <div class="kv-value" id="licenseProjectExtValue">unknown</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">Desktop Scope</div>
+                <div class="kv-value">Stable DSC/TGA + compare + export + project archive</div>
+              </div>
+            </div>
+            <p class="small">Streamlit license page remains the reference implementation. This desktop view is intentionally limited in this tranche.</p>
+          </div>
+        </section>
+
+        <section class="view" id="view-diagnostics">
+          <h2 class="view-title">Diagnostics</h2>
+          <p class="view-copy">Technical payloads and logs for troubleshooting. Not part of the normal product-facing workflow.</p>
+
+          <div class="card">
+            <div id="diagBootstrap"></div>
+            <div id="diagHealth"></div>
+            <div id="diagVersion"></div>
+          </div>
+
+          <div class="card">
+            <strong>Workspace Context Payload</strong>
+            <pre id="diagWorkspaceContext"></pre>
+          </div>
+
+          <div class="card">
+            <strong>Dataset Detail Payload</strong>
+            <pre id="diagDatasetDetail"></pre>
+          </div>
+
+          <div class="card">
+            <strong>Result Detail Payload</strong>
+            <pre id="diagResultDetail"></pre>
+          </div>
+
+          <div class="card">
+            <strong>Compare Payload</strong>
+            <pre id="diagComparePayload"></pre>
+          </div>
+
+          <div class="card">
+            <strong>Batch Payload</strong>
+            <pre id="diagBatchPayload"></pre>
+          </div>
+
+          <div class="card">
+            <strong>Export Payload</strong>
+            <pre id="diagExportPayload"></pre>
+          </div>
+
+          <div class="card">
+            <strong>Log</strong>
+            <pre id="log"></pre>
+          </div>
+        </section>
+      </main>
     </div>
-  </main>
+  </div>
   <script src="./renderer.js"></script>
 </body>
 </html>

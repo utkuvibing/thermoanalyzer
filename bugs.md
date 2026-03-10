@@ -310,3 +310,29 @@ In `packaging/windows/build_beta_installer.ps1`, update the PyInstaller invocati
 - Re-run `powershell -ExecutionPolicy Bypass -File packaging\windows\build_beta_installer.ps1`.
 - Confirm PyInstaller writes into `packaging\windows\dist` and the script proceeds past `Assert-PackagedRuntime`.
 - Residual risk: installer compile still requires local Inno Setup (`ISCC.exe`) availability.
+
+### Title
+Electron renderer became partially truncated during UI shell refactor
+
+### Date
+2026-03-10
+
+### Repro
+1. Open `desktop/electron/renderer.js` after the initial shell parity edit.
+2. Observe the file ended around helper declarations and no longer attached event handlers.
+3. Start desktop app and see broken/non-functional interactions due to missing renderer logic.
+
+### Suspected Cause
+Large one-shot patch/edit attempt exceeded tooling limits and left `renderer.js` in a partially written state.
+
+### Attempted Fix
+Tried replacing the whole file in a single edit call; it failed due command/path-length constraints in the tool wrapper.
+
+### Actual Fix
+Restore the last known-good renderer from git baseline, then apply incremental small patches to map logic to the new app-shell IDs and move raw payload outputs to Diagnostics.
+
+### Verification
+- Run `node --check desktop/electron/renderer.js`
+- Run `npm run test:desktop-smoke`
+- Run `pytest -q`
+- Residual risk: deeper per-page UI/UX parity with Streamlit is still pending in future tranches

@@ -26,6 +26,11 @@ What it does:
   - run one DSC/TGA analysis on a selected dataset
 - save workspace to `.thermozip`
 - writes startup diagnostics logs and shows a clear failure dialog path when backend launch fails
+- provides a desktop product shell with grouped navigation:
+  - `Primary`: Home/Import, Compare, DSC, TGA, Export, Project
+  - `Preview`: placeholder preview modules (non-interactive in this tranche)
+  - `System`: License, Diagnostics
+- keeps technical payload dumps in `Diagnostics` instead of the main product-facing pages
 
 What it does not do:
 - does not migrate full Streamlit page parity
