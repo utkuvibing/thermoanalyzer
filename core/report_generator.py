@@ -1,4 +1,4 @@
-﻿"""Report generation for normalized ThermoAnalyzer result records."""
+"""Report generation for normalized ThermoAnalyzer result records."""
 
 from __future__ import annotations
 
@@ -643,22 +643,30 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
     if not records:
         return "No validated analysis results were available to support a final scientific conclusion."
 
-    tga_records = [
-        record for record in records
-        if str(record.get("analysis_type") or "").upper() == "TGA"
-        and _safe_float((record.get("summary") or {}).get("total_mass_loss_percent")) is not None
-        and _safe_float((record.get("summary") or {}).get("residue_percent")) is not None
-    ]
-    if tga_records:
-        lead = max(tga_records, key=lambda record: float((record.get("summary") or {}).get("total_mass_loss_percent") or 0.0))
-        summary = lead.get("summary") or {}
-        sentence = (
-            f"The present TGA findings are consistent with substantial decomposition, with total mass loss near {float(summary.get('total_mass_loss_percent')):.1f}% "
-            f"and final residue near {float(summary.get('residue_percent')):.1f}%."
-        )
+    families: list[str] = []
+    for record in records:
+        analysis = str(record.get("analysis_type") or "").upper()
+        if analysis in {"KISSINGER", "OZAWA-FLYNN-WALL", "FRIEDMAN"}:
+            label = "kinetics"
+        elif analysis == "PEAK DECONVOLUTION":
+            label = "peak deconvolution"
+        elif analysis in {"DSC", "TGA", "DTA"}:
+            label = analysis
+        else:
+            label = analysis.lower() or "other analyses"
+        if label not in families:
+            families.append(label)
+
+    if not families:
+        sentence = "The report compiles the available thermal-analysis outputs, but no reportable analysis family was available for synthesis."
+    elif len(families) == 1:
+        sentence = f"The report provides a focused synthesis of the {families[0]} findings and their methodological constraints."
     else:
-        stable_count = len([record for record in records if record.get("status") == "stable"])
-        sentence = f"The report consolidates {stable_count} stable analysis result(s) and captures the dominant thermal trends observed in the processed datasets."
+        sentence = (
+            "The report integrates findings across "
+            + ", ".join(families[:-1])
+            + f", and {families[-1]}, providing a multi-technique interpretation rather than a single-modality conclusion."
+        )
 
     limitation = "Interpretation should be treated as preliminary pending fuller metadata and broader cross-dataset comparability."
     if comparison_payload:
@@ -668,6 +676,44 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
             partial=(comparison_payload.get("reportable_count") or 0) <= 1 or bool(comparison_payload.get("excluded_labels")),
         ) or limitation
     return normalize_report_text(f"{sentence} {limitation}")
+
+
+def _analysis_family_label(analysis_type: str | None) -> str:
+    normalized = str(analysis_type or "").upper()
+    if normalized in {"KISSINGER", "OZAWA-FLYNN-WALL", "FRIEDMAN"}:
+        return "Kinetics"
+    if normalized == "PEAK DECONVOLUTION":
+        return "Peak Deconvolution"
+    return normalized or "Unknown"
+
+
+def _build_pdf_abstract_layout(records: list[dict], datasets: dict) -> tuple[str, list[list[str]]]:
+    if not records:
+        return ("No analyzable records were available for abstract-level synthesis.", [])
+
+    family_counts: dict[str, int] = {}
+    for record in records:
+        family = _analysis_family_label(record.get("analysis_type"))
+        family_counts[family] = family_counts.get(family, 0) + 1
+    family_phrase = ", ".join(f"{family} (n={count})" for family, count in family_counts.items())
+    abstract = (
+        "This report presents a scientific synthesis of the processed thermal-analysis records. "
+        f"The analyzed families were {family_phrase}. "
+        "Interpretations are evidence-linked and uncertainty-qualified at the analysis level."
+    )
+
+    rows: list[list[str]] = []
+    for record in records:
+        dataset_name = _dataset_label(record.get("dataset_key"), datasets)
+        analysis_label = _analysis_family_label(record.get("analysis_type"))
+        key_findings = _record_metric_snapshot(record)
+        sections = scientific_context_to_report_sections(record.get("scientific_context"))
+        for title, payload in sections:
+            if title == "Primary Scientific Interpretation" and isinstance(payload, dict) and payload:
+                key_findings = f"{key_findings}. {next(iter(payload.values()))}"
+                break
+        rows.append([dataset_name, analysis_label, key_findings])
+    return normalize_report_text(abstract), rows
 
 
 def _processing_step(processing: dict | None, key: str) -> dict:
@@ -1354,6 +1400,153 @@ def _configure_pdf_font(styles) -> str | None:
     return None
 
 
+def _insert_soft_breaks(value: Any, *, chunk: int = 20) -> str:
+    text = normalize_report_text(_format_value(value))
+    if not text:
+        return ""
+    tokens = text.split(" ")
+    wrapped_tokens: list[str] = []
+    for token in tokens:
+        if len(token) <= chunk:
+            wrapped_tokens.append(token)
+            continue
+        pieces = [token[i : i + chunk] for i in range(0, len(token), chunk)]
+        wrapped_tokens.append("\u200b".join(pieces))
+    return " ".join(wrapped_tokens)
+
+
+def _choose_portrait_or_landscape_table_layout(
+    headers: list[str],
+    rows: list[list[Any]],
+    *,
+    portrait_width: float,
+) -> str:
+    if len(headers) >= 8:
+        return "landscape"
+    max_lengths: list[int] = []
+    for column_index, header in enumerate(headers):
+        max_len = len(str(header))
+        for row in rows[:40]:
+            if column_index >= len(row):
+                continue
+            max_len = max(max_len, len(_format_value(row[column_index])))
+        max_lengths.append(max_len)
+    estimated = sum(max(52.0, min(150.0, 4.2 * (length + 2))) for length in max_lengths)
+    return "landscape" if estimated > portrait_width else "portrait"
+
+
+def _build_pdf_kv_table(
+    payload: dict[str, Any],
+    *,
+    available_width: float,
+    paragraph_style,
+    header_style,
+    colors,
+    font_name: str | None = None,
+    compact: bool = False,
+):
+    from reportlab.platypus import Paragraph, Table, TableStyle
+
+    col_widths = [available_width * 0.34, available_width * 0.66]
+    rows = [[Paragraph("Parameter", header_style), Paragraph("Value", header_style)]]
+    for key, value in payload.items():
+        rows.append(
+            [
+                Paragraph(_insert_soft_breaks(key, chunk=24), paragraph_style),
+                Paragraph(_insert_soft_breaks(value, chunk=20), paragraph_style),
+            ]
+        )
+    table = Table(rows, colWidths=col_widths, hAlign="LEFT")
+    cell_font_size = 8 if compact else 9
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E4A62")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F7FA")]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTSIZE", (0, 1), (-1, -1), cell_font_size),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                *([("FONTNAME", (0, 0), (-1, -1), font_name)] if font_name else []),
+            ]
+        )
+    )
+    return table
+
+
+def _build_pdf_matrix_table(
+    headers: list[str],
+    rows: list[list[Any]],
+    *,
+    available_width: float,
+    paragraph_style,
+    header_style,
+    colors,
+    font_name: str | None = None,
+    compact: bool = False,
+):
+    from reportlab.platypus import Paragraph, Table, TableStyle
+
+    if not headers:
+        return Table([])
+    normalized_rows = rows or []
+    max_lengths: list[int] = []
+    for column_index, header in enumerate(headers):
+        max_len = len(str(header))
+        for row in normalized_rows[:50]:
+            if column_index >= len(row):
+                continue
+            max_len = max(max_len, len(_format_value(row[column_index])))
+        max_lengths.append(max_len)
+    weights = [max(1.0, min(7.0, length / 12.0)) for length in max_lengths]
+    weight_total = sum(weights) or float(len(weights))
+    col_widths = [available_width * weight / weight_total for weight in weights]
+
+    matrix = [[Paragraph(_insert_soft_breaks(header, chunk=24), header_style) for header in headers]]
+    for row in normalized_rows:
+        row_cells = []
+        for value in row:
+            row_cells.append(Paragraph(_insert_soft_breaks(value, chunk=18), paragraph_style))
+        while len(row_cells) < len(headers):
+            row_cells.append(Paragraph("", paragraph_style))
+        matrix.append(row_cells)
+
+    table = Table(matrix, colWidths=col_widths, hAlign="LEFT", repeatRows=1)
+    cell_font_size = 7 if compact else 8
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E4A62")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F7FA")]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTSIZE", (0, 1), (-1, -1), cell_font_size),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                *([("FONTNAME", (0, 0), (-1, -1), font_name)] if font_name else []),
+            ]
+        )
+    )
+    return table
+
+
+def _pdf_render_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
+    """Return PDF-facing sections with redundant legacy scientific block removed."""
+    output = []
+    for title, payload in _record_main_sections(record):
+        if title == "Scientific Interpretation":
+            continue
+        output.append((title, payload))
+    return output
+
+
 def generate_pdf_report(
     results: dict,
     datasets: dict,
@@ -1363,13 +1556,23 @@ def generate_pdf_report(
     comparison_workspace: Optional[dict] = None,
     license_state: Optional[dict] = None,
 ) -> bytes:
-    """Generate a narrative PDF report when reportlab is available."""
+    """Generate a scientific-paper-style PDF report with hardened table layout."""
     try:  # pragma: no cover - optional dependency
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib.units import inch
-        from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import (
+            BaseDocTemplate,
+            Frame,
+            Image,
+            NextPageTemplate,
+            PageBreak,
+            PageTemplate,
+            Paragraph,
+            Spacer,
+        )
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError("PDF export requires reportlab. Install it with: pip install reportlab") from exc
 
@@ -1377,186 +1580,238 @@ def generate_pdf_report(
     stable_results, experimental_results = partition_results_by_status(valid_results)
     all_records = stable_results + experimental_results
     comparison_payload = _build_comparison_payload(comparison_workspace, datasets, all_records)
-    executive_rows = _build_executive_summary_rows(all_records, datasets, comparison_payload)
-    executive_intro = _build_executive_summary_intro(all_records, datasets, comparison_payload)
+    abstract_text, abstract_rows = _build_pdf_abstract_layout(all_records, datasets)
     final_conclusion = _build_final_conclusion_paragraph(all_records, comparison_payload)
+
+    left_right_margin = 19 * mm
+    top_bottom_margin = 20 * mm
+    portrait_size = A4
+    landscape_size = landscape(A4)
+    portrait_width = portrait_size[0] - (2 * left_right_margin)
+    portrait_height = portrait_size[1] - (2 * top_bottom_margin)
+    landscape_width = landscape_size[0] - (2 * left_right_margin)
+    landscape_height = landscape_size[1] - (2 * top_bottom_margin)
+
+    buffer = io.BytesIO()
+    doc = BaseDocTemplate(
+        buffer,
+        pagesize=portrait_size,
+        leftMargin=left_right_margin,
+        rightMargin=left_right_margin,
+        topMargin=top_bottom_margin,
+        bottomMargin=top_bottom_margin,
+        pageCompression=0,
+    )
+    doc.addPageTemplates(
+        [
+            PageTemplate(
+                id='Portrait',
+                pagesize=portrait_size,
+                frames=[Frame(left_right_margin, top_bottom_margin, portrait_width, portrait_height, id='portrait_frame')],
+            ),
+            PageTemplate(
+                id='Landscape',
+                pagesize=landscape_size,
+                frames=[Frame(left_right_margin, top_bottom_margin, landscape_width, landscape_height, id='landscape_frame')],
+            ),
+        ]
+    )
 
     styles = getSampleStyleSheet()
     pdf_font_name = _configure_pdf_font(styles)
+    body_style = ParagraphStyle(
+        'PaperBody',
+        parent=styles['Normal'],
+        fontName=pdf_font_name or styles['Normal'].fontName,
+        fontSize=9.5,
+        leading=13,
+    )
+    small_style = ParagraphStyle('PaperSmall', parent=body_style, fontSize=8, leading=10)
+    caption_style = ParagraphStyle('FigureCaption', parent=small_style, alignment=1)
+    table_header_style = ParagraphStyle('TableHeader', parent=small_style, textColor=colors.white, fontName=pdf_font_name or small_style.fontName)
+    heading1 = ParagraphStyle('PaperH1', parent=styles['Heading1'], fontName=pdf_font_name or styles['Heading1'].fontName)
+    heading2 = ParagraphStyle('PaperH2', parent=styles['Heading2'], fontName=pdf_font_name or styles['Heading2'].fontName)
+    heading3 = ParagraphStyle('PaperH3', parent=styles['Heading3'], fontName=pdf_font_name or styles['Heading3'].fontName)
+    title_style = ParagraphStyle('PaperTitle', parent=styles['Title'], fontName=pdf_font_name or styles['Title'].fontName)
+
     story = []
+    current_template = 'Portrait'
 
-    def add_kv_table(payload: dict[str, Any]) -> None:
-        rows = [["Parameter", "Value"]]
-        rows.extend([[str(key), _format_value(value)] for key, value in payload.items()])
-        table = Table(rows, hAlign="LEFT")
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4472C4")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EEF3F8")]),
-                    *([("FONTNAME", (0, 0), (-1, -1), pdf_font_name)] if pdf_font_name else []),
-                ]
+    def ensure_template(template_name: str) -> None:
+        nonlocal current_template
+        if template_name == current_template:
+            return
+        story.append(NextPageTemplate(template_name))
+        story.append(PageBreak())
+        current_template = template_name
+
+    def add_heading(text: str, level: int = 1) -> None:
+        if level == 1:
+            story.append(Paragraph(normalize_report_text(text), heading1))
+        elif level == 2:
+            story.append(Paragraph(normalize_report_text(text), heading2))
+        else:
+            story.append(Paragraph(normalize_report_text(text), heading3))
+
+    def add_kv_table(payload: dict[str, Any], *, width: float, compact: bool = False) -> None:
+        if not payload:
+            return
+        story.append(
+            _build_pdf_kv_table(
+                payload,
+                available_width=width,
+                paragraph_style=small_style if compact else body_style,
+                header_style=table_header_style,
+                colors=colors,
+                font_name=pdf_font_name,
+                compact=compact,
             )
         )
-        story.append(table)
 
-    def add_matrix_table(headers: list[str], rows: list[list[Any]]) -> None:
-        matrix = [headers] + [[_format_value(value) for value in row] for row in rows]
-        table = Table(matrix, hAlign="LEFT")
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4472C4")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EEF3F8")]),
-                    *([("FONTNAME", (0, 0), (-1, -1), pdf_font_name)] if pdf_font_name else []),
-                ]
+    def add_matrix_table(headers: list[str], rows: list[list[Any]], *, width: float, compact: bool = False) -> None:
+        if not headers:
+            return
+        story.append(
+            _build_pdf_matrix_table(
+                headers,
+                rows,
+                available_width=width,
+                paragraph_style=small_style if compact else body_style,
+                header_style=table_header_style,
+                colors=colors,
+                font_name=pdf_font_name,
+                compact=compact,
             )
         )
-        story.append(table)
 
-    def append_main_record(record: dict) -> None:
-        story.append(Paragraph(normalize_report_text(_record_title(record)), styles["Heading2"]))
+    def append_record_discussion(record: dict) -> None:
+        add_heading(_record_title(record), level=2)
         key_results = _record_key_results(record)
         if key_results:
-            story.append(Paragraph(normalize_report_text("Key Results"), styles["Heading3"]))
-            add_kv_table(key_results)
-            story.append(Spacer(1, 0.08 * inch))
+            add_heading('Key Results', level=3)
+            add_kv_table(key_results, width=portrait_width)
+            story.append(Spacer(1, 4))
 
-        for title, payload in _record_main_sections(record):
-            story.append(Paragraph(normalize_report_text(title), styles["Heading3"]))
+        for title, payload in _pdf_render_sections(record):
+            add_heading(title, level=3)
             if title in _BULLET_SECTION_TITLES:
                 for key, value in payload.items():
-                    bullet = normalize_report_text(value)
-                    if title not in {"Scientific Interpretation", "Alternative Explanations", "Recommended Follow-Up Experiments"}:
-                        bullet = normalize_report_text(f"{key}: {value}")
-                    story.append(Paragraph(normalize_report_text(f"- {bullet}"), styles["Normal"]))
-            elif title == "Warnings and Limitations":
-                for group, values in payload.items():
-                    story.append(Paragraph(normalize_report_text(group), styles["Heading4"]))
-                    if isinstance(values, list):
-                        for item in values:
-                            story.append(Paragraph(normalize_report_text(f"- {item}"), styles["Normal"]))
-                    else:
-                        story.append(Paragraph(normalize_report_text(f"- {values}"), styles["Normal"]))
+                    text = normalize_report_text(value)
+                    if title not in {'Alternative Explanations', 'Recommended Follow-Up Experiments'}:
+                        text = normalize_report_text(f'{key}: {value}')
+                    story.append(Paragraph(normalize_report_text(f'• {text}'), body_style))
             else:
-                add_kv_table({str(key): _format_value(value) for key, value in payload.items()})
-            story.append(Spacer(1, 0.08 * inch))
+                add_kv_table({str(key): _format_value(value) for key, value in payload.items()}, width=portrait_width)
+            story.append(Spacer(1, 4))
 
         major_events = _tga_major_events(record)
         if major_events:
-            story.append(Paragraph(normalize_report_text("Major Decomposition Events"), styles["Heading3"]))
-            add_matrix_table(["Event", "Midpoint Temperature (°C)", "Mass Loss (%)", "Final Residue (%)"], major_events)
-            story.append(Spacer(1, 0.08 * inch))
-        else:
-            compact = _record_compact_rows(record)
-            if compact:
-                headers, rows = compact
-                story.append(Paragraph(normalize_report_text("Compact Key Table"), styles["Heading3"]))
-                add_matrix_table(headers, rows)
-                story.append(Spacer(1, 0.08 * inch))
+            add_heading('Major Decomposition Events', level=3)
+            add_matrix_table(['Event', 'Midpoint Temperature (°C)', 'Mass Loss (%)', 'Final Residue (%)'], major_events, width=portrait_width)
+            story.append(Spacer(1, 4))
+            return
 
-    title = (branding or {}).get("report_title") or "ThermoAnalyzer Professional Report"
-    story.append(Paragraph(normalize_report_text(title), styles["Title"]))
-    story.append(Paragraph(normalize_report_text(datetime.datetime.now().strftime("Generated: %Y-%m-%d %H:%M")), styles["Normal"]))
+        compact = _record_compact_rows(record)
+        if compact:
+            headers, rows = compact
+            add_heading('Compact Key Table', level=3)
+            add_matrix_table(headers, rows, width=portrait_width)
+            story.append(Spacer(1, 4))
+
+    title = (branding or {}).get('report_title') or 'ThermoAnalyzer Scientific Report'
+    story.append(Paragraph(normalize_report_text(title), title_style))
+    story.append(Paragraph(normalize_report_text(datetime.datetime.now().strftime('Generated: %Y-%m-%d %H:%M')), small_style))
     if branding:
-        header_bits = [branding.get("company_name"), branding.get("lab_name"), branding.get("analyst_name")]
-        header = " | ".join(bit for bit in header_bits if bit)
-        if header:
-            story.append(Paragraph(normalize_report_text(header), styles["Normal"]))
-    if license_state and license_state.get("status"):
-        story.append(Paragraph(normalize_report_text(f"License: {license_state['status']}"), styles["Normal"]))
-    story.append(Spacer(1, 0.2 * inch))
+        header_bits = [branding.get('company_name'), branding.get('lab_name'), branding.get('analyst_name')]
+        meta_line = ' | '.join(bit for bit in header_bits if bit)
+        if meta_line:
+            story.append(Paragraph(normalize_report_text(meta_line), small_style))
+    if license_state and license_state.get('status'):
+        story.append(Paragraph(normalize_report_text(f"License: {license_state['status']}"), small_style))
+    story.append(Spacer(1, 10))
 
-    if branding and branding.get("logo_bytes"):
+    if branding and branding.get('logo_bytes'):
         try:
-            story.append(Image(io.BytesIO(branding["logo_bytes"]), width=1.4 * inch, height=0.8 * inch))
-            story.append(Spacer(1, 0.2 * inch))
+            logo = Image(io.BytesIO(branding['logo_bytes']))
+            logo._restrictSize(portrait_width * 0.25, portrait_height * 0.12)
+            story.append(logo)
+            story.append(Spacer(1, 10))
         except Exception:
             pass
 
-    story.append(Paragraph(normalize_report_text("Executive Summary"), styles["Heading1"]))
-    if executive_intro:
-        story.append(Paragraph(normalize_report_text(executive_intro), styles["Normal"]))
-        story.append(Spacer(1, 0.08 * inch))
-    if executive_rows:
-        add_matrix_table(["Dataset / Set", "Analysis Type", "Key Metrics", "Scientific Interpretation", "Confidence / Limitation"], executive_rows)
-    else:
-        story.append(Paragraph(normalize_report_text("No analysis results were available for executive summarization."), styles["Normal"]))
-    story.append(Spacer(1, 0.15 * inch))
+    add_heading('Abstract', level=1)
+    story.append(Paragraph(normalize_report_text(abstract_text), body_style))
+    story.append(Spacer(1, 4))
+    if abstract_rows:
+        add_matrix_table(['Dataset', 'Analysis Type', 'Key Findings'], abstract_rows, width=portrait_width)
+    story.append(Spacer(1, 10))
 
-    story.append(Paragraph(normalize_report_text("Experimental Conditions"), styles["Heading1"]))
+    add_heading('Experimental', level=1)
     if not datasets:
-        story.append(Paragraph(normalize_report_text("No dataset metadata available."), styles["Normal"]))
+        story.append(Paragraph(normalize_report_text('No dataset metadata were available for experimental reporting.'), body_style))
     else:
         for dataset_key, dataset in datasets.items():
-            story.append(Paragraph(normalize_report_text(_dataset_label(dataset_key, datasets)), styles["Heading2"]))
-            payload = _main_conditions_payload(dataset_key, dataset)
-            if payload:
-                add_kv_table(payload)
-            else:
-                story.append(Paragraph(normalize_report_text("No reader-facing experimental metadata available."), styles["Normal"]))
-            story.append(Spacer(1, 0.08 * inch))
+            add_heading(_dataset_label(dataset_key, datasets), level=2)
+            add_kv_table(_main_conditions_payload(dataset_key, dataset), width=portrait_width)
+            story.append(Spacer(1, 4))
+    story.append(Spacer(1, 8))
 
+    add_heading('Results and Discussion', level=1)
     if comparison_payload:
-        story.append(Paragraph(normalize_report_text("Comparison Overview"), styles["Heading1"]))
-        if comparison_payload.get("overview"):
-            add_kv_table(comparison_payload["overview"])
-            story.append(Spacer(1, 0.08 * inch))
-        if comparison_payload.get("metric_rows"):
-            add_matrix_table(comparison_payload["metric_headers"], comparison_payload["metric_rows"])
-            story.append(Spacer(1, 0.08 * inch))
-        if comparison_payload.get("excluded_note"):
-            story.append(Paragraph(normalize_report_text("Comparison Coverage Note"), styles["Heading2"]))
-            story.append(Paragraph(normalize_report_text(comparison_payload["excluded_note"]), styles["Normal"]))
-            story.append(Spacer(1, 0.08 * inch))
-        if comparison_payload.get("interpretation"):
-            story.append(Paragraph(normalize_report_text("Comparison Interpretation"), styles["Heading2"]))
-            story.append(Paragraph(normalize_report_text(comparison_payload["interpretation"]), styles["Normal"]))
-            story.append(Spacer(1, 0.08 * inch))
+        add_heading(f"{comparison_payload.get('overview', {}).get('Analysis Type', 'Cross-Dataset')} Comparison", level=2)
+        if comparison_payload.get('overview'):
+            add_kv_table(comparison_payload['overview'], width=portrait_width)
+            story.append(Spacer(1, 4))
+        if comparison_payload.get('metric_rows'):
+            add_matrix_table(comparison_payload['metric_headers'], comparison_payload['metric_rows'], width=portrait_width)
+            story.append(Spacer(1, 4))
+        if comparison_payload.get('excluded_note'):
+            story.append(Paragraph(normalize_report_text(comparison_payload['excluded_note']), body_style))
+        if comparison_payload.get('interpretation'):
+            story.append(Paragraph(normalize_report_text(comparison_payload['interpretation']), body_style))
+        story.append(Spacer(1, 6))
 
-    story.append(Paragraph(normalize_report_text("Stable Analyses"), styles["Heading1"]))
     if stable_results:
         for record in stable_results:
-            append_main_record(record)
+            append_record_discussion(record)
     else:
-        story.append(Paragraph(normalize_report_text("No stable analysis results available."), styles["Normal"]))
+        story.append(Paragraph(normalize_report_text('No stable analysis results were available.'), body_style))
 
     if experimental_results:
-        story.append(Paragraph(normalize_report_text("Experimental Analyses"), styles["Heading1"]))
-        story.append(Paragraph(normalize_report_text("These results are included for reference but remain outside the stable workflow guarantee."), styles["Normal"]))
+        add_heading('Exploratory Analyses (Experimental)', level=2)
+        story.append(Paragraph(normalize_report_text('These analyses remain exploratory and should be interpreted with additional caution.'), body_style))
         for record in experimental_results:
-            append_main_record(record)
-
-    if (branding or {}).get("report_notes"):
-        story.append(Paragraph(normalize_report_text("Analyst Notes"), styles["Heading1"]))
-        story.append(Paragraph(normalize_report_text((branding or {})["report_notes"]), styles["Normal"]))
-
-    if issues:
-        story.append(Paragraph(normalize_report_text("Skipped Records"), styles["Heading1"]))
-        for issue in issues:
-            story.append(Paragraph(normalize_report_text(f"- {issue}"), styles["Normal"]))
+            append_record_discussion(record)
 
     if figures:
-        story.append(Paragraph(normalize_report_text("Figures"), styles["Heading1"]))
-        for caption, png_bytes in figures.items():
-            story.append(Paragraph(normalize_report_text(caption), styles["Heading2"]))
+        add_heading('Figures', level=2)
+        for index, (caption, png_bytes) in enumerate(figures.items(), start=1):
             try:
-                story.append(Image(io.BytesIO(png_bytes), width=5.5 * inch, height=3.4 * inch))
+                img_reader = ImageReader(io.BytesIO(png_bytes))
+                width_px, height_px = img_reader.getSize()
+                if not width_px or not height_px:
+                    continue
+                max_width = portrait_width
+                max_height = portrait_height * 0.40
+                scale = min(max_width / float(width_px), max_height / float(height_px))
+                image = Image(io.BytesIO(png_bytes), width=float(width_px) * scale, height=float(height_px) * scale)
+                story.append(image)
+                story.append(Paragraph(normalize_report_text(f'Figure {index}. {caption}'), caption_style))
+                story.append(Spacer(1, 6))
             except Exception:
                 continue
-            story.append(Spacer(1, 0.12 * inch))
 
-    if final_conclusion:
-        story.append(Paragraph(normalize_report_text("Final Conclusion"), styles["Heading1"]))
-        story.append(Paragraph(normalize_report_text(final_conclusion), styles["Normal"]))
+    add_heading('Conclusion', level=1)
+    story.append(Paragraph(normalize_report_text(final_conclusion), body_style))
+
+    if issues:
+        add_heading('Data and Record Notes', level=2)
+        for issue in issues:
+            story.append(Paragraph(normalize_report_text(f'• {issue}'), small_style))
 
     dataset_sections = []
     for dataset_key, dataset in datasets.items():
-        payload = _appendix_dataset_metadata(getattr(dataset, "metadata", {}) or {})
+        payload = _appendix_dataset_metadata(getattr(dataset, 'metadata', {}) or {})
         if payload:
             dataset_sections.append((dataset_key, payload))
 
@@ -1567,73 +1822,82 @@ def generate_pdf_report(
         if sections or full_rows:
             record_sections.append((record, sections, full_rows))
 
-    comparison_has_content = bool(comparison_payload and (comparison_payload.get("appendix_overview") or comparison_payload.get("appendix_batch_rows")))
+    comparison_has_content = bool(comparison_payload and (comparison_payload.get('appendix_overview') or comparison_payload.get('appendix_batch_rows')))
     if dataset_sections or record_sections or comparison_has_content:
-        story.append(Paragraph(normalize_report_text("Appendix A - Reproducibility and Audit Trail"), styles["Heading1"]))
+        story.append(PageBreak())
+        ensure_template('Portrait')
+        add_heading('Supplementary Technical Record (Appendix A)', level=1)
 
         if dataset_sections:
-            story.append(Paragraph(normalize_report_text("Dataset Import and Metadata Technical Details"), styles["Heading2"]))
+            add_heading('Dataset Import and Metadata Technical Details', level=2)
             for dataset_key, payload in dataset_sections:
-                story.append(Paragraph(normalize_report_text(_dataset_label(dataset_key, datasets)), styles["Heading3"]))
-                add_kv_table(payload)
-                story.append(Spacer(1, 0.08 * inch))
+                ensure_template('Portrait')
+                add_heading(_dataset_label(dataset_key, datasets), level=3)
+                add_kv_table(payload, width=portrait_width, compact=True)
+                story.append(Spacer(1, 4))
 
         if comparison_has_content:
-            story.append(Paragraph(normalize_report_text("Comparison Workspace Technical Context"), styles["Heading2"]))
-            if comparison_payload.get("appendix_overview"):
-                add_kv_table(comparison_payload["appendix_overview"])
-                story.append(Spacer(1, 0.08 * inch))
-            batch_rows = comparison_payload.get("appendix_batch_rows") or []
+            add_heading('Comparison Workspace Technical Context', level=2)
+            if comparison_payload.get('appendix_overview'):
+                ensure_template('Portrait')
+                add_kv_table(comparison_payload['appendix_overview'], width=portrait_width, compact=True)
+                story.append(Spacer(1, 4))
+            batch_rows = comparison_payload.get('appendix_batch_rows') or []
             if batch_rows:
                 batch_totals = summarize_batch_outcomes(batch_rows)
+                ensure_template('Portrait')
                 add_kv_table(
                     {
-                        "Batch Total": batch_totals["total"],
-                        "Saved": batch_totals["saved"],
-                        "Blocked": batch_totals["blocked"],
-                        "Failed": batch_totals["failed"],
-                    }
+                        'Batch Total': batch_totals['total'],
+                        'Saved': batch_totals['saved'],
+                        'Blocked': batch_totals['blocked'],
+                        'Failed': batch_totals['failed'],
+                    },
+                    width=portrait_width,
+                    compact=True,
                 )
-                story.append(Spacer(1, 0.08 * inch))
-                add_matrix_table(
-                    ["Run", "Sample", "Template", "Execution", "Validation", "Calibration", "Reference", "Result ID", "Error ID", "Reason"],
+                story.append(Spacer(1, 4))
+                batch_headers = ['Run', 'Sample', 'Template', 'Execution', 'Validation', 'Calibration', 'Reference', 'Result ID', 'Error ID', 'Reason']
+                batch_matrix = [
                     [
-                        [
-                            _format_value(row.get("dataset_key")),
-                            _format_value(row.get("sample_name")),
-                            _format_value(row.get("workflow_template")),
-                            _format_value(row.get("execution_status")),
-                            _format_value(row.get("validation_status")),
-                            _format_value(row.get("calibration_state")),
-                            _format_value(row.get("reference_state")),
-                            _format_value(row.get("result_id")),
-                            _format_value(row.get("error_id")),
-                            _format_value(row.get("failure_reason")),
-                        ]
-                        for row in batch_rows
-                    ],
-                )
-                story.append(Spacer(1, 0.08 * inch))
+                        _format_value(row.get('dataset_key')),
+                        _format_value(row.get('sample_name')),
+                        _format_value(row.get('workflow_template')),
+                        _format_value(row.get('execution_status')),
+                        _format_value(row.get('validation_status')),
+                        _format_value(row.get('calibration_state')),
+                        _format_value(row.get('reference_state')),
+                        _format_value(row.get('result_id')),
+                        _format_value(row.get('error_id')),
+                        _format_value(row.get('failure_reason')),
+                    ]
+                    for row in batch_rows
+                ]
+                batch_layout = _choose_portrait_or_landscape_table_layout(batch_headers, batch_matrix, portrait_width=portrait_width)
+                ensure_template('Landscape' if batch_layout == 'landscape' else 'Portrait')
+                add_matrix_table(batch_headers, batch_matrix, width=landscape_width if batch_layout == 'landscape' else portrait_width, compact=True)
+                story.append(Spacer(1, 4))
 
         for record, sections, full_rows in record_sections:
-            story.append(Paragraph(normalize_report_text(_record_title(record)), styles["Heading2"]))
+            ensure_template('Portrait')
+            add_heading(_record_title(record), level=2)
             for title, payload in sections:
-                story.append(Paragraph(normalize_report_text(title), styles["Heading3"]))
-                add_kv_table(payload)
-                story.append(Spacer(1, 0.08 * inch))
+                add_heading(title, level=3)
+                add_kv_table(payload, width=portrait_width, compact=True)
+                story.append(Spacer(1, 4))
             if full_rows:
                 headers, rows = full_rows
-                story.append(Paragraph(normalize_report_text("Full Raw Data Table"), styles["Heading3"]))
-                add_matrix_table(headers, rows)
-                story.append(Spacer(1, 0.08 * inch))
+                raw_layout = _choose_portrait_or_landscape_table_layout(headers, rows, portrait_width=portrait_width)
+                ensure_template('Landscape' if raw_layout == 'landscape' else 'Portrait')
+                add_heading('Full Raw Data Table', level=3)
+                add_matrix_table(headers, rows, width=landscape_width if raw_layout == 'landscape' else portrait_width, compact=True)
+                story.append(Spacer(1, 4))
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
     doc.build(story)
     pdf_bytes = buffer.getvalue()
 
     if isinstance(file_path_or_buffer, str):
-        with open(file_path_or_buffer, "wb") as fh:
+        with open(file_path_or_buffer, 'wb') as fh:
             fh.write(pdf_bytes)
     elif isinstance(file_path_or_buffer, io.BytesIO):
         file_path_or_buffer.write(pdf_bytes)

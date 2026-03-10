@@ -3,13 +3,24 @@ import zipfile
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from core.data_io import ThermalDataset
 from core.dsc_processor import GlassTransition
 from core.peak_analysis import ThermalPeak
 from core.processing_schema import ensure_processing_payload, update_method_context, update_processing_step
 from core.provenance import build_calibration_reference_context
-from core.report_generator import generate_csv_summary, generate_docx_report
+from core.report_generator import (
+    _build_final_conclusion_paragraph,
+    _build_pdf_abstract_layout,
+    _build_pdf_matrix_table,
+    _choose_portrait_or_landscape_table_layout,
+    _insert_soft_breaks,
+    _pdf_render_sections,
+    generate_csv_summary,
+    generate_docx_report,
+    generate_pdf_report,
+)
 from core.result_serialization import serialize_dsc_result, serialize_kissinger_result, serialize_tga_result
 from core.tga_processor import MassLossStep, TGAResult
 from core.validation import validate_thermal_dataset
@@ -292,3 +303,106 @@ def test_batch_summary_preview_frame_exposes_failure_reason_and_error_id():
     assert frame.iloc[0]["Execution"] == "failed"
     assert frame.iloc[0]["Error ID"] == "TA-DSC-20260307123400-CCCCCC"
     assert frame.iloc[0]["Reason"] == "Processor exploded."
+
+
+def test_pdf_abstract_layout_uses_compact_three_column_structure(thermal_dataset):
+    dsc_result = _make_dsc_result(thermal_dataset)
+    tga_result = _make_tga_result(
+        thermal_dataset.data["temperature"].values,
+        thermal_dataset.data["signal"].values * 0 + 100,
+    )
+
+    abstract, rows = _build_pdf_abstract_layout(
+        [dsc_result, tga_result],
+        {"synthetic_dsc": thermal_dataset},
+    )
+
+    assert "scientific synthesis" in abstract
+    assert rows
+    assert all(len(row) == 3 for row in rows)
+
+
+def test_pdf_soft_break_insertion_wraps_long_hash_tokens():
+    wrapped = _insert_soft_breaks("a" * 80, chunk=16)
+    assert "\u200b" in wrapped
+
+
+def test_pdf_layout_selector_uses_landscape_for_wide_appendix_tables():
+    headers = ["Run", "Sample", "Template", "Execution", "Validation", "Calibration", "Reference", "Result ID", "Error ID", "Reason"]
+    rows = [["x" * 48 for _ in headers]]
+    layout = _choose_portrait_or_landscape_table_layout(headers, rows, portrait_width=420.0)
+    assert layout == "landscape"
+
+
+def test_pdf_matrix_builder_respects_available_width_budget():
+    pytest.importorskip("reportlab")
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    styles = getSampleStyleSheet()
+    table = _build_pdf_matrix_table(
+        headers=["Dataset", "Analysis Type", "Key Findings"],
+        rows=[["Synthetic Run", "TGA", "Long summary " * 12]],
+        available_width=360.0,
+        paragraph_style=styles["Normal"],
+        header_style=styles["Normal"],
+        colors=colors,
+        font_name=None,
+        compact=False,
+    )
+
+    assert sum(float(width) for width in table._colWidths) <= 360.001
+
+
+def test_pdf_render_sections_suppresses_redundant_scientific_interpretation():
+    record = {
+        "analysis_type": "DSC",
+        "scientific_context": {
+            "methodology": {"analysis_family": "Differential Scanning Calorimetry"},
+            "equations": [],
+            "numerical_interpretation": [{"statement": "Legacy line"}],
+            "scientific_claims": [{"id": "C1", "strength": "descriptive", "claim": "Primary line"}],
+            "evidence_map": {"C1": ["Evidence"]},
+            "uncertainty_assessment": {"overall_confidence": "moderate"},
+            "alternative_hypotheses": ["Alt"],
+            "next_experiments": ["Follow-up"],
+        },
+        "processing": {},
+        "validation": {},
+        "summary": {"peak_count": 1},
+        "rows": [],
+        "metadata": {},
+    }
+
+    titles = [title for title, _ in _pdf_render_sections(record)]
+    assert "Primary Scientific Interpretation" in titles
+    assert "Scientific Interpretation" not in titles
+
+
+def test_final_conclusion_covers_multiple_analysis_families():
+    conclusion = _build_final_conclusion_paragraph(
+        [
+            {"analysis_type": "DSC", "status": "stable", "summary": {}},
+            {"analysis_type": "TGA", "status": "stable", "summary": {"total_mass_loss_percent": 90.0, "residue_percent": 5.0}},
+        ],
+        comparison_payload=None,
+    )
+
+    assert "DSC" in conclusion
+    assert "TGA" in conclusion
+
+
+def test_generate_pdf_report_uses_paper_structure_and_hides_executive_summary(thermal_dataset):
+    pytest.importorskip("reportlab")
+    dsc_result = _make_dsc_result(thermal_dataset)
+    tga_result = _make_tga_result(
+        thermal_dataset.data["temperature"].values,
+        thermal_dataset.data["signal"].values * 0 + 100,
+    )
+    pdf_bytes = generate_pdf_report(
+        results={dsc_result["id"]: dsc_result, tga_result["id"]: tga_result},
+        datasets={"synthetic_dsc": thermal_dataset},
+    )
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 1000
