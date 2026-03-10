@@ -10,6 +10,7 @@ from typing import Optional, Union
 from core.batch_runner import normalize_batch_summary_rows, summarize_batch_outcomes
 from core.processing_schema import ensure_processing_payload
 from core.result_serialization import flatten_result_records, partition_results_by_status, split_valid_results
+from core.scientific_sections import scientific_context_to_report_sections
 from utils.reference_data import find_nearest_reference
 
 try:
@@ -373,6 +374,7 @@ def _record_sections(record: dict) -> list[tuple[str, dict[str, str]]]:
         generic_summary = _generic_method_summary(record.get("processing"))
         if generic_summary:
             sections.append(("Method Summary", generic_summary))
+    sections.extend(scientific_context_to_report_sections(record.get("scientific_context")))
     sections.extend(_processing_sections(record.get("processing")))
     sections.extend(_validation_sections(record.get("validation")))
     sections.extend(_provenance_sections(record.get("provenance")))

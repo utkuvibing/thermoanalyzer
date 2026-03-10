@@ -12,8 +12,15 @@ from __future__ import annotations
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 from scipy import integrate, interpolate, stats
+
+from core.scientific_sections import (
+    build_equation,
+    build_fit_quality,
+    build_interpretation,
+    build_scientific_context,
+)
 
 GAS_CONSTANT_R = 8.314462  # J/(mol·K)
 
@@ -404,3 +411,178 @@ def compute_conversion(
 
     alpha = cumulative / total_area
     return np.clip(alpha, 0.0, 1.0)
+
+
+def _resolve_kinetic_method(method: str) -> tuple[str, str]:
+    token = str(method or "").strip().lower().replace("_", " ").replace("-", " ")
+    if token in {"kissinger"}:
+        return "kissinger", "Kissinger"
+    if token in {"ofw", "ozawa flynn wall", "ozawa flynnwall"}:
+        return "ofw", "Ozawa-Flynn-Wall"
+    if token in {"friedman"}:
+        return "friedman", "Friedman"
+    raise ValueError(f"Unsupported kinetic method: {method}")
+
+
+def _kinetics_rows(method_id: str, results: list[KineticResult]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in results:
+        row: dict[str, Any] = {
+            "activation_energy_kj_mol": float(item.activation_energy),
+            "r_squared": float(item.r_squared) if item.r_squared is not None else None,
+        }
+        if item.pre_exponential is not None:
+            row["pre_exponential"] = float(item.pre_exponential)
+        alpha = (item.plot_data or {}).get("alpha")
+        if alpha is not None:
+            row["alpha"] = float(alpha)
+        if method_id == "kissinger":
+            row["regression_axis_x"] = "1/Tp"
+            row["regression_axis_y"] = "ln(beta/Tp^2)"
+        rows.append(row)
+    return rows
+
+
+def _kinetics_summary(method_id: str, results: list[KineticResult]) -> dict[str, Any]:
+    if method_id == "kissinger":
+        result = results[0]
+        return {
+            "activation_energy_kj_mol": float(result.activation_energy),
+            "pre_exponential": float(result.pre_exponential) if result.pre_exponential is not None else None,
+            "r_squared": float(result.r_squared) if result.r_squared is not None else None,
+        }
+
+    ea = [float(item.activation_energy) for item in results]
+    r2 = [float(item.r_squared) for item in results if item.r_squared is not None]
+    return {
+        "conversion_point_count": len(results),
+        "activation_energy_min_kj_mol": min(ea) if ea else None,
+        "activation_energy_max_kj_mol": max(ea) if ea else None,
+        "activation_energy_mean_kj_mol": float(np.mean(ea)) if ea else None,
+        "mean_r_squared": float(np.mean(r2)) if r2 else None,
+    }
+
+
+def _kinetics_scientific_context(method_id: str, label: str, results: list[KineticResult]) -> dict[str, Any]:
+    equations: list[dict[str, Any]]
+    if method_id == "kissinger":
+        equations = [
+            build_equation(
+                "Kissinger Linearization",
+                "ln(beta / Tp^2) = -Ea / (R * Tp) + ln(A * R / Ea)",
+            )
+        ]
+    elif method_id == "ofw":
+        equations = [
+            build_equation(
+                "OFW Approximation",
+                "log(beta) = -0.4567 * Ea / (R * T_alpha) + C",
+            )
+        ]
+    else:
+        equations = [
+            build_equation(
+                "Friedman Differential Form",
+                "ln(dalpha/dt) = -Ea / (R * T_alpha) + ln(A * f(alpha))",
+            )
+        ]
+
+    interpretations = [
+        build_interpretation(
+            "Kinetic analysis finished successfully.",
+            metric="result_count",
+            value=len(results),
+            unit="result rows",
+        )
+    ]
+    if results:
+        interpretations.append(
+            build_interpretation(
+                "Representative activation energy result.",
+                metric="activation_energy_kj_mol",
+                value=float(results[0].activation_energy),
+                unit="kJ/mol",
+            )
+        )
+
+    r2 = [float(item.r_squared) for item in results if item.r_squared is not None]
+    fit_quality = build_fit_quality(
+        {
+            "evaluated_rows": len(results),
+            "mean_r_squared": float(np.mean(r2)) if r2 else None,
+            "min_r_squared": min(r2) if r2 else None,
+            "max_r_squared": max(r2) if r2 else None,
+        }
+    )
+    return build_scientific_context(
+        methodology={
+            "analysis_family": "Kinetic Analysis",
+            "method": label,
+            "temperature_scale": "kelvin",
+        },
+        equations=equations,
+        numerical_interpretation=interpretations,
+        fit_quality=fit_quality,
+        limitations=[
+            "Interpretation quality depends on heating-rate spread and conversion interpolation quality.",
+        ],
+    )
+
+
+def run_kinetic_analysis(
+    method: str,
+    *,
+    heating_rates: list[float],
+    peak_temperatures: list[float] | None = None,
+    temperature_data: list[np.ndarray] | None = None,
+    conversion_data: list[np.ndarray] | None = None,
+    dalpha_dt_data: list[np.ndarray] | None = None,
+    alpha_values: Optional[list[float]] = None,
+) -> dict[str, Any]:
+    """
+    Unified kinetics runner with report-ready payloads.
+
+    Returns a dict containing method metadata, raw KineticResult rows, summary,
+    and scientific_context for normalized report serialization.
+    """
+    method_id, method_label = _resolve_kinetic_method(method)
+
+    if method_id == "kissinger":
+        if peak_temperatures is None:
+            raise ValueError("peak_temperatures is required for Kissinger analysis.")
+        result = kissinger_analysis(heating_rates, peak_temperatures)
+        results = [result]
+    elif method_id == "ofw":
+        if temperature_data is None or conversion_data is None:
+            raise ValueError("temperature_data and conversion_data are required for OFW analysis.")
+        results = ozawa_flynn_wall_analysis(
+            heating_rates,
+            temperature_data,
+            conversion_data,
+            alpha_values=alpha_values,
+        )
+    else:
+        if temperature_data is None or conversion_data is None or dalpha_dt_data is None:
+            raise ValueError(
+                "temperature_data, conversion_data, and dalpha_dt_data are required for Friedman analysis."
+            )
+        results = friedman_analysis(
+            heating_rates,
+            temperature_data,
+            conversion_data,
+            dalpha_dt_data,
+            alpha_values=alpha_values,
+        )
+
+    rows = _kinetics_rows(method_id, results)
+    summary = _kinetics_summary(method_id, results)
+    scientific_context = _kinetics_scientific_context(method_id, method_label, results)
+
+    return {
+        "method_id": method_id,
+        "method_label": method_label,
+        "results": results,
+        "rows": rows,
+        "summary": summary,
+        "scientific_context": scientific_context,
+    }

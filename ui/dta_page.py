@@ -16,7 +16,9 @@ from core.preprocessing import smooth_signal, compute_derivative
 from core.baseline import correct_baseline, AVAILABLE_METHODS
 from core.peak_analysis import find_thermal_peaks, characterize_peaks
 from core.dta_processor import DTAProcessor, DTAResult
+from core.processing_schema import ensure_processing_payload, update_processing_step
 from core.result_serialization import serialize_dta_result
+from core.validation import validate_thermal_dataset
 from ui.components.plot_builder import create_dta_plot, create_thermal_plot, fig_to_bytes, PLOTLY_CONFIG
 from ui.components.history_tracker import _log_event
 from ui.components.quality_dashboard import render_quality_dashboard
@@ -81,11 +83,42 @@ def _store_dta_result(selected_key, dataset, temperature, signal, state):
     except Exception:
         pass
 
+    processing_payload = ensure_processing_payload(
+        state.get("processing"),
+        analysis_type="DTA",
+        workflow_template="dta.general",
+    )
+    if state.get("smoothed") is not None:
+        processing_payload = update_processing_step(
+            processing_payload,
+            "smoothing",
+            {"status": "applied"},
+            analysis_type="DTA",
+        )
+    if state.get("baseline") is not None:
+        processing_payload = update_processing_step(
+            processing_payload,
+            "baseline",
+            {"status": "applied"},
+            analysis_type="DTA",
+        )
+    if state.get("peaks"):
+        processing_payload = update_processing_step(
+            processing_payload,
+            "peak_detection",
+            {"peak_count": len(state.get("peaks") or [])},
+            analysis_type="DTA",
+        )
+    state["processing"] = processing_payload
+
     record = serialize_dta_result(
         selected_key,
         dataset,
         state.get("peaks") or [],
         artifacts={"figure_keys": figure_keys},
+        processing=processing_payload,
+        validation=validate_thermal_dataset(dataset, analysis_type="DTA", processing=processing_payload),
+        review={"commercial_scope": "preview_dta"},
     )
     st.session_state.setdefault("results", {})[record["id"]] = record
 
@@ -128,11 +161,13 @@ def render():
         "baseline": None,
         "corrected": None,
         "peaks": None,
+        "processing": ensure_processing_payload(analysis_type="DTA", workflow_template="dta.general"),
     }
     if state_key not in st.session_state:
         st.session_state[state_key] = dict(default_state)
     state = st.session_state[state_key]
     init_analysis_state_history(state)
+    state["processing"] = ensure_processing_payload(state.get("processing"), analysis_type="DTA")
     tracked_keys = tuple(default_state.keys())
 
     # y-axis label: DTA uses delta-T in µV
@@ -305,6 +340,12 @@ def render():
                     )
                     push_analysis_undo_snapshot(state, tracked_keys)
                     state["smoothed"] = smoothed
+                    state["processing"] = update_processing_step(
+                        state.get("processing"),
+                        "smoothing",
+                        {"method": smooth_method, **smooth_kwargs},
+                        analysis_type="DTA",
+                    )
                     advance_analysis_render_revision(state)
                     _log_event(tx("Yumuşatma Uygulandı", "Smoothing Applied"), f"{tx('Yöntem', 'Method')}: {smooth_method}", tx("DTA Analizi", "DTA Analysis"))
                     # Reset downstream results when input signal changes
@@ -433,6 +474,15 @@ def render():
                     push_analysis_undo_snapshot(state, tracked_keys)
                     state["baseline"] = baseline
                     state["corrected"] = corrected
+                    baseline_payload = {"method": baseline_method, **bl_kwargs}
+                    if bl_region is not None:
+                        baseline_payload["region"] = list(bl_region)
+                    state["processing"] = update_processing_step(
+                        state.get("processing"),
+                        "baseline",
+                        baseline_payload,
+                        analysis_type="DTA",
+                    )
                     # Reset peaks when baseline changes
                     state["peaks"] = None
                     advance_analysis_render_revision(state)
@@ -571,6 +621,19 @@ def render():
 
                     push_analysis_undo_snapshot(state, tracked_keys)
                     state["peaks"] = result.peaks
+                    peak_payload = {
+                        "detect_endothermic": detect_endo,
+                        "detect_exothermic": detect_exo,
+                        "prominence": prominence if prominence > 0 else None,
+                        "distance": min_distance if min_distance > 0 else None,
+                        "peak_count": len(result.peaks),
+                    }
+                    state["processing"] = update_processing_step(
+                        state.get("processing"),
+                        "peak_detection",
+                        peak_payload,
+                        analysis_type="DTA",
+                    )
                     advance_analysis_render_revision(state)
                     _log_event(tx("Pikler Tespit Edildi", "Peaks Detected"), tx("{count} pik bulundu", "{count} peak(s) found", count=len(result.peaks)), tx("DTA Analizi", "DTA Analysis"))
                     st.success(tx("{count} pik bulundu.", "Found {count} peak(s).", count=len(result.peaks)))

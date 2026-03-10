@@ -173,6 +173,7 @@ def test_generate_csv_summary_with_normalized_records(thermal_dataset):
     assert "dsc_synthetic_dsc" in csv_text
     assert "kissinger" in csv_text
     assert "processing" in csv_text
+    assert "scientific_context" in csv_text
     assert "provenance" in csv_text
     assert "schema_version" in csv_text
     assert "workflow_template_id" in csv_text
@@ -225,6 +226,11 @@ def test_generate_docx_report_separates_stable_and_experimental(thermal_dataset)
     assert "Analyst Notes" in xml
     assert "Compare Workspace" in xml
     assert "Kissinger" in xml
+    assert "Methodology" in xml
+    assert "Equations and Formulation" in xml
+    assert "Numerical Interpretation" in xml
+    assert "Fit Quality" in xml
+    assert "Warnings and Limitations" in xml
     assert "Calibration State" in xml
     assert "missing_calibration" in xml
     assert "Atmosphere Status" in xml

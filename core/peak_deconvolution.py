@@ -93,6 +93,7 @@ def deconvolve_peaks(
     auto_estimates = _auto_estimate_params(x, y, n_peaks)
 
     params = composite_model.make_params()
+    used_initial_guesses: list[dict] = []
 
     for peak_idx in range(n_peaks):
         auto = auto_estimates[peak_idx]
@@ -102,6 +103,15 @@ def deconvolve_peaks(
         center = user.get("center", auto["center"])
         amplitude = user.get("amplitude", auto["amplitude"])
         sigma = user.get("sigma", auto["sigma"])
+        used_initial_guesses.append(
+            {
+                "peak": peak_idx + 1,
+                "center": float(center),
+                "amplitude": float(amplitude),
+                "sigma": float(sigma),
+                "source": "user" if user else "auto",
+            }
+        )
 
         prefix = f"p{peak_idx + 1}_"
         params[f"{prefix}center"].set(value=center, min=x.min(), max=x.max())
@@ -125,6 +135,12 @@ def deconvolve_peaks(
     components = _eval_components(result, x, n_peaks, peak_shape)
     residual = y - fitted
     r_squared = _r_squared(y, fitted)
+    rmse = float(np.sqrt(np.mean(residual ** 2)))
+    mae = float(np.mean(np.abs(residual)))
+    max_abs_residual = float(np.max(np.abs(residual)))
+    param_count = sum(1 for key in result.params if not key.startswith("__"))
+    dof = max(len(y) - param_count, 1)
+    reduced_chi_squared = float(np.sum(residual ** 2) / dof)
 
     # Collect fitted parameter values into a plain dict
     fitted_params = {name: result.params[name].value for name in result.params}
@@ -136,6 +152,20 @@ def deconvolve_peaks(
         "residual": residual,
         "r_squared": r_squared,
         "report": result.fit_report(),
+        "initial_guesses": used_initial_guesses,
+        "residual_stats": {
+            "rmse": rmse,
+            "mae": mae,
+            "max_abs_residual": max_abs_residual,
+            "reduced_chi_squared": reduced_chi_squared,
+            "dof": int(dof),
+        },
+        "fit_quality": {
+            "r_squared": r_squared,
+            "rmse": rmse,
+            "reduced_chi_squared": reduced_chi_squared,
+            "dof": int(dof),
+        },
     }
 
 

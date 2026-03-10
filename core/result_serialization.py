@@ -9,6 +9,14 @@ from typing import Any, Iterable
 
 from core.dsc_processor import GlassTransition
 from core.peak_analysis import ThermalPeak
+from core.scientific_sections import (
+    build_equation,
+    build_fit_quality,
+    build_interpretation,
+    build_limitations,
+    build_scientific_context,
+    normalize_scientific_context,
+)
 from core.tga_processor import MassLossStep, TGAResult
 
 
@@ -27,6 +35,7 @@ OPTIONAL_RESULT_KEYS = {
     "provenance",
     "validation",
     "review",
+    "scientific_context",
 }
 
 VALID_STATUSES = {"stable", "experimental"}
@@ -58,6 +67,7 @@ def make_result_record(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a normalized result record."""
     if status not in VALID_STATUSES:
@@ -76,7 +86,317 @@ def make_result_record(
         "provenance": copy.deepcopy(provenance or {}),
         "validation": copy.deepcopy(validation or {}),
         "review": copy.deepcopy(review or {}),
+        "scientific_context": normalize_scientific_context(scientific_context),
     }
+
+
+def _validation_warnings(validation: dict[str, Any] | None) -> list[str]:
+    warnings = []
+    for item in (validation or {}).get("warnings") or []:
+        if item in (None, ""):
+            continue
+        warnings.append(str(item))
+    return warnings
+
+
+def _build_dsc_scientific_context(
+    summary: dict[str, Any],
+    *,
+    processing: dict[str, Any] | None = None,
+    validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    methodology = {
+        "analysis_family": "Differential Scanning Calorimetry",
+        "workflow_template": (processing or {}).get("workflow_template_label")
+        or (processing or {}).get("workflow_template")
+        or "General DSC",
+        "signal_pipeline": (processing or {}).get("signal_pipeline") or {},
+        "analysis_steps": (processing or {}).get("analysis_steps") or {},
+    }
+    equations = [
+        build_equation(
+            "Enthalpy Integration",
+            "DeltaH = integral((signal - baseline) dT) / beta",
+            notes="Area sign follows configured DSC sign convention.",
+        )
+    ]
+    if summary.get("tg_midpoint") is not None:
+        equations.append(
+            build_equation(
+                "Glass Transition Midpoint",
+                "Tg(mid) from tangent-intersection between pre/post-transition baselines",
+            )
+        )
+    interpretation = [
+        build_interpretation(
+            "Detected thermal events in DSC signal.",
+            metric="peak_count",
+            value=summary.get("peak_count"),
+            unit="events",
+        ),
+    ]
+    if summary.get("tg_midpoint") is not None:
+        interpretation.append(
+            build_interpretation(
+                "Glass transition midpoint was resolved.",
+                metric="tg_midpoint",
+                value=summary.get("tg_midpoint"),
+                unit="degC",
+            )
+        )
+    limitations = [
+        "Peak area and onset/endset are sensitive to baseline selection and smoothing strategy.",
+        "Interpretation requires domain review when calibration/reference checks are not accepted.",
+    ]
+    warnings = _validation_warnings(validation)
+    return build_scientific_context(
+        methodology=methodology,
+        equations=equations,
+        numerical_interpretation=interpretation,
+        fit_quality=build_fit_quality({}),
+        warnings=warnings,
+        limitations=limitations,
+    )
+
+
+def _build_tga_scientific_context(
+    summary: dict[str, Any],
+    *,
+    processing: dict[str, Any] | None = None,
+    validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    methodology = {
+        "analysis_family": "Thermogravimetric Analysis",
+        "workflow_template": (processing or {}).get("workflow_template_label")
+        or (processing or {}).get("workflow_template")
+        or "General TGA",
+        "signal_pipeline": (processing or {}).get("signal_pipeline") or {},
+        "analysis_steps": (processing or {}).get("analysis_steps") or {},
+    }
+    equations = [
+        build_equation(
+            "Mass-Loss per Step",
+            "mass_loss_percent = mass_onset - mass_endset",
+            notes="Step bounds are estimated from DTG-derived onset/endset.",
+        ),
+        build_equation(
+            "Total Mass Loss",
+            "total_mass_loss_percent = smoothed_mass_start - smoothed_mass_end",
+        ),
+    ]
+    interpretation = [
+        build_interpretation(
+            "Detected decomposition steps from DTG features.",
+            metric="step_count",
+            value=summary.get("step_count"),
+            unit="steps",
+        ),
+        build_interpretation(
+            "Overall mass loss across the run.",
+            metric="total_mass_loss_percent",
+            value=summary.get("total_mass_loss_percent"),
+            unit="percent",
+        ),
+    ]
+    limitations = [
+        "Step boundaries are approximate and depend on smoothing and prominence thresholds.",
+        "Absolute mass-loss conversion requires trusted initial-mass metadata.",
+    ]
+    warnings = _validation_warnings(validation)
+    return build_scientific_context(
+        methodology=methodology,
+        equations=equations,
+        numerical_interpretation=interpretation,
+        fit_quality=build_fit_quality({}),
+        warnings=warnings,
+        limitations=limitations,
+    )
+
+
+def _build_dta_scientific_context(
+    summary: dict[str, Any],
+    *,
+    validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    equations = [
+        build_equation(
+            "Event Area",
+            "event_area = integral(deltaT - baseline dT)",
+            notes="Qualitative unless instrument-specific calibration is available.",
+        )
+    ]
+    interpretation = [
+        build_interpretation(
+            "Detected thermal events in DTA curve.",
+            metric="peak_count",
+            value=summary.get("peak_count"),
+            unit="events",
+            implication="Experimental workflow; interpretation is exploratory.",
+        )
+    ]
+    limitation_payload = build_limitations(
+        limitations=[
+            "DTA module is experimental and outside stable reporting guarantees.",
+            "Area-to-enthalpy mapping is instrument-dependent unless calibrated.",
+        ],
+        warnings=_validation_warnings(validation),
+    )
+    return build_scientific_context(
+        methodology={"analysis_family": "Differential Thermal Analysis"},
+        equations=equations,
+        numerical_interpretation=interpretation,
+        fit_quality=build_fit_quality({}),
+        warnings=limitation_payload["warnings"],
+        limitations=limitation_payload["limitations"],
+    )
+
+
+def _build_kissinger_scientific_context(result: Any) -> dict[str, Any]:
+    equations = [
+        build_equation(
+            "Kissinger Linearization",
+            "ln(beta / Tp^2) = -Ea / (R * Tp) + ln(A * R / Ea)",
+            notes="Linear regression of ln(beta/Tp^2) vs 1/Tp.",
+        )
+    ]
+    interpretation = [
+        build_interpretation(
+            "Estimated apparent activation energy from peak-temperature shift.",
+            metric="activation_energy_kj_mol",
+            value=_clean_scalar(getattr(result, "activation_energy", None)),
+            unit="kJ/mol",
+        ),
+    ]
+    fit_quality = build_fit_quality(
+        {
+            "r_squared": _clean_scalar(getattr(result, "r_squared", None)),
+            "model": "linear_regression",
+        }
+    )
+    return build_scientific_context(
+        methodology={"analysis_family": "Kinetic Analysis", "method": "Kissinger"},
+        equations=equations,
+        numerical_interpretation=interpretation,
+        fit_quality=fit_quality,
+        limitations=[
+            "Assumes a dominant single-step process and representative peak temperatures.",
+        ],
+    )
+
+
+def _build_ofw_scientific_context(results: list[Any]) -> dict[str, Any]:
+    r2_values = [float(item.r_squared) for item in results if getattr(item, "r_squared", None) is not None]
+    mean_r2 = sum(r2_values) / len(r2_values) if r2_values else None
+    ea_values = [float(item.activation_energy) for item in results if getattr(item, "activation_energy", None) is not None]
+    interpretation: list[dict[str, Any]] = [
+        build_interpretation(
+            "Computed activation-energy profile across conversion levels.",
+            metric="conversion_point_count",
+            value=len(results),
+            unit="points",
+        )
+    ]
+    if ea_values:
+        interpretation.append(
+            build_interpretation(
+                "Observed OFW activation-energy range.",
+                metric="activation_energy_range",
+                value={"min": min(ea_values), "max": max(ea_values)},
+                unit="kJ/mol",
+            )
+        )
+    return build_scientific_context(
+        methodology={"analysis_family": "Kinetic Analysis", "method": "Ozawa-Flynn-Wall"},
+        equations=[
+            build_equation(
+                "OFW Approximation",
+                "log(beta) = -0.4567 * Ea / (R * T_alpha) + C",
+                notes="Doyle approximation evaluated per conversion level alpha.",
+            )
+        ],
+        numerical_interpretation=interpretation,
+        fit_quality=build_fit_quality(
+            {
+                "mean_r_squared": _clean_scalar(mean_r2),
+                "evaluated_levels": len(results),
+            }
+        ),
+        limitations=[
+            "Accuracy degrades near low/high conversion tails where interpolation is unstable.",
+        ],
+    )
+
+
+def _build_friedman_scientific_context(results: list[Any]) -> dict[str, Any]:
+    r2_values = [float(item.r_squared) for item in results if getattr(item, "r_squared", None) is not None]
+    mean_r2 = sum(r2_values) / len(r2_values) if r2_values else None
+    return build_scientific_context(
+        methodology={"analysis_family": "Kinetic Analysis", "method": "Friedman"},
+        equations=[
+            build_equation(
+                "Friedman Differential Form",
+                "ln(dalpha/dt) = -Ea / (R * T_alpha) + ln(A * f(alpha))",
+            )
+        ],
+        numerical_interpretation=[
+            build_interpretation(
+                "Computed activation-energy profile from differential conversion rates.",
+                metric="conversion_point_count",
+                value=len(results),
+                unit="points",
+            )
+        ],
+        fit_quality=build_fit_quality(
+            {
+                "mean_r_squared": _clean_scalar(mean_r2),
+                "evaluated_levels": len(results),
+            }
+        ),
+        limitations=[
+            "Derivative-based method is sensitive to noise and smoothing choices.",
+        ],
+    )
+
+
+def _build_deconvolution_scientific_context(result: dict[str, Any], peak_shape: str, n_peaks: int) -> dict[str, Any]:
+    fit_quality = {
+        "r_squared": _clean_scalar(result.get("r_squared")),
+    }
+    for key in ("rmse", "mae", "max_abs_residual", "reduced_chi_squared", "dof"):
+        if key in (result.get("residual_stats") or {}):
+            fit_quality[key] = _clean_scalar(result["residual_stats"].get(key))
+    if "fit_quality" in result and isinstance(result["fit_quality"], dict):
+        fit_quality.update({k: _clean_scalar(v) for k, v in result["fit_quality"].items()})
+
+    interpretation = [
+        build_interpretation(
+            "Resolved overlapping peaks with a non-linear least-squares fit.",
+            metric="peak_count",
+            value=n_peaks,
+            unit="components",
+        )
+    ]
+    return build_scientific_context(
+        methodology={
+            "analysis_family": "Peak Deconvolution",
+            "fit_engine": "lmfit",
+            "peak_shape": peak_shape,
+            "initial_guesses": result.get("initial_guesses") or [],
+        },
+        equations=[
+            build_equation(
+                "Composite Peak Model",
+                "y_hat(x) = sum_i component_i(x) + epsilon",
+                notes=f"Component family: {peak_shape}",
+            )
+        ],
+        numerical_interpretation=interpretation,
+        fit_quality=build_fit_quality(fit_quality),
+        limitations=[
+            "Parameter identifiability may degrade for strongly overlapping peaks.",
+            "Model-shape choice can bias component amplitudes and widths.",
+        ],
+    )
 
 
 def thermal_peak_to_dict(peak: ThermalPeak) -> dict[str, Any]:
@@ -176,6 +496,7 @@ def serialize_dsc_result(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize a stable DSC analysis record."""
     peaks = list(peaks)
@@ -222,6 +543,8 @@ def serialize_dsc_result(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context
+        or _build_dsc_scientific_context(summary, processing=processing, validation=validation),
     )
 
 
@@ -234,6 +557,7 @@ def serialize_tga_result(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize a stable TGA analysis record."""
     rows = [
@@ -268,6 +592,8 @@ def serialize_tga_result(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context
+        or _build_tga_scientific_context(summary, processing=processing, validation=validation),
     )
 
 
@@ -280,6 +606,7 @@ def serialize_dta_result(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize an experimental DTA analysis record."""
     peaks = list(peaks)
@@ -309,6 +636,8 @@ def serialize_dta_result(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context
+        or _build_dta_scientific_context(summary, validation=validation),
     )
 
 
@@ -319,6 +648,7 @@ def serialize_kissinger_result(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize an experimental Kissinger result."""
     summary = {
@@ -339,6 +669,7 @@ def serialize_kissinger_result(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context or _build_kissinger_scientific_context(result),
     )
 
 
@@ -349,6 +680,7 @@ def serialize_ofw_results(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize experimental Ozawa-Flynn-Wall results."""
     rows = []
@@ -376,6 +708,7 @@ def serialize_ofw_results(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context or _build_ofw_scientific_context(results),
     )
 
 
@@ -386,6 +719,7 @@ def serialize_friedman_results(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize experimental Friedman results."""
     rows = []
@@ -414,6 +748,7 @@ def serialize_friedman_results(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context or _build_friedman_scientific_context(results),
     )
 
 
@@ -427,6 +762,7 @@ def serialize_deconvolution_result(
     provenance: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    scientific_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize an experimental peak deconvolution result."""
     params = result.get("params", {})
@@ -463,6 +799,8 @@ def serialize_deconvolution_result(
         provenance=provenance,
         validation=validation,
         review=review,
+        scientific_context=scientific_context
+        or _build_deconvolution_scientific_context(result, peak_shape, n_peaks),
     )
 
 
@@ -510,6 +848,9 @@ def split_valid_results(results: dict[str, Any]) -> tuple[dict[str, dict[str, An
         normalized.setdefault("provenance", {})
         normalized.setdefault("validation", {})
         normalized.setdefault("review", {})
+        normalized["scientific_context"] = normalize_scientific_context(
+            normalized.get("scientific_context")
+        )
         valid[result_id] = normalized
     return valid, issues
 
@@ -547,7 +888,7 @@ def flatten_result_records(results: dict[str, dict[str, Any]]) -> list[dict[str,
             rows.append({**base, "section": "metadata", "row_index": "", "field": key, "value": _flat_value(value)})
         for key, value in record.get("summary", {}).items():
             rows.append({**base, "section": "summary", "row_index": "", "field": key, "value": _flat_value(value)})
-        for section_name in ("processing", "provenance", "validation", "review"):
+        for section_name in ("processing", "provenance", "validation", "review", "scientific_context"):
             for key, value in record.get(section_name, {}).items():
                 rows.append({**base, "section": section_name, "row_index": "", "field": key, "value": _flat_value(value)})
         for index, row in enumerate(record.get("rows", []), start=1):

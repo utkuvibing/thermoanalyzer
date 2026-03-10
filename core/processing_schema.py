@@ -12,14 +12,29 @@ PROCESSING_SCHEMA_VERSION = 1
 _SIGNAL_PIPELINE_SECTIONS = {
     "DSC": ("smoothing", "baseline"),
     "TGA": ("smoothing",),
+    "DTA": ("smoothing", "baseline"),
+    "KISSINGER": (),
+    "OZAWA-FLYNN-WALL": (),
+    "FRIEDMAN": (),
+    "PEAK DECONVOLUTION": (),
 }
 _ANALYSIS_STEP_SECTIONS = {
     "DSC": ("glass_transition", "peak_detection"),
     "TGA": ("step_detection",),
+    "DTA": ("peak_detection",),
+    "KISSINGER": ("kinetic_regression",),
+    "OZAWA-FLYNN-WALL": ("isoconversional_analysis",),
+    "FRIEDMAN": ("isoconversional_analysis",),
+    "PEAK DECONVOLUTION": ("peak_fitting",),
 }
 _DEFAULT_WORKFLOW_TEMPLATE = {
     "DSC": "General DSC",
     "TGA": "General TGA",
+    "DTA": "General DTA",
+    "KISSINGER": "Kissinger Kinetics",
+    "OZAWA-FLYNN-WALL": "OFW Isoconversional",
+    "FRIEDMAN": "Friedman Isoconversional",
+    "PEAK DECONVOLUTION": "General Peak Deconvolution",
 }
 _WORKFLOW_TEMPLATES = {
     "DSC": (
@@ -31,6 +46,23 @@ _WORKFLOW_TEMPLATES = {
         {"id": "tga.general", "label": "General TGA", "version": 1},
         {"id": "tga.single_step_decomposition", "label": "Single-Step Decomposition", "version": 1},
         {"id": "tga.multi_step_decomposition", "label": "Multi-Step Decomposition", "version": 1},
+    ),
+    "DTA": (
+        {"id": "dta.general", "label": "General DTA", "version": 1},
+        {"id": "dta.thermal_events", "label": "Thermal Event Screening", "version": 1},
+    ),
+    "KISSINGER": (
+        {"id": "kinetics.kissinger_general", "label": "Kissinger Kinetics", "version": 1},
+    ),
+    "OZAWA-FLYNN-WALL": (
+        {"id": "kinetics.ofw_general", "label": "OFW Isoconversional", "version": 1},
+    ),
+    "FRIEDMAN": (
+        {"id": "kinetics.friedman_general", "label": "Friedman Isoconversional", "version": 1},
+    ),
+    "PEAK DECONVOLUTION": (
+        {"id": "deconvolution.general", "label": "General Peak Deconvolution", "version": 1},
+        {"id": "deconvolution.overlap_resolution", "label": "Overlap Resolution", "version": 1},
     ),
 }
 _TGA_UNIT_MODES = (
@@ -60,6 +92,29 @@ _METHOD_CONTEXT_DEFAULTS = {
         "step_analysis_basis": "DTG-derived onset, midpoint, and endset estimation",
         "tga_unit_mode_declared": "auto",
         "tga_unit_mode_label": "Auto",
+    },
+    "DTA": {
+        "sign_convention_id": "dta.exotherm_up",
+        "sign_convention_label": "Exotherm up / Endotherm down",
+    },
+    "KISSINGER": {
+        "kinetic_family": "model_fitting",
+        "formulation": "kissinger",
+        "temperature_scale": "kelvin",
+    },
+    "OZAWA-FLYNN-WALL": {
+        "kinetic_family": "isoconversional",
+        "formulation": "ozawa_flynn_wall",
+        "temperature_scale": "kelvin",
+    },
+    "FRIEDMAN": {
+        "kinetic_family": "isoconversional",
+        "formulation": "friedman",
+        "temperature_scale": "kelvin",
+    },
+    "PEAK DECONVOLUTION": {
+        "fit_engine": "lmfit",
+        "objective_function": "least_squares",
     },
 }
 

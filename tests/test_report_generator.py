@@ -298,6 +298,11 @@ def test_generate_docx_report_renders_method_validation_and_provenance_sections(
         xml = archive.read("word/document.xml").decode("utf-8")
 
     assert "Method Summary" in xml
+    assert "Methodology" in xml
+    assert "Equations and Formulation" in xml
+    assert "Numerical Interpretation" in xml
+    assert "Fit Quality" in xml
+    assert "Warnings and Limitations" in xml
     assert "Signal Pipeline" in xml
     assert "Analysis Steps" in xml
     assert "Template ID" in xml
@@ -365,6 +370,8 @@ def test_generate_csv_summary_uses_normalized_flat_contract(thermal_dataset):
     assert any(row["section"] == "processing" and row["field"] == "analysis_steps" for row in rows)
     assert any(row["section"] == "processing" and row["field"] == "sign_convention" for row in rows)
     assert any(row["section"] == "processing" and row["field"] == "method_context" for row in rows)
+    assert any(row["section"] == "scientific_context" and row["field"] == "methodology" for row in rows)
+    assert any(row["section"] == "scientific_context" and row["field"] == "equations" for row in rows)
     assert any(row["section"] == "provenance" and row["field"] == "app_version" for row in rows)
     assert any(row["section"] == "provenance" and row["field"] == "calibration_state" for row in rows)
     assert any(row["section"] == "provenance" and row["field"] == "reference_state" for row in rows)

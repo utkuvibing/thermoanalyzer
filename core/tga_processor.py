@@ -504,6 +504,8 @@ class TGAProcessor:
         **kwargs
             Additional keyword arguments forwarded to
             :func:`~core.peak_analysis.find_thermal_peaks`.
+            Supported keys are ``height``, ``distance``, ``width``, and
+            ``direction``. Other keys are ignored in this stage.
 
         Returns
         -------
@@ -528,12 +530,21 @@ class TGAProcessor:
         if prominence is None:
             prominence = max(0.005 * neg_dtg.max(), 0.01)
 
+        # Only forward peak-finder-specific kwargs. This prevents smoothing
+        # kwargs (e.g., window_length/polyorder) from leaking into
+        # find_thermal_peaks via process(..., **kwargs).
+        peak_finder_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in {"height", "distance", "width", "direction"}
+        }
+
         # Find peaks in the inverted DTG
         dtg_peaks: List[ThermalPeak] = find_thermal_peaks(
             self._temperature,
             neg_dtg,
             prominence=prominence,
-            **kwargs,
+            **peak_finder_kwargs,
         )
 
         self._dtg_peaks = dtg_peaks

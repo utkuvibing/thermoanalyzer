@@ -20,8 +20,9 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import core.tga_processor as tga_processor_module
 from core.tga_processor import TGAProcessor, TGAResult, MassLossStep
-from core.peak_analysis import ThermalPeak
+from core.peak_analysis import ThermalPeak, find_thermal_peaks as peak_analysis_find_thermal_peaks
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +349,23 @@ class TestTGAFullPipeline:
                 "mass_loss_mg should be populated when initial_mass_mg is given"
             )
 
+    def test_process_with_savgol_kwargs_does_not_break_step_detection(self, temperature_range):
+        """
+        Regression: smoothing kwargs passed through process() must not be
+        forwarded into find_thermal_peaks.
+        """
+        mass = _make_tga_signal(temperature_range, noise_level=0.005, seed=21)
+        result = TGAProcessor(temperature_range, mass).process(
+            smooth_method="savgol",
+            smooth_dtg=True,
+            window_length=11,
+            polyorder=3,
+            min_mass_loss=1.0,
+        )
+
+        assert isinstance(result, TGAResult)
+        assert len(result.dtg_signal) == len(temperature_range)
+
     def test_process_mass_loss_mg_consistent_with_percent(self, temperature_range):
         """
         mass_loss_mg should equal mass_loss_percent / 100 * initial_mass_mg.
@@ -377,6 +395,31 @@ class TestTGAFullPipeline:
         assert len(result.steps) >= 1, (
             "Expected at least one step from the conftest TGA fixture"
         )
+
+    def test_process_filters_smoothing_kwargs_before_peak_detection(self, temperature_range, monkeypatch):
+        """
+        Smoothing kwargs passed through process() must not leak into
+        find_thermal_peaks(), but supported peak-detection kwargs still should.
+        """
+        mass = _make_tga_signal(temperature_range, noise_level=0.005, seed=17)
+        captured = {}
+
+        def spy_find_thermal_peaks(temperature, signal, **kwargs):
+            captured.update(kwargs)
+            return peak_analysis_find_thermal_peaks(temperature, signal, **kwargs)
+
+        monkeypatch.setattr(tga_processor_module, "find_thermal_peaks", spy_find_thermal_peaks)
+
+        result = TGAProcessor(temperature_range, mass).process(
+            window_length=15,
+            polyorder=3,
+            direction="up",
+        )
+
+        assert isinstance(result, TGAResult)
+        assert "window_length" not in captured
+        assert "polyorder" not in captured
+        assert captured["direction"] == "up"
 
 
 class TestTGADeterministicRegressions:
