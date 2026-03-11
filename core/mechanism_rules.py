@@ -278,6 +278,75 @@ def _formula_mass(formula_counts: dict[str, float] | None) -> float | None:
     return total
 
 
+def _formula_element_order(formula: str | None) -> list[str]:
+    order: list[str] = []
+    for symbol in re.findall(r"[A-Z][a-z]?", str(formula or "")):
+        if symbol not in order:
+            order.append(symbol)
+    return order
+
+
+def _counts_to_formula_string(formula_counts: dict[str, float] | None, *, order_hint: list[str] | None = None) -> str | None:
+    if not formula_counts:
+        return None
+    order: list[str] = []
+    for symbol in order_hint or []:
+        if symbol in formula_counts and symbol not in order:
+            order.append(symbol)
+    for symbol in sorted(formula_counts.keys()):
+        if symbol not in order:
+            order.append(symbol)
+
+    parts: list[str] = []
+    for symbol in order:
+        count = float(formula_counts.get(symbol) or 0.0)
+        if count <= 1e-9:
+            continue
+        nearest = round(count)
+        if abs(count - nearest) > 1e-6:
+            return None
+        parts.append(symbol if nearest == 1 else f"{symbol}{int(nearest)}")
+    output = "".join(parts).strip()
+    return output or None
+
+
+def _derive_anhydrous_formula(formula: str | None) -> str | None:
+    if not formula:
+        return None
+    raw = str(formula).strip()
+    if not raw:
+        return None
+    stripped = re.sub(r"(?:[·\.])\d*H2O", "", raw, flags=re.IGNORECASE).strip(" .·")
+    if not stripped or stripped == raw:
+        return None
+    parsed = _parse_formula(stripped)
+    rendered = _counts_to_formula_string(parsed, order_hint=_formula_element_order(stripped))
+    return rendered or stripped
+
+
+def _derive_carbonate_oxide_formula(formula: str | None, formula_counts: dict[str, float] | None) -> str | None:
+    formula_counts = dict(formula_counts or {})
+    carbonate_groups = _group_count(formula or "", "CO3")
+    if carbonate_groups <= 0 or not formula_counts:
+        return None
+
+    formula_counts["C"] = formula_counts.get("C", 0.0) - carbonate_groups
+    formula_counts["O"] = formula_counts.get("O", 0.0) - (2.0 * carbonate_groups)
+    if formula_counts.get("C", 0.0) > 1e-6 or formula_counts.get("O", 0.0) < -1e-6:
+        return None
+    if formula_counts.get("H", 0.0) > 1e-6:
+        return None
+
+    cleaned: dict[str, float] = {}
+    for symbol, count in formula_counts.items():
+        if count <= 1e-9:
+            continue
+        cleaned[symbol] = count
+    if not cleaned:
+        return None
+    return _counts_to_formula_string(cleaned, order_hint=_formula_element_order(formula))
+
+
 def _group_count(formula: str, group_token: str) -> float:
     if not formula:
         return 0.0
@@ -447,6 +516,7 @@ def evaluate_tga_mass_balance(
     formula = class_inference.get("formula_candidate")
     formula_counts = class_inference.get("formula_counts") or _parse_formula(formula) or {}
     formula_mass = _formula_mass(formula_counts)
+    expected_solid_formula: str | None = None
     tolerance = _TGA_MASS_BALANCE_TOLERANCE.get(material_class, 3.5)
     if formula_mass is None and material_class in {
         "hydrate_salt",
@@ -459,6 +529,8 @@ def evaluate_tga_mass_balance(
             "reason": "Class was inferred, but formula parsing was insufficient for stoichiometric matching.",
             "pathway": None,
             "formula_candidate": formula,
+            "reactant_formula": formula,
+            "expected_solid_formula": None,
             "class_label": class_inference.get("material_class_label"),
         }
 
@@ -472,13 +544,21 @@ def evaluate_tga_mass_balance(
         if hydrate_units > 0 and formula_mass:
             expected_loss = (hydrate_units * 18.01528 / formula_mass) * 100.0
             expected_residue = 100.0 - expected_loss
-            pathway = "dehydration to anhydrous solid residue"
+            expected_solid_formula = _derive_anhydrous_formula(formula)
+            if expected_solid_formula and formula:
+                pathway = f"dehydration of {formula} to anhydrous {expected_solid_formula}"
+            else:
+                pathway = "dehydration to anhydrous solid residue"
     elif material_class == "carbonate_inorganic":
         carbonate_groups = _group_count(formula or "", "CO3")
         if carbonate_groups > 0 and formula_mass:
             expected_loss = (carbonate_groups * 44.0095 / formula_mass) * 100.0
             expected_residue = 100.0 - expected_loss
-            pathway = "decarbonation with stable oxide-rich residue"
+            expected_solid_formula = _derive_carbonate_oxide_formula(formula, formula_counts)
+            if expected_solid_formula and formula:
+                pathway = f"decarbonation of {formula} to {expected_solid_formula}"
+            else:
+                pathway = "decarbonation with stable oxide-rich residue"
     elif material_class == "hydroxide_to_oxide":
         hydroxide_groups = _group_count(formula or "", "OH")
         if hydroxide_groups > 0 and formula_mass:
@@ -508,6 +588,8 @@ def evaluate_tga_mass_balance(
             "reason": "Observed loss was compared against a plausible oxalate gas-loss range.",
             "pathway": pathway,
             "formula_candidate": formula,
+            "reactant_formula": formula,
+            "expected_solid_formula": expected_solid_formula,
             "expected_loss_percent": range_mid,
             "expected_loss_range_percent": [round(min_expected, 2), round(max_expected, 2)],
             "expected_residue_percent": 100.0 - range_mid,
@@ -523,6 +605,8 @@ def evaluate_tga_mass_balance(
             "reason": "No class-specific stoichiometric pathway could be evaluated from available formula clues.",
             "pathway": None,
             "formula_candidate": formula,
+            "reactant_formula": formula,
+            "expected_solid_formula": None,
             "class_label": class_inference.get("material_class_label"),
         }
 
@@ -540,6 +624,8 @@ def evaluate_tga_mass_balance(
         "reason": "Observed mass balance was compared against a class-specific stoichiometric pathway.",
         "pathway": pathway,
         "formula_candidate": formula,
+        "reactant_formula": formula,
+        "expected_solid_formula": expected_solid_formula,
         "expected_loss_percent": round(expected_loss, 2),
         "expected_residue_percent": round(expected_residue, 2),
         "delta_loss_percent": round(delta_loss, 2),

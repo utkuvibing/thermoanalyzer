@@ -20,13 +20,47 @@ def recommend_next_experiments(
     recommendations: list[str] = []
 
     if analysis == "TGA":
-        recommendations.extend(
-            [
-                "Run replicate TGA scans under identical ramp and purge conditions to verify step reproducibility.",
-                "Acquire at least two additional heating rates to test kinetic consistency of the observed mass-loss profile.",
-                "Pair TGA with evolved-gas analysis (FTIR/MS) to distinguish decomposition from volatilization contributions.",
-            ]
-        )
+        if material_class == "hydrate_salt":
+            recommendations.extend(
+                [
+                    "Use before/after XRD to verify conversion from hydrate to the expected anhydrous phase.",
+                    "Run controlled reheating or an isothermal hold through the primary dehydration region to confirm step completion.",
+                    "Pair TGA with DSC (or STA) over the dehydration window to confirm event boundaries and heat-flow coupling.",
+                ]
+            )
+        elif material_class == "carbonate_inorganic":
+            recommendations.extend(
+                [
+                    "Use post-run residue phase analysis (XRD/Raman) to verify oxide formation after decarbonation.",
+                    "Repeat TGA under controlled atmosphere and at additional heating rates to test pathway robustness.",
+                    "Add targeted gas-evolution confirmation for CO2 release near the dominant decarbonation region.",
+                ]
+            )
+        elif material_class == "hydroxide_to_oxide":
+            recommendations.extend(
+                [
+                    "Use before/after XRD to verify conversion from hydroxide to the expected oxide phase.",
+                    "Run controlled reheating or isothermal holds across the dominant dehydroxylation region to confirm completion.",
+                    "Pair TGA with DSC (or STA) to refine boundaries of overlapping dehydration/dehydroxylation events.",
+                ]
+            )
+        elif material_class == "oxalate_multistage_inorganic":
+            recommendations.extend(
+                [
+                    "Combine TGA with evolved-gas speciation to resolve CO versus CO2 release across oxalate decomposition stages.",
+                    "Use residue-phase characterization (XRD/Raman) after staged cut-off temperatures to map intermediate solids.",
+                    "Repeat at additional heating rates to confirm multistage pathway stability and step partitioning.",
+                ]
+            )
+        else:
+            recommendations.extend(
+                [
+                    "Run replicate TGA scans under identical ramp and purge conditions to verify step reproducibility.",
+                    "Acquire at least two additional heating rates to test kinetic consistency of the observed mass-loss profile.",
+                    "Pair TGA with evolved-gas analysis (FTIR/MS) to resolve competing gas-release pathways.",
+                ]
+            )
+
         if material_class in {"hydrate_salt", "hydroxide_to_oxide"}:
             recommendations.append(
                 "Use XRD (before/after heating) to verify dehydration/dehydroxylation product phases and confirm stable-residue assignment."
@@ -68,7 +102,7 @@ def recommend_next_experiments(
             ]
         )
 
-    if mechanism_hint in {"conversion_dependent", "residue_forming"}:
+    if mechanism_hint in {"conversion_dependent", "residue_forming"} and material_class not in {"hydrate_salt", "carbonate_inorganic", "hydroxide_to_oxide", "oxalate_multistage_inorganic"}:
         recommendations.append(
             "Use complementary structural/chemical characterization (for example XRD/FTIR) before assigning mechanism."
         )

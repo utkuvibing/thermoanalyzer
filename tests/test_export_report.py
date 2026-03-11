@@ -527,6 +527,22 @@ def test_figures_for_record_excludes_other_sample_figure_from_dataset_section():
     assert "TGA Analysis - run_b" not in captions
 
 
+def test_figures_for_record_uses_sample_artifact_key_when_caption_is_generic():
+    record = {
+        "analysis_type": "TGA",
+        "dataset_key": "run_a",
+        "metadata": {"sample_name": "Run A"},
+        "artifacts": {"figure_keys": ["Thermogram Figure"]},
+    }
+    figures = {
+        "Thermogram Figure": b"sample",
+        "Comparison Workspace - TGA": b"cmp",
+    }
+    matched = _figures_for_record(record, figures, used=set())
+
+    assert matched == [("Thermogram Figure", b"sample")]
+
+
 def test_select_comparison_figures_returns_only_comparison_captions():
     figures = {
         "Comparison Workspace - TGA": b"cmp",
@@ -620,6 +636,8 @@ def test_tga_comparison_payload_uses_display_labels_and_chemistry_aware_wording(
     assert "different transformation pathways" in interpretation
     assert "dehydration" in interpretation
     assert "decarbonation" in interpretation
+    assert "anhydrous cuso4" in interpretation
+    assert "cao" in interpretation
 
 
 def test_generate_pdf_report_uses_paper_structure_and_hides_executive_summary(thermal_dataset):

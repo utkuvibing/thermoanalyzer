@@ -422,9 +422,14 @@ def build_tga_scientific_narrative(
     loss_value = _safe_float(summary.get("total_mass_loss_percent"))
     residue_value = _safe_float(summary.get("residue_percent"))
     balance_status = str(mass_balance.get("status") or "not_assessed")
+    pathway = str(mass_balance.get("pathway") or "").strip()
     material_class = str(class_inference.get("material_class") or "")
     if loss_value is not None and residue_value is not None:
-        if balance_status in {"strong_match", "plausible_match"} and material_class == "hydrate_salt":
+        if balance_status in {"strong_match", "plausible_match"} and pathway:
+            line = (
+                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) are consistent with near-complete {pathway}"
+            )
+        elif balance_status in {"strong_match", "plausible_match"} and material_class == "hydrate_salt":
             line = (
                 f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) are consistent with near-complete dehydration to an expected anhydrous residue"
             )

@@ -87,6 +87,8 @@ def _build_tga_reasoning(
     def _balance_sentence() -> str:
         material_class = str(class_inference.get("material_class") or "")
         if balance_status in {"strong_match", "plausible_match"}:
+            if pathway:
+                return f"Observed mass balance is consistent with near-complete {pathway}."
             if material_class == "hydrate_salt":
                 return "Observed mass balance is consistent with near-complete dehydration to an expected anhydrous residue."
             if material_class == "carbonate_inorganic":
@@ -155,7 +157,10 @@ def _build_tga_reasoning(
     if gates["allow_mechanistic"]:
         cid = "C3"
         if profile == "expected_stable_residue_conversion":
-            text = "Combined class inference and mass-balance consistency support conversion to an expected stable solid residue as the dominant pathway."
+            if pathway:
+                text = f"Combined class inference and mass-balance consistency support {pathway} as the dominant pathway."
+            else:
+                text = "Combined class inference and mass-balance consistency support conversion to an expected stable solid residue as the dominant pathway."
         elif signals.get("dominant_step"):
             text = "The DTG profile supports a dominant primary transformation region with weaker secondary contributions."
         else:

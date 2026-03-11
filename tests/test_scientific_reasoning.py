@@ -111,6 +111,7 @@ def test_build_scientific_reasoning_tga_hydrate_mass_balance_avoids_incomplete_d
     assert comparative_claims
     joined = " ".join(comparative_claims).lower()
     assert "near-complete dehydration" in joined
+    assert "anhydrous cuso4" in joined
     assert "incomplete decomposition" not in joined
 
 
@@ -143,6 +144,8 @@ def test_build_scientific_reasoning_tga_carbonate_mass_balance_detects_decarbona
     assert comparative_claims
     joined = " ".join(comparative_claims).lower()
     assert "near-complete decarbonation" in joined
+    assert "caco3" in joined
+    assert "cao" in joined
     assert "incomplete decomposition" not in joined
     assert all("char" not in alt.lower() for alt in payload["alternative_hypotheses"])
     assert all("filler" not in alt.lower() for alt in payload["alternative_hypotheses"])
@@ -193,3 +196,65 @@ def test_build_scientific_reasoning_kinetics_flags_cross_method_limitations():
 
     assert any("Cross-method agreement" in item for item in payload["alternative_hypotheses"])
     assert payload["next_experiments"]
+
+
+def test_build_scientific_reasoning_tga_follow_up_experiments_are_class_specific():
+    hydrate_payload = build_scientific_reasoning(
+        analysis_type="TGA",
+        summary={
+            "sample_name": "CuSO4·5H2O",
+            "step_count": 4,
+            "total_mass_loss_percent": 36.06,
+            "residue_percent": 63.99,
+        },
+        rows=[
+            {"midpoint_temperature": 118.0, "mass_loss_percent": 14.5},
+            {"midpoint_temperature": 172.0, "mass_loss_percent": 11.2},
+            {"midpoint_temperature": 223.0, "mass_loss_percent": 8.1},
+            {"midpoint_temperature": 318.0, "mass_loss_percent": 2.3},
+        ],
+        metadata={
+            "sample_name": "CuSO4·5H2O",
+            "file_name": "tga_CuSO4_5H2O_dehydration.csv",
+            "sample_mass": 10.0,
+            "heating_rate": 10.0,
+            "instrument": "TA",
+            "atmosphere": "N2",
+        },
+        fit_quality={"r_squared": 0.995},
+        validation={"status": "pass", "warnings": []},
+    )
+    carbonate_payload = build_scientific_reasoning(
+        analysis_type="TGA",
+        summary={
+            "sample_name": "CaCO3",
+            "step_count": 2,
+            "total_mass_loss_percent": 43.96,
+            "residue_percent": 56.10,
+        },
+        rows=[
+            {"midpoint_temperature": 312.0, "mass_loss_percent": 2.4},
+            {"midpoint_temperature": 720.0, "mass_loss_percent": 41.5},
+        ],
+        metadata={
+            "sample_name": "CaCO3",
+            "file_name": "tga_CaCO3_decomposition.csv",
+            "sample_mass": 12.0,
+            "heating_rate": 10.0,
+            "instrument": "STA",
+            "atmosphere": "N2",
+        },
+        fit_quality={"r_squared": 0.994},
+        validation={"status": "pass", "warnings": []},
+    )
+
+    hydrate_text = " ".join(hydrate_payload["next_experiments"]).lower()
+    carbonate_text = " ".join(carbonate_payload["next_experiments"]).lower()
+
+    assert "isothermal hold" in hydrate_text or "controlled reheating" in hydrate_text
+    assert "xrd" in hydrate_text
+    assert "dsc" in hydrate_text or "sta" in hydrate_text
+
+    assert "oxide formation" in carbonate_text
+    assert "xrd" in carbonate_text or "raman" in carbonate_text
+    assert "controlled atmosphere" in carbonate_text

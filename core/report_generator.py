@@ -6,6 +6,7 @@ import csv
 import io
 import datetime
 import os
+import re
 from typing import Any, Optional, Union
 
 from core.batch_runner import normalize_batch_summary_rows, summarize_batch_outcomes
@@ -488,6 +489,9 @@ def _build_tga_comparison_interpretation(
         class_type = str(class_inference.get("material_class") or "")
         mass_balance = signals.get("mass_balance_assessment") or {}
         if str(mass_balance.get("status") or "") in {"strong_match", "plausible_match"}:
+            pathway = str(mass_balance.get("pathway") or "").strip()
+            if pathway:
+                return f"mass balance is consistent with near-complete {pathway}"
             if class_type == "hydrate_salt":
                 return "mass balance is consistent with near-complete dehydration to an expected anhydrous residue"
             if class_type == "carbonate_inorganic":
@@ -509,6 +513,9 @@ def _build_tga_comparison_interpretation(
         mass_balance = signals.get("mass_balance_assessment") or {}
         if str(mass_balance.get("status") or "") not in {"strong_match", "plausible_match"}:
             return None
+        specific_pathway = str(mass_balance.get("pathway") or "").strip()
+        if specific_pathway:
+            return specific_pathway
         if class_type == "hydrate_salt":
             return "dehydration toward an anhydrous inorganic end-product"
         if class_type == "carbonate_inorganic":
@@ -1027,6 +1034,23 @@ def _record_identity_markers(record: dict) -> list[str]:
     return markers
 
 
+def _record_identity_tokens(record: dict) -> set[str]:
+    metadata = record.get("metadata") or {}
+    summary = record.get("summary") or {}
+    raw_candidates = [
+        record.get("dataset_key"),
+        metadata.get("file_name"),
+        metadata.get("display_name"),
+        metadata.get("sample_name"),
+        summary.get("sample_name"),
+    ]
+    tokens: set[str] = set()
+    for candidate in raw_candidates:
+        for token in re.findall(r"[a-z0-9]+(?:[_-][a-z0-9]+)+", str(candidate or "").lower()):
+            tokens.add(token)
+    return tokens
+
+
 def _caption_matches_record(caption: str, record: dict) -> bool:
     normalized_caption = _normalized_caption(caption)
     if not normalized_caption:
@@ -1039,6 +1063,16 @@ def _caption_matches_record(caption: str, record: dict) -> bool:
     return False
 
 
+def _caption_explicitly_conflicts_record(caption: str, record: dict) -> bool:
+    caption_tokens = set(re.findall(r"[a-z0-9]+(?:[_-][a-z0-9]+)+", str(caption or "").lower()))
+    if not caption_tokens:
+        return False
+    record_tokens = _record_identity_tokens(record)
+    if not record_tokens:
+        return False
+    return caption_tokens.isdisjoint(record_tokens)
+
+
 def _record_figure_keys(record: dict) -> list[str]:
     keys = (record.get("artifacts") or {}).get("figure_keys")
     if isinstance(keys, list):
@@ -1049,18 +1083,21 @@ def _record_figure_keys(record: dict) -> list[str]:
 def select_record_figures(record: dict, figures: dict | None, used: set[str]) -> list[tuple[str, bytes]]:
     figures = figures or {}
     matched: list[tuple[str, bytes]] = []
+    preferred_fallback: list[tuple[str, bytes]] = []
 
     preferred_keys = _record_figure_keys(record)
     for key in preferred_keys:
         if _is_comparison_figure_caption(key):
             continue
         if key in figures and key not in used:
-            if not _caption_matches_record(key, record):
-                continue
-            matched.append((key, figures[key]))
-            used.add(key)
+            if _caption_matches_record(key, record):
+                matched.append((key, figures[key]))
+            elif not _caption_explicitly_conflicts_record(key, record):
+                preferred_fallback.append((key, figures[key]))
 
     if matched:
+        for caption, _ in matched:
+            used.add(caption)
         return matched
 
     for caption, png_bytes in figures.items():
@@ -1070,7 +1107,15 @@ def select_record_figures(record: dict, figures: dict | None, used: set[str]) ->
             continue
         if _caption_matches_record(caption, record):
             matched.append((caption, png_bytes))
+    if matched:
+        for caption, _ in matched:
             used.add(caption)
+        return matched
+
+    if preferred_fallback:
+        for caption, _ in preferred_fallback:
+            used.add(caption)
+        return preferred_fallback
     return matched
 
 
