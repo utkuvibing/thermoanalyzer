@@ -23,6 +23,7 @@ from core.processing_schema import (
 from core.provenance import build_calibration_reference_context
 from core.report_generator import generate_csv_summary, generate_docx_report
 from core.result_serialization import (
+    serialize_dta_result,
     serialize_dsc_result,
     serialize_friedman_results,
     serialize_kissinger_result,
@@ -227,6 +228,46 @@ def _make_tga_record(temperature_range, tga_percent_signal):
     return record, dataset
 
 
+def _make_dta_record(thermal_dataset):
+    dataset = thermal_dataset.copy()
+    dataset.data_type = "DTA"
+    dataset.units["signal"] = "uV"
+    dataset.metadata.update(
+        {
+            "sample_name": "SyntheticDTA",
+            "display_name": "Synthetic DTA Run",
+            "vendor": "TestVendor",
+        }
+    )
+    processing = ensure_processing_payload(
+        analysis_type="DTA",
+        workflow_template="dta.general",
+        workflow_template_label="General DTA",
+    )
+    processing = update_processing_step(
+        processing,
+        "peak_detection",
+        {"method": "thermal_peaks", "prominence": 0.1},
+    )
+    validation = validate_thermal_dataset(dataset, analysis_type="DTA", processing=processing)
+    peak = _make_peak()
+    try:
+        object.__setattr__(peak, "direction", "exo")
+    except Exception:
+        pass
+
+    return serialize_dta_result(
+        "synthetic_dta",
+        dataset,
+        [peak],
+        artifacts={"figure_keys": ["DTA Analysis - synthetic_dta"]},
+        processing=processing,
+        provenance={"saved_at_utc": "2026-03-07T12:10:00+00:00", "app_version": "2.0"},
+        validation=validation,
+        review={"commercial_scope": "stable_dta"},
+    ), dataset
+
+
 def test_generate_docx_report_returns_docx_bytes(thermal_dataset):
     docx_bytes = generate_docx_report(results={}, datasets={"synthetic_dsc": thermal_dataset})
     assert isinstance(docx_bytes, bytes)
@@ -370,6 +411,22 @@ def test_generate_docx_report_suppresses_empty_experimental_section(thermal_data
 
     assert "Experimental Analyses" not in xml
     assert "No experimental analysis results available." not in xml
+
+
+def test_generate_docx_report_places_stable_dta_in_stable_section(thermal_dataset):
+    dta_record, dta_dataset = _make_dta_record(thermal_dataset)
+    docx_bytes = generate_docx_report(
+        results={dta_record["id"]: dta_record},
+        datasets={"synthetic_dta": dta_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Stable Analyses" in xml
+    assert "DTA - synthetic_dta" in xml
+    assert "outside the stable workflow guarantee" not in xml
+    assert "DTA module is experimental and outside stable reporting guarantees." not in xml
 
 
 def test_generate_docx_report_hides_operational_fields_from_experimental_conditions(thermal_dataset):

@@ -307,7 +307,7 @@ def _check_dta_workflow(
         checks["calibration_state"] = "not recorded"
         checks["calibration_acceptance"] = "review"
         checks["calibration_required"] = False
-        issues.append("DTA stable workflow requires saved processing context.")
+        warnings.append("DTA processing context is not yet recorded; run-level checks will enforce stable template requirements.")
         return
 
     template_id = str(processing.get("workflow_template_id") or "").strip()

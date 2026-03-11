@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import io
+import zipfile
 
 from fastapi.testclient import TestClient
 
@@ -15,7 +17,14 @@ def _as_b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
-def _seed_workspace_with_result(client: TestClient, thermal_dataset) -> tuple[str, str]:
+def _seed_workspace_with_result(
+    client: TestClient,
+    thermal_dataset,
+    *,
+    data_type: str = "DSC",
+    analysis_type: str = "DSC",
+    workflow_template_id: str | None = None,
+) -> tuple[str, str]:
     created = client.post("/workspace/new", headers=_headers()).json()
     project_id = created["project_id"]
 
@@ -27,7 +36,7 @@ def _seed_workspace_with_result(client: TestClient, thermal_dataset) -> tuple[st
             "project_id": project_id,
             "file_name": "export_seed.csv",
             "file_base64": _as_b64(csv_bytes),
-            "data_type": "DSC",
+            "data_type": data_type,
         },
     )
     assert imported.status_code == 200
@@ -39,8 +48,8 @@ def _seed_workspace_with_result(client: TestClient, thermal_dataset) -> tuple[st
         json={
             "project_id": project_id,
             "dataset_key": dataset_key,
-            "analysis_type": "DSC",
-            "workflow_template_id": "dsc.general",
+            "analysis_type": analysis_type,
+            "workflow_template_id": workflow_template_id or f"{analysis_type.lower()}.general",
         },
     )
     assert run.status_code == 200
@@ -96,6 +105,35 @@ def test_export_docx_generation_returns_docx_bytes(thermal_dataset):
     assert payload["file_name"].endswith(".docx")
     docx_bytes = base64.b64decode(payload["artifact_base64"].encode("ascii"))
     assert docx_bytes[:4] == b"PK\x03\x04"
+
+
+def test_export_docx_generation_keeps_dta_in_stable_partition(thermal_dataset):
+    app = create_app(api_token="exports-token")
+    client = TestClient(app)
+    project_id, result_id = _seed_workspace_with_result(
+        client,
+        thermal_dataset,
+        data_type="DTA",
+        analysis_type="DTA",
+        workflow_template_id="dta.general",
+    )
+
+    docx_export = client.post(
+        f"/workspace/{project_id}/exports/report-docx",
+        headers=_headers(),
+        json={"selected_result_ids": [result_id]},
+    )
+    assert docx_export.status_code == 200
+    payload = docx_export.json()
+    assert payload["included_result_ids"] == [result_id]
+    docx_bytes = base64.b64decode(payload["artifact_base64"].encode("ascii"))
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Stable Analyses" in xml
+    assert "DTA - export_seed" in xml
+    assert "outside the stable workflow guarantee" not in xml
 
 
 def test_export_rejects_unknown_selected_result_id(thermal_dataset):
