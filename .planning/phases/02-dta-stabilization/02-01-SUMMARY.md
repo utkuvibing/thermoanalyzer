@@ -20,7 +20,10 @@ key-files:
     - backend/app.py
     - core/batch_runner.py
     - core/dta_processor.py
+    - core/execution_engine.py
     - core/modalities/adapters.py
+    - core/modalities/__init__.py
+    - core/modalities/contracts.py
     - core/modalities/registry.py
     - core/modalities/state_keys.py
     - tests/test_backend_modality_dispatch.py
@@ -46,7 +49,7 @@ completed: 2026-03-12
 - **Started:** 2026-03-11T23:02:07Z
 - **Completed:** 2026-03-11T23:08:55Z
 - **Tasks:** 3
-- **Files modified:** 9
+- **Files modified:** 12
 
 ## Accomplishments
 - Added DTA to the stable modality registry and exposed deterministic DTA state-key naming.
@@ -58,7 +61,7 @@ completed: 2026-03-12
 Each task was committed atomically:
 
 1. **Task 1: Extend stable modality registry contract to include DTA** - `a50ede7`, `0cc5056` (feat)
-2. **Task 2: Implement DTA stable run/batch execution path** - `72f9784` (feat)
+2. **Task 2: Implement DTA stable run/batch execution path** - `72f9784`, `57d6afe` (feat)
 3. **Task 3: Wire backend run/batch API validation to stable DTA set** - `1217698` (refactor)
 
 ## Files Created/Modified
@@ -67,6 +70,9 @@ Each task was committed atomically:
 - `core/modalities/state_keys.py` - Added deterministic DTA state key prefix mapping.
 - `core/batch_runner.py` - Added DTA execution branch, template defaults, and summary/state contract output.
 - `core/dta_processor.py` - Fixed peak sorting to use `peak_temperature` so stable DTA execution does not fail.
+- `core/execution_engine.py` - Tracked registry-backed single/batch orchestration used by backend run and batch endpoints.
+- `core/modalities/__init__.py` - Tracked modality package exports used by backend/stable registry imports.
+- `core/modalities/contracts.py` - Tracked stable modality adapter/spec protocol contracts.
 - `backend/app.py` - Centralized stable analysis-type error normalization for run/batch endpoints.
 - `tests/test_modality_registry.py` - Added DTA stable-set/state-key/eligibility assertions.
 - `tests/test_batch_runner.py` - Added DTA batch runner tests for default and override template routes.
@@ -96,9 +102,17 @@ Each task was committed atomically:
 - **Verification:** `pytest -q tests/test_batch_runner.py tests/test_backend_batch.py tests/test_backend_modality_dispatch.py -k "dta or batch"`
 - **Committed in:** `72f9784`
 
+**3. [Rule 3 - Blocking] Execution contract modules existed locally but were untracked**
+- **Found during:** Final plan consistency check
+- **Issue:** Backend and test paths relied on `core/execution_engine.py` and modality package contract modules that were present in workspace but not versioned.
+- **Fix:** Added those files to git so the stable DTA run/batch paths are reproducible from clean checkout.
+- **Files modified:** `core/execution_engine.py`, `core/modalities/__init__.py`, `core/modalities/contracts.py`
+- **Verification:** `pytest -q tests/test_modality_registry.py tests/test_batch_runner.py tests/test_backend_modality_dispatch.py`
+- **Committed in:** `57d6afe`
+
 ---
 
-**Total deviations:** 2 auto-fixed (1 blocking, 1 bug)
+**Total deviations:** 3 auto-fixed (2 blocking, 1 bug)
 **Impact on plan:** Both fixes were required for correctness and completion; scope remained inside the plan objective.
 
 ## Authentication Gates
