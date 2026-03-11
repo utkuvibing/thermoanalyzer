@@ -74,14 +74,31 @@ def claim_gate(
     metadata_gap_count: int,
     fit_band: str,
     validation: dict[str, Any] | None = None,
+    *,
+    class_confidence: str | None = None,
+    mass_balance_status: str | None = None,
+    segmentation_uncertain: bool = False,
 ) -> dict[str, bool]:
     """Gate claim strength to avoid overclaiming."""
     validation_status = ((validation or {}).get("status") or "").lower()
+    class_confidence = (class_confidence or "").lower()
+    mass_balance_status = (mass_balance_status or "").lower()
+
     allow_comparative = fit_band in {"high", "moderate"} and validation_status != "fail"
+    if metadata_gap_count >= 4 and fit_band != "high":
+        allow_comparative = False
+    if class_confidence == "low" and mass_balance_status in {"mismatch", "not_assessed"}:
+        allow_comparative = False
+    if segmentation_uncertain and fit_band == "low":
+        allow_comparative = False
+
     allow_mechanistic = (
         fit_band == "high"
         and metadata_gap_count <= 1
         and validation_status not in {"fail", "warn"}
+        and class_confidence in {"high", "moderate"}
+        and mass_balance_status in {"strong_match", "plausible_match"}
+        and not segmentation_uncertain
     )
     return {
         "allow_comparative": allow_comparative,

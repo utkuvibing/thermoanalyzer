@@ -11,6 +11,8 @@ def recommend_next_experiments(
     metadata_gaps: list[str] | None = None,
     fit_band: str | None = None,
     mechanism_hint: str | None = None,
+    material_class: str | None = None,
+    mass_balance_status: str | None = None,
 ) -> list[str]:
     """Return concise, analysis-specific follow-up recommendations."""
     analysis = (analysis_type or "").upper()
@@ -25,6 +27,18 @@ def recommend_next_experiments(
                 "Pair TGA with evolved-gas analysis (FTIR/MS) to distinguish decomposition from volatilization contributions.",
             ]
         )
+        if material_class in {"hydrate_salt", "hydroxide_to_oxide"}:
+            recommendations.append(
+                "Use XRD (before/after heating) to verify dehydration/dehydroxylation product phases and confirm stable-residue assignment."
+            )
+        elif material_class == "carbonate_inorganic":
+            recommendations.append(
+                "Use post-run phase analysis (XRD/Raman) to verify decarbonation products and confirm oxide-residue formation."
+            )
+        elif material_class == "oxalate_multistage_inorganic":
+            recommendations.append(
+                "Combine TGA with evolved-gas speciation to resolve CO versus CO2 release across oxalate decomposition stages."
+            )
     elif analysis == "DSC":
         recommendations.extend(
             [
@@ -57,6 +71,14 @@ def recommend_next_experiments(
     if mechanism_hint in {"conversion_dependent", "residue_forming"}:
         recommendations.append(
             "Use complementary structural/chemical characterization (for example XRD/FTIR) before assigning mechanism."
+        )
+    if mechanism_hint in {"expected_stable_residue_conversion"}:
+        recommendations.append(
+            "Validate final solid identity with post-TGA phase characterization to distinguish expected conversion products from residual reactant."
+        )
+    if mass_balance_status == "mismatch":
+        recommendations.append(
+            "Recheck baseline correction and sample mass calibration, then repeat TGA to test whether mass-balance mismatch persists."
         )
     if fit_band == "low":
         recommendations.insert(0, "Improve signal preprocessing and baseline treatment before drawing mechanistic conclusions.")

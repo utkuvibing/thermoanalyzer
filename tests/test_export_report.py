@@ -19,6 +19,7 @@ from core.report_generator import (
     _choose_portrait_or_landscape_table_layout,
     _insert_soft_breaks,
     _paper_display_label,
+    _figures_for_record,
     _pdf_render_sections,
     generate_csv_summary,
     generate_docx_report,
@@ -486,7 +487,24 @@ def test_final_conclusion_does_not_overclaim_caco3_as_near_complete():
     )
 
     assert "near-complete decomposition with minimal residue" not in conclusion
-    assert "partial decomposition with substantial residue-forming behavior" in conclusion
+    assert "near-complete decarbonation to a stable oxide-rich residue" in conclusion
+
+
+def test_figures_for_record_excludes_comparison_workspace_figures_from_dataset_section():
+    record = {
+        "analysis_type": "TGA",
+        "dataset_key": "run_a",
+        "artifacts": {"figure_keys": ["Comparison Workspace - TGA"]},
+    }
+    figures = {
+        "Comparison Workspace - TGA": b"cmp",
+        "TGA Analysis - run_a": b"sample",
+    }
+    matched = _figures_for_record(record, figures, used=set())
+
+    assert matched
+    assert all("comparison workspace" not in caption.lower() for caption, _ in matched)
+    assert any("run_a" in caption.lower() for caption, _ in matched)
 
 
 def test_generate_pdf_report_uses_paper_structure_and_hides_executive_summary(thermal_dataset):

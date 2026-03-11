@@ -9,6 +9,7 @@ import os
 from typing import Any, Optional, Union
 
 from core.batch_runner import normalize_batch_summary_rows, summarize_batch_outcomes
+from core.mechanism_rules import tga_mechanism_signals
 from core.processing_schema import ensure_processing_payload
 from core.result_serialization import flatten_result_records, partition_results_by_status, split_valid_results
 from core.scientific_sections import (
@@ -476,6 +477,26 @@ def _build_tga_comparison_interpretation(
     excluded_labels: list[str],
     missing_metadata: list[str],
 ) -> str:
+    def behavior_from_metric(metric: dict[str, Any]) -> str:
+        signals = metric.get("signals") or {}
+        class_inference = signals.get("material_class_inference") or {}
+        class_type = str(class_inference.get("material_class") or "")
+        mass_balance = signals.get("mass_balance_assessment") or {}
+        if str(mass_balance.get("status") or "") in {"strong_match", "plausible_match"}:
+            if class_type == "hydrate_salt":
+                return "mass balance is consistent with near-complete dehydration to an expected anhydrous residue"
+            if class_type == "carbonate_inorganic":
+                return "mass balance is consistent with near-complete decarbonation to a stable oxide-rich residue"
+            if class_type == "hydroxide_to_oxide":
+                return "mass balance is consistent with dehydroxylation toward a stable oxide residue"
+            if class_type == "oxalate_multistage_inorganic":
+                return "mass balance is consistent with a multistage gas-loss conversion to a stable residue"
+            if class_type == "generic_inorganic_salt_or_mineral":
+                return "mass balance is consistent with conversion to an expected stable inorganic residue"
+        if float(metric["mass_loss"]) >= 90.0 and float(metric["residue"]) <= 10.0:
+            return "metrics indicate extensive decomposition over the recorded range"
+        return "metrics indicate partial conversion with retained residue, requiring class-specific context for mechanistic assignment"
+
     if len(metrics) >= 2:
         mass_losses = [float(item["mass_loss"]) for item in metrics]
         residues = [float(item["residue"]) for item in metrics]
@@ -490,10 +511,11 @@ def _build_tga_comparison_interpretation(
         )
     elif len(metrics) == 1:
         only = metrics[0]
+        behavior = behavior_from_metric(only)
         text = (
             f"Within the current comparison workspace, only {only['dataset']} produced reportable TGA summary metrics. "
             f"That dataset shows total mass loss of {float(only['mass_loss']):.2f}%, final residue of {float(only['residue']):.2f}%, "
-            f"and {int(only['step_count'])} resolved decomposition steps, indicating extensive decomposition over the recorded range."
+            f"and {int(only['step_count'])} resolved decomposition steps; {behavior}."
         )
     else:
         text = "None of the selected datasets currently provide reportable TGA comparison metrics."
@@ -570,6 +592,12 @@ def _build_comparison_payload(comparison_workspace: dict | None, datasets: dict,
                 "mass_loss": mass_loss,
                 "residue": residue,
                 "step_count": step_count,
+                "signals": tga_mechanism_signals(
+                    summary,
+                    (record or {}).get("rows") or [],
+                    metadata=(record or {}).get("metadata") or {},
+                    dataset_key=str(dataset_key),
+                ),
             }
             reportable_metric_records.append(payload)
             metric_rows.append(
@@ -708,7 +736,27 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
     if not records:
         return "No validated analysis results were available to support a final scientific conclusion."
 
-    def classify_tga_behavior(mass_loss: float, residue: float, step_count: str) -> str:
+    def classify_tga_behavior(record: dict, mass_loss: float, residue: float, step_count: str) -> str:
+        signals = tga_mechanism_signals(
+            record.get("summary") or {},
+            record.get("rows") or [],
+            metadata=record.get("metadata") or {},
+            dataset_key=str(record.get("dataset_key") or ""),
+        )
+        class_inference = signals.get("material_class_inference") or {}
+        class_type = str(class_inference.get("material_class") or "")
+        mass_balance = signals.get("mass_balance_assessment") or {}
+        if str(mass_balance.get("status") or "") in {"strong_match", "plausible_match"}:
+            if class_type == "hydrate_salt":
+                return "near-complete dehydration to an expected stable anhydrous residue"
+            if class_type == "carbonate_inorganic":
+                return "near-complete decarbonation to a stable oxide-rich residue"
+            if class_type == "hydroxide_to_oxide":
+                return "dehydroxylation toward an expected stable oxide residue"
+            if class_type == "oxalate_multistage_inorganic":
+                return "a multistage gas-loss conversion toward a stable final residue"
+            if class_type == "generic_inorganic_salt_or_mineral":
+                return "conversion to an expected stable inorganic residue"
         step_value = _safe_float(step_count)
         if mass_loss >= 90.0 and residue <= 10.0:
             return "near-complete decomposition with minimal residue"
@@ -735,8 +783,8 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
         high_residue = max(tga_records, key=lambda item: item[2])
         low_name = _paper_display_label(low_residue[0].get("dataset_key"), {}, record=low_residue[0])
         high_name = _paper_display_label(high_residue[0].get("dataset_key"), {}, record=high_residue[0])
-        low_behavior = classify_tga_behavior(low_residue[1], low_residue[2], low_residue[3])
-        high_behavior = classify_tga_behavior(high_residue[1], high_residue[2], high_residue[3])
+        low_behavior = classify_tga_behavior(low_residue[0], low_residue[1], low_residue[2], low_residue[3])
+        high_behavior = classify_tga_behavior(high_residue[0], high_residue[1], high_residue[2], high_residue[3])
         tga_conclusion = (
             f"In TGA scope, {low_name} shows {low_behavior} "
             f"(mass loss {low_residue[1]:.1f}%, residue {low_residue[2]:.1f}%, step count {low_residue[3]}), "
@@ -746,7 +794,7 @@ def _build_final_conclusion_paragraph(records: list[dict], comparison_payload: d
     elif len(tga_records) == 1:
         only = tga_records[0]
         only_name = _paper_display_label(only[0].get("dataset_key"), {}, record=only[0])
-        only_behavior = classify_tga_behavior(only[1], only[2], only[3])
+        only_behavior = classify_tga_behavior(only[0], only[1], only[2], only[3])
         tga_conclusion = (
             f"In TGA scope, {only_name} shows {only_behavior} "
             f"(mass loss {only[1]:.1f}%, residue {only[2]:.1f}%, step count {only[3]})."
@@ -891,8 +939,14 @@ def _figures_for_record(record: dict, figures: dict | None, used: set[str]) -> l
     dataset_key = str(record.get("dataset_key") or "").lower()
     analysis = str(record.get("analysis_type") or "").lower()
 
+    def is_comparison_caption(value: str) -> bool:
+        lowered = str(value or "").lower()
+        return "comparison workspace" in lowered or lowered.startswith("comparison ")
+
     preferred_keys = _record_figure_keys(record)
     for key in preferred_keys:
+        if is_comparison_caption(key):
+            continue
         if key in figures and key not in used:
             matched.append((key, figures[key]))
             used.add(key)
@@ -903,6 +957,8 @@ def _figures_for_record(record: dict, figures: dict | None, used: set[str]) -> l
     for caption, png_bytes in figures.items():
         caption_l = str(caption).lower()
         if caption in used:
+            continue
+        if is_comparison_caption(caption):
             continue
         if dataset_key and dataset_key in caption_l:
             matched.append((caption, png_bytes))

@@ -6,6 +6,8 @@ import copy
 import unicodedata
 from typing import Any, Iterable
 
+from core.mechanism_rules import tga_mechanism_signals
+
 
 SCIENTIFIC_CONTEXT_KEYS = (
     "methodology",
@@ -124,6 +126,15 @@ def _sentence(text: str) -> str:
 
 def _sentence_list(values: Iterable[str]) -> list[str]:
     return [_sentence(value) for value in values if _sentence(value)]
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value in (None, "", [], {}):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _metadata_warning_summary(data_warnings: list[str]) -> tuple[str | None, list[str]]:
@@ -374,73 +385,72 @@ def build_tga_scientific_narrative(
     metadata = metadata or {}
     validation = validation or {}
 
-    step_count = summary.get("step_count")
-    total_mass_loss = summary.get("total_mass_loss_percent")
-    residue = summary.get("residue_percent")
+    signals = tga_mechanism_signals(
+        summary,
+        rows,
+        metadata=metadata,
+        dataset_key=str(metadata.get("file_name") or metadata.get("display_name") or metadata.get("sample_name") or ""),
+    )
+    class_inference = signals.get("material_class_inference") or {}
+    mass_balance = signals.get("mass_balance_assessment") or {}
+    class_label = class_inference.get("material_class_label") or "unknown / unconstrained"
+    class_confidence = class_inference.get("confidence") or "low"
 
-    def row_mass_loss(row: dict[str, Any]) -> float:
-        try:
-            value = row.get("mass_loss_percent")
-            if value is None:
-                return float("-inf")
-            return float(value)
-        except (TypeError, ValueError):
-            return float("-inf")
-
-    sorted_rows = sorted(rows, key=row_mass_loss, reverse=True)
-    top_event = sorted_rows[0] if sorted_rows else {}
-    second_event = sorted_rows[1] if len(sorted_rows) > 1 else {}
-
-    lead_mass_loss = top_event.get("mass_loss_percent")
-    lead_midpoint = top_event.get("midpoint_temperature")
-    secondary_midpoint = second_event.get("midpoint_temperature")
-    secondary_mass_loss = second_event.get("mass_loss_percent")
-
+    step_count = signals.get("dtg_resolved_event_count") or summary.get("step_count")
+    lead_midpoint = signals.get("lead_midpoint_temperature")
     lines: list[str] = []
-    try:
-        if lead_mass_loss is not None and secondary_mass_loss is not None and float(lead_mass_loss) >= 1.5 * float(secondary_mass_loss):
-            event_line = (
-                f"The thermogram indicates a dominant primary mass-loss event centered near {float(lead_midpoint):.0f} °C, "
-                f"followed by minor secondary decomposition behavior."
-            )
-            if secondary_midpoint is not None:
-                event_line = (
-                    f"The thermogram indicates a dominant primary mass-loss event centered near {float(lead_midpoint):.0f} °C, "
-                    f"followed by a weaker secondary event near {float(secondary_midpoint):.0f} °C."
-                )
-        elif rows:
-            event_line = "The thermogram indicates multiple decomposition events with comparable contribution across the measured range."
-        else:
-            event_line = "The thermogram could not resolve detailed step-wise decomposition behavior from the available step payload."
-    except (TypeError, ValueError):
-        event_line = "The thermogram indicates step-wise decomposition behavior, but event dominance could not be ranked robustly."
-    lines.append(_sentence(event_line))
-
-    try:
-        loss_value = float(total_mass_loss) if total_mass_loss is not None else None
-    except (TypeError, ValueError):
-        loss_value = None
-    try:
-        residue_value = float(residue) if residue is not None else None
-    except (TypeError, ValueError):
-        residue_value = None
-
-    if loss_value is not None and residue_value is not None:
-        if loss_value >= 90 and residue_value <= 5:
-            interpretation = "are consistent with near-complete decomposition across the measured range"
-        elif loss_value >= 70 and residue_value <= 20:
-            interpretation = "suggest substantial thermal degradation with limited residual material"
-        elif residue_value >= 30:
-            interpretation = "suggest residue-forming behavior and incomplete decomposition under the recorded conditions"
-        else:
-            interpretation = "indicate partial decomposition behavior within the measured range"
+    if step_count in (None, "", 0):
+        lines.append(_sentence("The thermogram could not resolve DTG-based event structure from the available payload."))
+    elif signals.get("possible_subdivision"):
         lines.append(
             _sentence(
-                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) {interpretation}"
+                f"{step_count} DTG-resolved events were detected; at least one minor or closely spaced event may represent subdivision of a broader transformation region rather than an independent mechanistic step"
             )
         )
-    elif step_count is not None:
-        lines.append(_sentence(f"The analysis resolved {step_count} decomposition steps, but full mass-balance interpretation remains limited by incomplete summary metrics"))
+    elif signals.get("dominant_step"):
+        if lead_midpoint is not None:
+            lines.append(
+                _sentence(
+                    f"The thermogram indicates a dominant primary mass-loss event centered near {float(lead_midpoint):.0f} °C, with weaker secondary contributions"
+                )
+            )
+        else:
+            lines.append(_sentence("The thermogram indicates a dominant primary mass-loss event with weaker secondary contributions"))
+    else:
+        lines.append(_sentence(f"The thermogram indicates {step_count} DTG-resolved events with comparable contributions across the measured range"))
+
+    loss_value = _safe_float(summary.get("total_mass_loss_percent"))
+    residue_value = _safe_float(summary.get("residue_percent"))
+    balance_status = str(mass_balance.get("status") or "not_assessed")
+    material_class = str(class_inference.get("material_class") or "")
+    if loss_value is not None and residue_value is not None:
+        if balance_status in {"strong_match", "plausible_match"} and material_class == "hydrate_salt":
+            line = (
+                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) are consistent with near-complete dehydration to an expected anhydrous residue"
+            )
+        elif balance_status in {"strong_match", "plausible_match"} and material_class == "carbonate_inorganic":
+            line = (
+                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) are consistent with near-complete decarbonation to a stable oxide-rich residue"
+            )
+        elif balance_status in {"strong_match", "plausible_match"} and material_class in {"hydroxide_to_oxide", "oxalate_multistage_inorganic", "generic_inorganic_salt_or_mineral"}:
+            line = (
+                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) are consistent with conversion to an expected stable solid residue pathway"
+            )
+        elif loss_value >= 90 and residue_value <= 10:
+            line = (
+                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) are consistent with extensive decomposition across the measured range"
+            )
+        else:
+            line = (
+                f"The total mass loss (~{loss_value:.1f}%) and final residue (~{residue_value:.1f}%) indicate partial conversion within the measured range; residue alone should not be treated as evidence of incomplete reaction without class-specific chemistry"
+            )
+        lines.append(_sentence(line))
+
+    lines.append(_sentence(f"Material-class inference is {class_label} (confidence: {class_confidence})"))
+    if balance_status == "mismatch":
+        lines.append(_sentence("Stoichiometric mass-balance matching deviated from simple class-based pathways, so mechanistic conclusions remain conservative"))
+    elif balance_status == "not_assessed":
+        lines.append(_sentence("Stoichiometric mass-balance matching could not be established from available formula/context clues"))
 
     missing_fields = []
     for key, label in (

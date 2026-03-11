@@ -46,9 +46,25 @@ def _build_tga_reasoning(
     fit_reason: str,
     validation: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    signals = tga_mechanism_signals(summary, rows)
+    dataset_hint = str(
+        metadata.get("file_name")
+        or metadata.get("display_name")
+        or metadata.get("sample_name")
+        or summary.get("sample_name")
+        or ""
+    )
+    signals = tga_mechanism_signals(summary, rows, metadata=metadata, dataset_key=dataset_hint)
+    class_inference = signals.get("material_class_inference") or {}
+    mass_balance = signals.get("mass_balance_assessment") or {}
     gaps = metadata_gaps(metadata, ["sample_mass", "heating_rate", "instrument", "atmosphere"])
-    gates = claim_gate(len(gaps), fit_band, validation=validation)
+    gates = claim_gate(
+        len(gaps),
+        fit_band,
+        validation=validation,
+        class_confidence=str(class_inference.get("confidence") or ""),
+        mass_balance_status=str(mass_balance.get("status") or ""),
+        segmentation_uncertain=bool(signals.get("possible_subdivision")),
+    )
 
     claims: list[dict[str, Any]] = []
     evidence_map: dict[str, list[str]] = {}
@@ -57,71 +73,186 @@ def _build_tga_reasoning(
     total_loss = _safe_float(summary.get("total_mass_loss_percent"))
     residue = _safe_float(summary.get("residue_percent"))
     step_count = signals.get("step_count")
+    step_count_text = str(step_count) if step_count is not None else "not recorded"
+    class_label = str(class_inference.get("material_class_label") or "unknown / unconstrained")
+    class_confidence = str(class_inference.get("confidence") or "low")
+    profile = str(signals.get("profile") or "inconclusive")
+    balance_status = str(mass_balance.get("status") or "not_assessed")
+    pathway = str(mass_balance.get("pathway") or "").strip()
+
+    def _balance_sentence() -> str:
+        material_class = str(class_inference.get("material_class") or "")
+        if balance_status in {"strong_match", "plausible_match"}:
+            if material_class == "hydrate_salt":
+                return "Observed mass balance is consistent with near-complete dehydration to an expected anhydrous residue."
+            if material_class == "carbonate_inorganic":
+                return "Observed mass balance is consistent with near-complete decarbonation to a stable oxide-rich residue."
+            if material_class == "hydroxide_to_oxide":
+                return "Observed mass balance is consistent with dehydroxylation toward an expected oxide residue."
+            if material_class == "oxalate_multistage_inorganic":
+                return "Observed mass balance is consistent with a multistage oxalate gas-loss pathway to a stable final residue."
+            if material_class == "generic_inorganic_salt_or_mineral":
+                return "Observed mass balance is consistent with conversion to an expected stable solid residue under the recorded range."
+            return "Mass-balance metrics are internally consistent with the dominant thermal transformation."
+        if balance_status == "mismatch":
+            return "Observed mass balance deviates from simple class-based pathways, so incomplete conversion or additional concurrent reactions remain plausible."
+        if total_loss is not None and residue is not None and total_loss >= 85.0 and residue <= 15.0:
+            return "Mass-balance metrics indicate extensive decomposition over the measured range."
+        if total_loss is not None and residue is not None:
+            return "Mass-balance metrics indicate partial conversion with retained solid residue, but the final solid identity remains unconstrained."
+        return "Mass-balance interpretation remains limited by incomplete summary metrics."
 
     cid = "C1"
-    claim_text = "The thermogram shows single-step-dominant decomposition behavior." if signals.get("dominant_step") else "The thermogram shows multi-step decomposition behavior."
+    if signals.get("possible_subdivision"):
+        claim_text = (
+            f"{step_count_text} DTG-resolved events were detected, and at least one minor or closely spaced event may represent "
+            "subdivision of a broader transformation region rather than a fully independent mechanistic step."
+        )
+    elif signals.get("dominant_step"):
+        claim_text = (
+            f"{step_count_text} DTG-resolved events were detected, with one dominant primary event controlling most of the observed mass loss."
+        )
+    else:
+        claim_text = f"{step_count_text} DTG-resolved events were detected across the measured range."
     evidence = []
     if step_count is not None:
-        evidence.append(f"Resolved decomposition step count: {step_count}.")
+        evidence.append(f"DTG-resolved event count: {step_count}.")
     if signals.get("lead_mass_loss_percent") is not None:
-        evidence.append(f"Largest resolved step mass loss: {float(signals['lead_mass_loss_percent']):.2f}%.")
+        evidence.append(f"Largest resolved event mass loss: {float(signals['lead_mass_loss_percent']):.2f}%.")
+    if signals.get("lead_midpoint_temperature") is not None:
+        evidence.append(f"Largest event midpoint temperature: {float(signals['lead_midpoint_temperature']):.1f} °C.")
+    if signals.get("minor_event_count"):
+        evidence.append(f"Minor event count below significance threshold: {int(signals['minor_event_count'])}.")
+    if signals.get("adjacent_event_pair_count"):
+        evidence.append(f"Closely spaced adjacent event pairs: {int(signals['adjacent_event_pair_count'])}.")
     claims.append(_claim(cid, "descriptive", claim_text, evidence))
     evidence_map[cid] = evidence
 
     if total_loss is not None and residue is not None and gates["allow_comparative"]:
         cid = "C2"
-        if total_loss >= 90 and residue <= 5:
-            text = "Mass-balance metrics are consistent with near-complete decomposition over the measured range."
-        elif residue >= 30:
-            text = "Mass-balance metrics indicate residue-forming and only partial decomposition behavior."
-        else:
-            text = "Mass-balance metrics indicate substantial but incomplete decomposition."
+        text = _balance_sentence()
         evidence = [
             f"Total mass loss: {total_loss:.2f}%.",
             f"Final residue: {residue:.2f}%.",
+            f"Inferred material class: {class_label} (confidence: {class_confidence}).",
         ]
+        if pathway:
+            evidence.append(f"Evaluated pathway: {pathway}.")
+        if mass_balance.get("expected_loss_percent") is not None:
+            evidence.append(f"Expected loss (pathway model): {float(mass_balance['expected_loss_percent']):.2f}%.")
+        if mass_balance.get("expected_loss_range_percent"):
+            low, high = mass_balance["expected_loss_range_percent"]
+            evidence.append(f"Expected loss range (pathway model): {low:.2f}% to {high:.2f}%.")
+        if mass_balance.get("delta_loss_percent") is not None:
+            evidence.append(f"Loss mismatch versus pathway model: {float(mass_balance['delta_loss_percent']):+.2f} wt%.")
         claims.append(_claim(cid, "comparative", text, evidence))
         evidence_map[cid] = evidence
 
     if gates["allow_mechanistic"]:
         cid = "C3"
-        text = "The decomposition pattern is mechanistically consistent with a dominant primary pathway followed by secondary transformations." if signals.get("dominant_step") else "The decomposition pattern is mechanistically consistent with overlapping or sequential pathways."
+        if profile == "expected_stable_residue_conversion":
+            text = "Combined class inference and mass-balance consistency support conversion to an expected stable solid residue as the dominant pathway."
+        elif signals.get("dominant_step"):
+            text = "The DTG profile supports a dominant primary transformation region with weaker secondary contributions."
+        else:
+            text = "The DTG profile supports overlapping or sequential transformation regions rather than a single isolated pathway."
         evidence = [
-            f"Dominant-step flag: {'yes' if signals.get('dominant_step') else 'no'}.",
-            f"Profile classification: {signals.get('profile')}.",
+            f"Profile classification: {profile}.",
+            f"Material-class confidence: {class_confidence}.",
+            f"Mass-balance consistency status: {balance_status}.",
         ]
         claims.append(_claim(cid, "mechanistic", text, evidence))
         evidence_map[cid] = evidence
+    material_class = str(class_inference.get("material_class") or "")
+    if material_class in {"hydrate_salt", "hydroxide_to_oxide"}:
+        alternatives.extend(
+            [
+                "Apparent event multiplicity may reflect overlapping dehydration/dehydroxylation sub-steps through intermediate solid phases.",
+                "Smoothing and segmentation settings can split one broad transformation region into multiple DTG-resolved events.",
+                "Minor mass-balance mismatch can arise from baseline drift or retained bound water at run end.",
+            ]
+        )
+    elif material_class == "carbonate_inorganic":
+        alternatives.extend(
+            [
+                "A minor shoulder near the dominant high-temperature event may arise from segmentation of one broadened decarbonation region.",
+                "Gas-release broadening and heat-transfer limits can shift apparent peak boundaries without changing core pathway chemistry.",
+                "Small residual mismatch may reflect secondary carbonate stability or limited equilibration time.",
+            ]
+        )
+    elif material_class == "oxalate_multistage_inorganic":
+        alternatives.extend(
+            [
+                "Resolved events may combine overlapping dehydration and gas-evolution sub-steps rather than fully independent mechanisms.",
+                "DTG peak splitting can increase apparent event count when neighboring transitions partially overlap.",
+                "Intermediate carbonate formation can transiently alter apparent mass-balance partitioning.",
+            ]
+        )
+    elif material_class == "polymer_or_organic":
+        alternatives.extend(
+            [
+                "Apparent residue may include char stabilization rather than only unreacted material.",
+                "Inorganic fillers or additives can increase retained residue without implying incomplete conversion of the organic fraction.",
+                "Atmosphere sensitivity can shift overlap between volatilization and oxidative/decomposition pathways.",
+            ]
+        )
+    elif material_class == "generic_inorganic_salt_or_mineral":
+        alternatives.extend(
+            [
+                "Multiple DTG-resolved events may reflect subdivisions of one broad solid-state transformation sequence.",
+                "Baseline drift and smoothing can redistribute event boundaries in low-slope regions.",
+                "Without explicit phase identification, residue chemistry may differ from the simplest assumed pathway.",
+            ]
+        )
     else:
-        alternatives.append("Observed mass-loss segmentation may reflect preprocessing thresholds rather than distinct mechanistic stages.")
+        alternatives.extend(
+            [
+                "Observed segmentation may partially reflect preprocessing thresholds rather than independent mechanisms.",
+                "Unconstrained sample identity limits definitive assignment of residue chemistry.",
+                "Overlapping transformations can mimic additional DTG-resolved events.",
+            ]
+        )
 
-    if residue is not None and residue >= 20:
-        alternatives.append("A portion of the apparent residue may represent inert fillers or char stabilization rather than incomplete reaction alone.")
-    else:
-        alternatives.append("A near-zero final residue may also include volatilization of non-reactive components.")
+    if signals.get("possible_subdivision"):
+        alternatives.insert(
+            0,
+            "At least one minor DTG event may represent subdivision of a broader transformation interval.",
+        )
 
     uncertainty_items = []
     if gaps:
         uncertainty_items.append(f"Missing metadata: {', '.join(gaps)}.")
     uncertainty_items.append(fit_reason)
+    uncertainty_items.append(f"Inferred material class: {class_label} (confidence: {class_confidence}).")
+    if balance_status == "not_assessed":
+        uncertainty_items.append("Stoichiometric mass-balance matching was not possible from the available formula/context information.")
+    elif balance_status == "mismatch":
+        uncertainty_items.append("Observed mass balance did not match simple class-based pathways within configured tolerance.")
+    if signals.get("possible_subdivision"):
+        uncertainty_items.append("DTG event segmentation suggests at least one potential event subdivision; mechanistic step count remains provisional.")
     if (validation or {}).get("warnings"):
         uncertainty_items.append("Validation warnings were reported and should temper interpretation confidence.")
 
+    overall = "high" if gates["allow_mechanistic"] else ("moderate" if gates["allow_comparative"] else "low")
     return {
         "scientific_claims": claims,
         "evidence_map": evidence_map,
         "uncertainty_assessment": {
-            "overall_confidence": "high" if gates["allow_mechanistic"] else ("moderate" if gates["allow_comparative"] else "low"),
+            "overall_confidence": overall,
             "fit_assessment": fit_band,
             "metadata_gaps": gaps,
             "items": uncertainty_items,
+            "class_inference": class_inference,
+            "mass_balance_assessment": mass_balance,
         },
         "alternative_hypotheses": alternatives[:3],
         "next_experiments": recommend_next_experiments(
             "TGA",
             metadata_gaps=gaps,
             fit_band=fit_band,
-            mechanism_hint=str(signals.get("profile")),
+            mechanism_hint=profile,
+            material_class=material_class,
+            mass_balance_status=balance_status,
         ),
     }
 
