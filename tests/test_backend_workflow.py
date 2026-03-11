@@ -151,3 +151,58 @@ def test_workspace_import_run_dta_analysis_roundtrip(thermal_dataset):
     results = results_response.json()["results"]
     assert len(results) == 1
     assert results[0]["analysis_type"] == "DTA"
+
+
+def test_workspace_compare_batch_run_with_dta_stable_template(thermal_dataset):
+    app = create_app(api_token="workflow-token")
+    client = TestClient(app)
+
+    create_response = client.post("/workspace/new", headers=_headers())
+    assert create_response.status_code == 200
+    project_id = create_response.json()["project_id"]
+
+    csv_bytes = thermal_dataset.data.to_csv(index=False).encode("utf-8")
+    imported_a = client.post(
+        "/dataset/import",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "batch_dta_a.csv",
+            "file_base64": _to_base64(csv_bytes),
+            "data_type": "DTA",
+        },
+    )
+    imported_b = client.post(
+        "/dataset/import",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "batch_dta_b.csv",
+            "file_base64": _to_base64(csv_bytes),
+            "data_type": "DTA",
+        },
+    )
+    assert imported_a.status_code == 200
+    assert imported_b.status_code == 200
+    dataset_a = imported_a.json()["dataset"]["key"]
+    dataset_b = imported_b.json()["dataset"]["key"]
+
+    selection_response = client.post(
+        f"/workspace/{project_id}/compare/selection",
+        headers=_headers(),
+        json={"operation": "replace", "dataset_keys": [dataset_a, dataset_b]},
+    )
+    assert selection_response.status_code == 200
+
+    batch_response = client.post(
+        f"/workspace/{project_id}/batch/run",
+        headers=_headers(),
+        json={"analysis_type": "DTA", "workflow_template_id": "dta.general"},
+    )
+    assert batch_response.status_code == 200
+    batch_payload = batch_response.json()
+    assert batch_payload["analysis_type"] == "DTA"
+    assert batch_payload["workflow_template_id"] == "dta.general"
+    assert batch_payload["outcomes"] == {"total": 2, "saved": 2, "blocked": 0, "failed": 0}
+    assert len(batch_payload["batch_summary"]) == 2
+    assert {row["analysis_type"] for row in batch_payload["batch_summary"]} == {"DTA"}

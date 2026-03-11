@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -26,6 +27,10 @@ def _sample_session_state(thermal_dataset) -> dict:
         "branding": {"report_title": "ThermoAnalyzer Professional Report"},
         "comparison_workspace": {"analysis_type": "DSC", "selected_datasets": ["synthetic_dsc"]},
     }
+
+
+def _project_file(path: str) -> str:
+    return (Path(__file__).resolve().parents[1] / path).read_text(encoding="utf-8")
 
 
 def test_health_and_version_endpoints():
@@ -130,3 +135,24 @@ def test_dataset_detail_rejects_unknown_dataset():
     response = client.get(f"/workspace/{project_id}/datasets/missing", headers=_auth_headers())
     assert response.status_code == 404
     assert "Unknown dataset_key" in response.json()["detail"]
+
+
+def test_streamlit_artifact_promotes_dta_to_primary_stable_navigation():
+    app_source = _project_file("app.py")
+
+    assert 'st.Page(dta_render, title=tx("DTA Analizi", "DTA Analysis"), icon="📊", url_path="dta")' in app_source
+    assert 'DTA Analysis (Experimental)' not in app_source
+    assert "Kinetik ve dekonvolüsyon modülleri önizleme anahtarı arkasında kalır" in app_source
+
+
+def test_desktop_artifacts_expose_primary_dta_and_remove_preview_locked_dta():
+    index_html = _project_file("desktop/electron/index.html")
+    renderer_source = _project_file("desktop/electron/renderer.js")
+
+    assert 'id="navDtaBtn"' in index_html
+    assert 'id="view-dta"' in index_html
+    assert 'id="navPreviewDtaBtn"' not in index_html
+
+    assert 'setText("navDtaBtn", t("nav.dta"));' in renderer_source
+    assert 'el("runDtaAnalysisBtn").addEventListener("click", () => onRunAnalysis("DTA"));' in renderer_source
+    assert "DTA Analysis (Experimental)" not in renderer_source
