@@ -14,7 +14,7 @@
 
 ### DTA Stabilization
 
-- [ ] **DTA-01**: DTA is available as stable workflow in Streamlit and desktop navigation (not preview-locked).
+- [x] **DTA-01**: DTA is available as stable workflow in Streamlit and desktop navigation (not preview-locked).
 - [x] **DTA-02**: DTA is accepted by backend run/batch/report paths where stable analyses are supported.
 - [x] **DTA-03**: DTA validation rules are productionized with pass/warn/fail semantics and method context checks.
 - [x] **DTA-04**: DTA outputs are included in stable export/report artifacts with modality-appropriate summaries.
@@ -79,7 +79,7 @@
 | ARCH-02 | Phase 1 | Completed (2026-03-11) |
 | ARCH-03 | Phase 6 | Pending |
 | ARCH-04 | Phase 1 | Completed (2026-03-11) |
-| DTA-01 | Phase 2 | Pending |
+| DTA-01 | Phase 2 | Complete |
 | DTA-02 | Phase 2 | Complete |
 | DTA-03 | Phase 2 | Complete |
 | DTA-04 | Phase 2 | Complete |
