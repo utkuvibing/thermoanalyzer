@@ -123,12 +123,28 @@ _XRD_TEMPLATE_DEFAULTS = {
         "smoothing": {"method": "savgol", "window_length": 11, "polyorder": 3},
         "baseline": {"method": "rolling_minimum", "window_length": 31},
         "peak_detection": {"method": "scipy_find_peaks", "prominence": 0.08, "distance": 6, "width": 2, "max_peaks": 12},
+        "method_context": {
+            "xrd_match_metric": "peak_overlap_weighted",
+            "xrd_match_tolerance_deg": 0.28,
+            "xrd_match_top_n": 5,
+            "xrd_match_minimum_score": 0.42,
+            "xrd_match_intensity_weight": 0.35,
+            "xrd_match_major_peak_fraction": 0.4,
+        },
     },
     "xrd.phase_screening": {
         "axis_normalization": {"sort_axis": True, "deduplicate": "first", "axis_min": 5.0, "axis_max": 90.0},
         "smoothing": {"method": "savgol", "window_length": 15, "polyorder": 3},
         "baseline": {"method": "rolling_minimum", "window_length": 41},
         "peak_detection": {"method": "scipy_find_peaks", "prominence": 0.12, "distance": 8, "width": 3, "max_peaks": 16},
+        "method_context": {
+            "xrd_match_metric": "peak_overlap_weighted",
+            "xrd_match_tolerance_deg": 0.24,
+            "xrd_match_top_n": 7,
+            "xrd_match_minimum_score": 0.45,
+            "xrd_match_intensity_weight": 0.4,
+            "xrd_match_major_peak_fraction": 0.45,
+        },
     },
 }
 _VALID_EXECUTION_STATUSES = {"saved", "blocked", "failed"}
@@ -1211,6 +1227,254 @@ def _detect_xrd_peaks(
     }
 
 
+def _coerce_unit_interval(value: Any, default: float) -> float:
+    parsed = _coerce_optional_float(value, default)
+    if parsed is None:
+        return float(default)
+    return float(max(0.0, min(1.0, parsed)))
+
+
+def _resolve_xrd_matching_config(processing: Mapping[str, Any]) -> dict[str, Any]:
+    method_context = (processing.get("method_context") or {}) if isinstance(processing, Mapping) else {}
+    tolerance_deg = _coerce_positive_float(method_context.get("xrd_match_tolerance_deg"), 0.28)
+    top_n = _coerce_positive_int(method_context.get("xrd_match_top_n"), 5)
+    minimum_score = _coerce_unit_interval(method_context.get("xrd_match_minimum_score"), 0.42)
+    intensity_weight = _coerce_unit_interval(method_context.get("xrd_match_intensity_weight"), 0.35)
+    major_peak_fraction = _coerce_unit_interval(method_context.get("xrd_match_major_peak_fraction"), 0.4)
+    return {
+        "metric": str(method_context.get("xrd_match_metric") or "peak_overlap_weighted"),
+        "tolerance_deg": tolerance_deg,
+        "top_n": top_n,
+        "minimum_score": minimum_score,
+        "intensity_weight": intensity_weight,
+        "major_peak_fraction": major_peak_fraction,
+    }
+
+
+def _extract_xrd_reference_peaks(entry: Mapping[str, Any]) -> list[dict[str, float]]:
+    raw_peaks = entry.get("peaks") or entry.get("reference_peaks") or []
+    normalized: list[dict[str, float]] = []
+    if isinstance(raw_peaks, list):
+        for item in raw_peaks:
+            if not isinstance(item, Mapping):
+                continue
+            position = _coerce_optional_float(
+                item.get("position")
+                or item.get("two_theta")
+                or item.get("x")
+                or item.get("temperature")
+            )
+            if position is None:
+                continue
+            intensity = _coerce_positive_float(
+                item.get("intensity")
+                or item.get("relative_intensity")
+                or item.get("signal"),
+                1.0,
+            )
+            normalized.append({"position": float(position), "intensity": float(intensity)})
+
+    if not normalized:
+        positions = _to_float_array(entry.get("peak_positions") or entry.get("positions") or entry.get("two_theta"))
+        intensities = _to_float_array(entry.get("peak_intensities") or entry.get("intensities") or entry.get("signal"))
+        if positions is None:
+            return []
+        if intensities is None or intensities.size != positions.size:
+            intensities = np.ones_like(positions, dtype=float)
+        for position, intensity in zip(positions, intensities):
+            normalized.append(
+                {
+                    "position": float(position),
+                    "intensity": float(max(float(intensity), 1e-9)),
+                }
+            )
+
+    normalized.sort(key=lambda item: float(item["position"]))
+    return normalized
+
+
+def _resolve_xrd_references(
+    *,
+    dataset,
+    processing: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    metadata = getattr(dataset, "metadata", {}) or {}
+    method_context = (processing.get("method_context") or {}) if isinstance(processing, Mapping) else {}
+    raw_references = (
+        metadata.get("xrd_reference_library")
+        or metadata.get("reference_library")
+        or method_context.get("xrd_reference_library")
+        or []
+    )
+    if not isinstance(raw_references, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for index, entry in enumerate(raw_references, start=1):
+        if not isinstance(entry, Mapping):
+            continue
+        peaks = _extract_xrd_reference_peaks(entry)
+        if not peaks:
+            continue
+        candidate_id = str(entry.get("id") or entry.get("candidate_id") or f"xrd_reference_{index}")
+        candidate_name = str(entry.get("name") or entry.get("candidate_name") or candidate_id)
+        normalized.append(
+            {
+                "candidate_id": _slug_token(candidate_id),
+                "candidate_name": candidate_name,
+                "peaks": peaks,
+            }
+        )
+    return normalized
+
+
+def _match_xrd_reference_peaks(
+    observed_peaks: list[dict[str, float]],
+    reference_peaks: list[dict[str, float]],
+    *,
+    tolerance_deg: float,
+) -> tuple[list[dict[str, float]], list[int]]:
+    if not observed_peaks or not reference_peaks:
+        return [], list(range(len(reference_peaks)))
+
+    used_observed: set[int] = set()
+    matches: list[dict[str, float]] = []
+    unmatched_reference_indices: list[int] = []
+    for ref_index, reference in enumerate(reference_peaks):
+        reference_position = float(reference["position"])
+        best_observed_index: int | None = None
+        best_delta: float | None = None
+        for obs_index, observed in enumerate(observed_peaks):
+            if obs_index in used_observed:
+                continue
+            delta = abs(float(observed["position"]) - reference_position)
+            if best_delta is None or delta < best_delta:
+                best_delta = delta
+                best_observed_index = obs_index
+        if best_delta is None or best_delta > tolerance_deg or best_observed_index is None:
+            unmatched_reference_indices.append(ref_index)
+            continue
+        used_observed.add(best_observed_index)
+        observed = observed_peaks[best_observed_index]
+        matches.append(
+            {
+                "reference_position": reference_position,
+                "observed_position": float(observed["position"]),
+                "delta_position": float(best_delta),
+                "reference_intensity": float(reference["intensity"]),
+                "observed_intensity": float(observed.get("intensity", 0.0)),
+            }
+        )
+    return matches, unmatched_reference_indices
+
+
+def _rank_xrd_phase_candidates(
+    *,
+    observed_peaks: list[dict[str, float]],
+    references: list[dict[str, Any]],
+    matching_config: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    tolerance_deg = _coerce_positive_float(matching_config.get("tolerance_deg"), 0.28)
+    top_n = _coerce_positive_int(matching_config.get("top_n"), 5)
+    minimum_score = _coerce_unit_interval(matching_config.get("minimum_score"), 0.42)
+    intensity_weight = _coerce_unit_interval(matching_config.get("intensity_weight"), 0.35)
+    major_peak_fraction = _coerce_unit_interval(matching_config.get("major_peak_fraction"), 0.4)
+    metric = str(matching_config.get("metric") or "peak_overlap_weighted")
+
+    observed_scale = max([float(item.get("intensity", 0.0)) for item in observed_peaks] + [1.0])
+    ranked: list[dict[str, Any]] = []
+    for reference in references:
+        reference_peaks = [dict(item) for item in reference.get("peaks") or [] if isinstance(item, Mapping)]
+        if not reference_peaks:
+            continue
+
+        matches, unmatched_indices = _match_xrd_reference_peaks(
+            observed_peaks=observed_peaks,
+            reference_peaks=reference_peaks,
+            tolerance_deg=tolerance_deg,
+        )
+        reference_scale = max([float(item.get("intensity", 0.0)) for item in reference_peaks] + [1.0])
+        total_reference_weight = sum(
+            max(float(item.get("intensity", 0.0)) / reference_scale, 0.0)
+            for item in reference_peaks
+        )
+        matched_weight = 0.0
+        for item in matches:
+            ref_weight = max(float(item["reference_intensity"]) / reference_scale, 0.0)
+            obs_weight = max(float(item["observed_intensity"]) / observed_scale, 0.0)
+            matched_weight += min(ref_weight, obs_weight)
+
+        shared_peak_count = len(matches)
+        weighted_overlap_score = (
+            float(matched_weight / max(total_reference_weight, 1e-9))
+            if total_reference_weight > 0.0
+            else 0.0
+        )
+        coverage_ratio = float(shared_peak_count / max(len(reference_peaks), 1))
+        mean_delta = (
+            float(sum(item["delta_position"] for item in matches) / shared_peak_count)
+            if shared_peak_count > 0
+            else None
+        )
+        delta_score = (
+            float(max(0.0, 1.0 - (mean_delta / tolerance_deg)))
+            if mean_delta is not None and tolerance_deg > 0.0
+            else 0.0
+        )
+
+        max_reference_intensity = max(float(item.get("intensity", 0.0)) for item in reference_peaks)
+        major_threshold = major_peak_fraction * max_reference_intensity
+        major_reference_indices = [
+            idx for idx, item in enumerate(reference_peaks)
+            if float(item.get("intensity", 0.0)) >= major_threshold
+        ]
+        unmatched_major_positions = [
+            float(reference_peaks[idx]["position"])
+            for idx in unmatched_indices
+            if idx in major_reference_indices
+        ]
+        major_penalty = float(len(unmatched_major_positions) / max(len(major_reference_indices), 1))
+
+        delta_weight = max(0.0, 0.45 - intensity_weight)
+        score = (0.5 * coverage_ratio) + (intensity_weight * weighted_overlap_score) + (delta_weight * delta_score)
+        score -= 0.15 * major_penalty
+        score = float(max(0.0, min(1.0, score)))
+        confidence_band = _confidence_band(score, minimum_score)
+        ranked.append(
+            {
+                "candidate_id": reference["candidate_id"],
+                "candidate_name": reference["candidate_name"],
+                "normalized_score": round(score, 4),
+                "confidence_band": confidence_band,
+                "evidence": {
+                    "metric": metric,
+                    "tolerance_deg": tolerance_deg,
+                    "observed_peak_count": len(observed_peaks),
+                    "reference_peak_count": len(reference_peaks),
+                    "shared_peak_count": shared_peak_count,
+                    "weighted_overlap_score": round(weighted_overlap_score, 4),
+                    "coverage_ratio": round(coverage_ratio, 4),
+                    "mean_delta_position": round(mean_delta, 4) if mean_delta is not None else None,
+                    "unmatched_major_peak_count": len(unmatched_major_positions),
+                    "unmatched_major_peak_positions": [round(item, 4) for item in sorted(unmatched_major_positions)],
+                },
+            }
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            -float(item["normalized_score"]),
+            -int(item["evidence"]["shared_peak_count"]),
+            float(item["evidence"]["mean_delta_position"] if item["evidence"]["mean_delta_position"] is not None else 1e9),
+            str(item["candidate_id"]),
+        )
+    )
+    trimmed = ranked[:top_n]
+    for rank, item in enumerate(trimmed, start=1):
+        item["rank"] = rank
+    return trimmed
+
+
 def _execute_xrd_batch(
     *,
     dataset_key: str,
@@ -1246,6 +1510,35 @@ def _execute_xrd_batch(
     baseline_curve = _estimate_xrd_baseline(smoothed, baseline)
     corrected = np.maximum(smoothed - baseline_curve, 0.0)
     peaks, resolved_peak_detection = _detect_xrd_peaks(axis, corrected, peak_detection)
+    references = _resolve_xrd_references(dataset=dataset, processing=processing)
+    matching_config = _resolve_xrd_matching_config(processing)
+    ranked_matches = _rank_xrd_phase_candidates(
+        observed_peaks=peaks,
+        references=references,
+        matching_config=matching_config,
+    )
+
+    minimum_score = float(matching_config["minimum_score"])
+    top_match = ranked_matches[0] if ranked_matches else None
+    top_score = float(top_match["normalized_score"]) if top_match else 0.0
+    matched = bool(top_match) and top_score >= minimum_score and top_match["confidence_band"] != "no_match"
+    match_status = "matched" if matched else "no_match"
+    confidence_band = top_match["confidence_band"] if matched and top_match else "no_match"
+    caution_payload = {}
+    if not matched:
+        caution_payload = {
+            "code": "xrd_no_match",
+            "message": "No reference phase candidate met the minimum qualitative matching threshold.",
+            "minimum_score": minimum_score,
+            "top_phase_score": round(top_score, 4),
+        }
+    elif confidence_band == "low":
+        caution_payload = {
+            "code": "xrd_low_confidence",
+            "message": "Top XRD candidate is low confidence; review evidence before interpretation.",
+            "minimum_score": minimum_score,
+            "top_phase_score": round(top_score, 4),
+        }
 
     resolved_axis_normalization = {
         "sort_axis": bool(axis_normalization.get("sort_axis", True)),
@@ -1274,6 +1567,13 @@ def _execute_xrd_batch(
             "xrd_peak_max": resolved_peak_detection["max_peaks"],
             "xrd_peak_ranking": resolved_peak_detection["peak_ranking"],
             "xrd_peak_count": len(peaks),
+            "xrd_reference_candidate_count": len(references),
+            "xrd_match_metric": matching_config["metric"],
+            "xrd_match_tolerance_deg": matching_config["tolerance_deg"],
+            "xrd_match_top_n": matching_config["top_n"],
+            "xrd_match_minimum_score": matching_config["minimum_score"],
+            "xrd_match_intensity_weight": matching_config["intensity_weight"],
+            "xrd_match_major_peak_fraction": matching_config["major_peak_fraction"],
         },
         analysis_type="XRD",
     )
@@ -1289,28 +1589,38 @@ def _execute_xrd_batch(
             "batch_runner": "compare_workspace",
             "analysis_type": "XRD",
             "peak_count": len(peaks),
+            "match_status": match_status,
+            "reference_candidate_count": len(references),
         },
     )
 
     summary = {
         "peak_count": len(peaks),
-        "match_status": "not_run",
-        "candidate_count": 0,
-        "top_match_id": None,
-        "top_match_name": None,
-        "top_match_score": None,
-        "confidence_band": "not_run",
-        "caution_code": "",
+        "match_status": match_status,
+        "candidate_count": len(ranked_matches),
+        "top_phase_id": top_match["candidate_id"] if matched and top_match else None,
+        "top_phase": top_match["candidate_name"] if matched and top_match else None,
+        "top_phase_score": round(top_score, 4),
+        "top_match_id": top_match["candidate_id"] if matched and top_match else None,
+        "top_match_name": top_match["candidate_name"] if matched and top_match else None,
+        "top_match_score": round(top_score, 4),
+        "confidence_band": confidence_band,
+        "caution_code": str(caution_payload.get("code") or ""),
+        "caution_message": str(caution_payload.get("message") or ""),
+        "reference_candidate_count": len(references),
+        "match_tolerance_deg": matching_config["tolerance_deg"],
+        "match_metric": matching_config["metric"],
     }
     rows = [
         {
-            "rank": peak["rank"],
-            "position": peak["position"],
-            "intensity": peak["intensity"],
-            "prominence": peak["prominence"],
-            "width": peak["width"],
+            "rank": item["rank"],
+            "candidate_id": item["candidate_id"],
+            "candidate_name": item["candidate_name"],
+            "normalized_score": item["normalized_score"],
+            "confidence_band": item["confidence_band"],
+            "evidence": item["evidence"],
         }
-        for peak in peaks
+        for item in ranked_matches
     ]
     record = make_result_record(
         result_id=f"xrd_{dataset_key}",
@@ -1324,7 +1634,11 @@ def _execute_xrd_batch(
         processing=processing,
         provenance=provenance,
         validation=validation,
-        review={"commercial_scope": "stable_xrd", "batch_runner": "compare_workspace"},
+        review={
+            "commercial_scope": "stable_xrd",
+            "batch_runner": "compare_workspace",
+            "caution": caution_payload,
+        },
         scientific_context={},
     )
     state = {
@@ -1333,6 +1647,7 @@ def _execute_xrd_batch(
         "baseline": baseline_curve.tolist(),
         "corrected": corrected.tolist(),
         "peaks": peaks,
+        "matches": ranked_matches,
         "processing": processing,
     }
     return {

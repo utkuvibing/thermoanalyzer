@@ -114,7 +114,7 @@ def _make_spectral_dataset(*, analysis_type: str, include_reference_library: boo
     )
 
 
-def _make_xrd_dataset():
+def _make_xrd_dataset(*, include_reference_library: bool = True, no_match: bool = False):
     axis = np.linspace(8.0, 88.0, 700)
     baseline = 18.0 + 0.03 * axis
     signal = (
@@ -125,20 +125,60 @@ def _make_xrd_dataset():
         + _gaussian(axis, 63.5, 0.4, 84.0)
         + 0.8 * np.sin(axis / 4.0)
     )
+    metadata = {
+        "sample_name": "SyntheticXRD",
+        "sample_mass": 1.0,
+        "heating_rate": 1.0,
+        "instrument": "XRDBench",
+        "vendor": "TestVendor",
+        "display_name": "Synthetic XRD Pattern",
+        "source_data_hash": "synthetic-xrd-hash",
+        "xrd_axis_role": "two_theta",
+        "xrd_axis_unit": "degree_2theta",
+        "xrd_wavelength_angstrom": 1.5406,
+    }
+    if include_reference_library:
+        if no_match:
+            metadata["xrd_reference_library"] = [
+                {
+                    "id": "xrd_phase_mismatch_a",
+                    "name": "Mismatch A",
+                    "peaks": [
+                        {"position": 11.2, "intensity": 1.0},
+                        {"position": 25.8, "intensity": 0.7},
+                        {"position": 42.1, "intensity": 0.9},
+                        {"position": 78.6, "intensity": 0.65},
+                    ],
+                }
+            ]
+        else:
+            metadata["xrd_reference_library"] = [
+                {
+                    "id": "xrd_phase_alpha",
+                    "name": "Phase Alpha",
+                    "peaks": [
+                        {"position": 18.37, "intensity": 0.62},
+                        {"position": 33.18, "intensity": 1.0},
+                        {"position": 47.76, "intensity": 0.84},
+                        {"position": 63.52, "intensity": 0.51},
+                        {"position": 72.05, "intensity": 0.22},
+                    ],
+                },
+                {
+                    "id": "xrd_phase_beta",
+                    "name": "Phase Beta",
+                    "peaks": [
+                        {"position": 21.85, "intensity": 0.63},
+                        {"position": 35.75, "intensity": 0.95},
+                        {"position": 52.45, "intensity": 0.88},
+                        {"position": 66.25, "intensity": 0.55},
+                    ],
+                },
+            ]
+
     return ThermalDataset(
         data=pd.DataFrame({"temperature": axis, "signal": signal}),
-        metadata={
-            "sample_name": "SyntheticXRD",
-            "sample_mass": 1.0,
-            "heating_rate": 1.0,
-            "instrument": "XRDBench",
-            "vendor": "TestVendor",
-            "display_name": "Synthetic XRD Pattern",
-            "source_data_hash": "synthetic-xrd-hash",
-            "xrd_axis_role": "two_theta",
-            "xrd_axis_unit": "degree_2theta",
-            "xrd_wavelength_angstrom": 1.5406,
-        },
+        metadata=metadata,
         data_type="XRD",
         units={"temperature": "degree_2theta", "signal": "counts"},
         original_columns={"temperature": "two_theta", "signal": "intensity"},
@@ -326,7 +366,7 @@ def test_execute_ftir_batch_template_similarity_is_deterministic():
     assert first["record"]["rows"] == second["record"]["rows"]
 
 
-def test_execute_xrd_batch_template_detects_ranked_peaks_with_processing_context():
+def test_execute_xrd_batch_template_returns_ranked_candidate_match_with_confidence_context():
     dataset = _make_xrd_dataset()
 
     outcome = execute_batch_template(
@@ -343,24 +383,32 @@ def test_execute_xrd_batch_template_detects_ranked_peaks_with_processing_context
     assert outcome["record"]["processing"]["method_context"]["xrd_peak_detection_method"] == "scipy_find_peaks"
     assert outcome["record"]["processing"]["method_context"]["xrd_peak_ranking"] == "prominence_desc_then_position_asc"
     assert outcome["record"]["summary"]["peak_count"] >= 3
-    assert outcome["record"]["summary"]["match_status"] == "not_run"
+    assert outcome["record"]["summary"]["match_status"] == "matched"
+    assert outcome["record"]["summary"]["top_phase_id"] == "xrd_phase_alpha"
+    assert outcome["record"]["summary"]["confidence_band"] in {"high", "medium", "low"}
     assert outcome["summary_row"]["peak_count"] == outcome["record"]["summary"]["peak_count"]
     assert outcome["summary_row"]["execution_status"] == "saved"
 
     rows = list(outcome["record"]["rows"])
     ranks = [row["rank"] for row in rows]
     assert ranks == sorted(ranks)
-    prominence_pairs = [(row["prominence"], row["position"]) for row in rows]
-    assert prominence_pairs == sorted(prominence_pairs, key=lambda item: (-item[0], item[1]))
+    scores = [row["normalized_score"] for row in rows]
+    assert scores == sorted(scores, reverse=True)
+    assert rows[0]["evidence"]["shared_peak_count"] >= 3
+    assert rows[0]["evidence"]["mean_delta_position"] is not None
+    assert "unmatched_major_peak_positions" in rows[0]["evidence"]
 
 
-def test_execute_xrd_batch_template_is_deterministic_and_honors_peak_limit_override():
+def test_execute_xrd_batch_template_is_deterministic_for_candidate_match_and_peak_limit_override():
     dataset = _make_xrd_dataset()
     existing_processing = {
         "analysis_type": "XRD",
         "workflow_template_id": "xrd.general",
         "analysis_steps": {
             "peak_detection": {"prominence": 0.14, "distance": 9, "width": 3, "max_peaks": 3},
+        },
+        "method_context": {
+            "xrd_match_top_n": 2,
         },
     }
 
@@ -395,6 +443,26 @@ def test_execute_xrd_batch_template_is_deterministic_and_honors_peak_limit_overr
     assert first["record"]["summary"] == second["record"]["summary"]
     assert first["record"]["rows"] == second["record"]["rows"]
     assert first["record"]["summary"]["peak_count"] <= 3
+    assert first["record"]["summary"]["candidate_count"] <= 2
+
+
+def test_execute_xrd_batch_template_keeps_no_match_as_cautionary_saved_output():
+    dataset = _make_xrd_dataset(no_match=True)
+
+    outcome = execute_batch_template(
+        dataset_key="synthetic_xrd",
+        dataset=dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        batch_run_id="batch_xrd_no_match",
+    )
+
+    assert outcome["status"] == "saved"
+    assert outcome["record"]["summary"]["match_status"] == "no_match"
+    assert outcome["record"]["summary"]["confidence_band"] == "no_match"
+    assert outcome["record"]["summary"]["caution_code"] == "xrd_no_match"
+    assert outcome["record"]["review"]["caution"]["code"] == "xrd_no_match"
+    assert outcome["summary_row"]["match_status"] == "no_match"
 
 
 def test_execute_batch_template_blocks_failed_validation(thermal_dataset):
