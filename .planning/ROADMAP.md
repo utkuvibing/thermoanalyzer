@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation Contracts and Execution Path** - Establish plugin contracts and generic backend execution without DSC/TGA regressions. (completed 2026-03-11)
 - [x] **Phase 2: DTA Stabilization** - Promote DTA to fully stable UX, validation, backend, and reporting behavior. (completed 2026-03-12)
 - [ ] **Phase 3: FTIR and Raman MVP** - Deliver stable spectral workflows for import, preprocessing, analysis, and export.
-- [ ] **Phase 4: XRD MVP** - Deliver stable diffraction workflow with qualitative phase identification.
+- [x] **Phase 4: XRD MVP** - Deliver stable diffraction workflow with qualitative phase identification. (completed 2026-03-12)
 - [ ] **Phase 5: XRF MVP** - Deliver stable elemental screening workflow with semi-quant outputs.
 - [ ] **Phase 6: Cross-Modality Quality and Reporting Hardening** - Enforce provenance, validation gates, regression coverage, and modality-aware guidance/reporting across all stable modalities.
 
@@ -97,7 +97,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Foundation Contracts and Execution Path | 3/3 | Complete    | 2026-03-11 |
 | 2. DTA Stabilization | 3/3 | Complete | 2026-03-12 |
 | 3. FTIR and Raman MVP | 2/3 | In Progress|  |
-| 4. XRD MVP | 3/4 | In Progress|  |
+| 4. XRD MVP | 4/4 | Complete   | 2026-03-12 |
 | 5. XRF MVP | 0/TBD | Not started | - |
 | 6. Cross-Modality Quality and Reporting Hardening | 0/TBD | Not started | - |
 
