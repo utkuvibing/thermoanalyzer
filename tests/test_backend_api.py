@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import io
@@ -188,3 +188,41 @@ def test_dataset_import_accepts_ftir_with_warning_based_validation_summary():
     payload = response.json()
     assert payload["dataset"]["data_type"] == "FTIR"
     assert payload["validation"]["status"] in {"pass", "warn"}
+
+def test_dataset_import_accepts_xrd_with_contract_metadata():
+    app = create_app(api_token="test-token")
+    client = TestClient(app)
+    project_id = client.post("/workspace/new", headers=_auth_headers()).json()["project_id"]
+    xy_bytes = (
+        "# wavelength 1.5406\n"
+        "2theta intensity\n"
+        "10.0 100\n"
+        "10.4 130\n"
+        "10.8 115\n"
+    ).encode("utf-8")
+
+    response = client.post(
+        "/dataset/import",
+        headers=_auth_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "sample_pattern.xy",
+            "file_base64": _as_b64(xy_bytes),
+            "data_type": "XRD",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dataset"]["data_type"] == "XRD"
+    assert payload["validation"]["status"] in {"pass", "warn"}
+
+    dataset_key = payload["dataset"]["key"]
+    detail = client.get(f"/workspace/{project_id}/datasets/{dataset_key}", headers=_auth_headers())
+    assert detail.status_code == 200
+    metadata = detail.json()["metadata"]
+    assert metadata["import_format"] == "xrd_xy_dat"
+    assert metadata["xrd_axis_role"] == "two_theta"
+    assert metadata["xrd_axis_unit"] == "degree_2theta"
+    assert metadata["xrd_wavelength_angstrom"] == 1.5406
+

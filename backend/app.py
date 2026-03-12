@@ -1,4 +1,4 @@
-"""FastAPI app for incremental ThermoAnalyzer desktop backend tranches."""
+﻿"""FastAPI app for incremental ThermoAnalyzer desktop backend tranches."""
 
 from __future__ import annotations
 
@@ -445,7 +445,7 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             raise HTTPException(status_code=400, detail=f"Dataset import failed: {exc}") from exc
 
         normalized_dataset_type = str(getattr(dataset, "data_type", "unknown") or "unknown").upper()
-        if normalized_dataset_type in {"FTIR", "RAMAN"}:
+        if normalized_dataset_type in {"FTIR", "RAMAN", "XRD"}:
             import_warnings = [str(item) for item in (dataset.metadata or {}).get("import_warnings", []) if item]
             validation = {
                 "status": "warn" if ((dataset.metadata or {}).get("import_review_required") or import_warnings) else "pass",
@@ -560,3 +560,4 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         )
 
     return app
+

@@ -36,6 +36,29 @@ def _import_dataset(client: TestClient, project_id: str, thermal_dataset, file_n
     return imported.json()["dataset"]["key"]
 
 
+
+
+def _import_xrd_dataset(client: TestClient, project_id: str) -> str:
+    pattern = (
+        "# wavelength 1.5406\n"
+        "2theta intensity\n"
+        "10.0 100\n"
+        "10.2 130\n"
+        "10.4 110\n"
+    ).encode("utf-8")
+    imported = client.post(
+        "/dataset/import",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "dispatch_xrd.xy",
+            "file_base64": _as_b64(pattern),
+            "data_type": "XRD",
+        },
+    )
+    assert imported.status_code == 200
+    return imported.json()["dataset"]["key"]
+
 def test_analysis_run_dispatches_stable_type_case_insensitively(thermal_dataset):
     app = create_app(api_token="dispatch-token")
     client = TestClient(app)
@@ -78,6 +101,26 @@ def test_analysis_run_rejects_unknown_analysis_type_with_explicit_stable_set(the
     assert response.json()["detail"] == f"analysis_type must be one of: {', '.join(stable_analysis_types())}."
 
 
+
+def test_analysis_run_accepts_xrd_dataset_without_unknown_type_error():
+    app = create_app(api_token="dispatch-token")
+    client = TestClient(app)
+    project_id = _new_project(client)
+    dataset_key = _import_xrd_dataset(client, project_id)
+
+    response = client.post(
+        "/analysis/run",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "dataset_key": dataset_key,
+            "analysis_type": "XRD",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["analysis_type"] == "XRD"
+    assert payload["execution_status"] in {"saved", "blocked", "failed"}
 def test_analysis_run_routes_xrd_through_stable_registry_validation(thermal_dataset):
     app = create_app(api_token="dispatch-token")
     client = TestClient(app)
@@ -224,4 +267,5 @@ def test_compare_workspace_validation_uses_registry_set(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["compare_workspace"]["analysis_type"] == "DTA"
+
 
