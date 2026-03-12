@@ -20,7 +20,7 @@ def _assert_lifecycle_surface(adapter) -> None:
 
 
 def test_stable_analysis_types_are_explicit_and_sorted():
-    assert stable_analysis_types() == ("DSC", "DTA", "TGA")
+    assert stable_analysis_types() == ("DSC", "DTA", "FTIR", "RAMAN", "TGA")
 
 
 def test_require_stable_modality_returns_registered_specs_with_contract_surface():
@@ -44,10 +44,12 @@ def test_require_stable_modality_rejects_unsupported_types():
 def test_state_key_mapping_is_centralized_and_deterministic():
     assert analysis_state_key("DSC", "run_1") == "dsc_state_run_1"
     assert analysis_state_key("DTA", "run_2") == "dta_state_run_2"
-    assert analysis_state_key("TGA", "run_3") == "tga_state_run_3"
+    assert analysis_state_key("FTIR", "run_3") == "ftir_state_run_3"
+    assert analysis_state_key("RAMAN", "run_4") == "raman_state_run_4"
+    assert analysis_state_key("TGA", "run_5") == "tga_state_run_5"
 
     with pytest.raises(ValueError, match="Unsupported stable analysis_type"):
-        analysis_state_key("XRD", "run_4")
+        analysis_state_key("XRD", "run_6")
 
 
 def test_adapter_run_delegates_to_batch_template(monkeypatch):
@@ -90,6 +92,12 @@ def test_adapter_run_delegates_to_batch_template(monkeypatch):
         ("DTA", "UNKNOWN", True),
         ("DTA", "DSC", False),
         ("DTA", "TGA", False),
+        ("FTIR", "FTIR", True),
+        ("FTIR", "UNKNOWN", True),
+        ("FTIR", "RAMAN", False),
+        ("RAMAN", "RAMAN", True),
+        ("RAMAN", "UNKNOWN", True),
+        ("RAMAN", "FTIR", False),
         ("TGA", "TGA", True),
         ("TGA", "UNKNOWN", True),
         ("TGA", "DSC", False),

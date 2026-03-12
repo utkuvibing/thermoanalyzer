@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.modalities.adapters import DSCAdapter, DTAAdapter, TGAAdapter
+from core.modalities.adapters import DSCAdapter, DTAAdapter, FTIRAdapter, RAMANAdapter, TGAAdapter
 from core.modalities.contracts import ModalitySpec
 
 
@@ -24,6 +24,18 @@ _REGISTRY: dict[str, ModalitySpec] = {
         stable=True,
         default_workflow_template_id="tga.general",
         adapter=TGAAdapter(),
+    ),
+    "FTIR": ModalitySpec(
+        analysis_type="FTIR",
+        stable=True,
+        default_workflow_template_id="ftir.general",
+        adapter=FTIRAdapter(),
+    ),
+    "RAMAN": ModalitySpec(
+        analysis_type="RAMAN",
+        stable=True,
+        default_workflow_template_id="raman.general",
+        adapter=RAMANAdapter(),
     ),
 }
 

@@ -6,6 +6,8 @@ from __future__ import annotations
 _PREFIX_BY_ANALYSIS_TYPE = {
     "DSC": "dsc_state",
     "DTA": "dta_state",
+    "FTIR": "ftir_state",
+    "RAMAN": "raman_state",
     "TGA": "tga_state",
 }
 

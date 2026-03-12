@@ -92,3 +92,21 @@ class TGAAdapter(StableBatchAdapter):
             default_workflow_template_id="tga.general",
             eligible_dataset_types=frozenset({"TGA", "UNKNOWN"}),
         )
+
+
+class FTIRAdapter(StableBatchAdapter):
+    def __init__(self) -> None:
+        super().__init__(
+            analysis_type="FTIR",
+            default_workflow_template_id="ftir.general",
+            eligible_dataset_types=frozenset({"FTIR", "UNKNOWN"}),
+        )
+
+
+class RAMANAdapter(StableBatchAdapter):
+    def __init__(self) -> None:
+        super().__init__(
+            analysis_type="RAMAN",
+            default_workflow_template_id="raman.general",
+            eligible_dataset_types=frozenset({"RAMAN", "UNKNOWN"}),
+        )

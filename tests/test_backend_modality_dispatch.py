@@ -5,6 +5,7 @@ import base64
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from core.modalities import stable_analysis_types
 
 
 def _headers() -> dict[str, str]:
@@ -74,7 +75,7 @@ def test_analysis_run_rejects_unknown_analysis_type_with_explicit_stable_set(the
         },
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "analysis_type must be one of: DSC, DTA, TGA."
+    assert response.json()["detail"] == f"analysis_type must be one of: {', '.join(stable_analysis_types())}."
 
 
 def test_analysis_run_rejects_ineligible_dataset_with_explicit_error(thermal_dataset):
@@ -107,7 +108,7 @@ def test_batch_run_rejects_unknown_analysis_type_with_explicit_stable_set():
         json={"analysis_type": "XRF"},
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "analysis_type must be one of: DSC, DTA, TGA."
+    assert response.json()["detail"] == f"analysis_type must be one of: {', '.join(stable_analysis_types())}."
 
 
 def test_batch_run_dispatches_tga_through_registry_path(thermal_dataset):
