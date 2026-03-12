@@ -1,3 +1,21 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+current_phase: 04
+current_phase_name: xrd mvp
+current_plan: 3
+status: executing
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-12T10:42:46.168Z"
+last_activity: 2026-03-12
+progress:
+  total_phases: 6
+  completed_phases: 3
+  total_plans: 13
+  completed_plans: 11
+---
+
 ﻿---
 gsd_state_version: 1.0
 milestone: v1.0
@@ -29,9 +47,9 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Current Phase:** 04
 **Current Phase Name:** xrd mvp
-**Current Plan:** 2
+**Current Plan:** 3
 **Total Plans in Phase:** 4
-**Status:** Executing
+**Status:** Ready to execute
 **Last Activity:** 2026-03-12
 **Last Activity Description:** Completed 04-01-PLAN.md
 
@@ -62,6 +80,7 @@ Progress: [████████░░] 77%
 | Phase 03 P02 | 18 min | 3 tasks | 12 files |
 | Phase 03 P03 | 5 min | 3 tasks | 9 files |
 | Phase 04 P01 | 13 | 3 tasks | 10 files |
+| Phase 04 P02 | 11 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -89,6 +108,9 @@ Recent decisions affecting current work:
 - [Phase 04]: XRD import normalizes to two-theta axis plus intensity with explicit xrd provenance fields.
 - [Phase 04]: CIF MVP support is limited to single-block powder-pattern loops; structural-only and d-spacing-only variants fail explicitly.
 - [Phase 04]: Backend import now treats XRD as warning-summary onboarding flow while preserving stable dispatch contracts.
+- [Phase 04]: XRD preprocessing remains template-driven with runtime overrides merged over defaults for reproducibility and configurability.
+- [Phase 04]: XRD peak extraction uses deterministic scipy find_peaks ranking: prominence descending then position ascending.
+- [Phase 04]: Missing XRD wavelength is warning-level while missing peak-detection controls is fail-level for stable reporting.
 
 ### Pending Todos
 
@@ -100,8 +122,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T10:25:12.377Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-12T10:42:46.165Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
 
 
