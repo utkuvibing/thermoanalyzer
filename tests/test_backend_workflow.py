@@ -262,3 +262,51 @@ def test_workspace_compare_spectral_lane_filters_incompatible_dataset_selection(
     )
     assert raman_workspace.status_code == 200
     assert raman_workspace.json()["compare_workspace"]["selected_datasets"] == []
+
+
+def test_workspace_compare_xrd_lane_filters_incompatible_dataset_selection(thermal_dataset):
+    app = create_app(api_token="workflow-token")
+    client = TestClient(app)
+
+    create_response = client.post("/workspace/new", headers=_headers())
+    assert create_response.status_code == 200
+    project_id = create_response.json()["project_id"]
+
+    csv_bytes = thermal_dataset.data.to_csv(index=False).encode("utf-8")
+    imported_xrd = client.post(
+        "/dataset/import",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "xrd_compare.csv",
+            "file_base64": _to_base64(csv_bytes),
+            "data_type": "XRD",
+        },
+    )
+    imported_ftir = client.post(
+        "/dataset/import",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "ftir_compare.csv",
+            "file_base64": _to_base64(csv_bytes),
+            "data_type": "FTIR",
+        },
+    )
+    assert imported_xrd.status_code == 200
+    assert imported_ftir.status_code == 200
+    xrd_key = imported_xrd.json()["dataset"]["key"]
+    ftir_key = imported_ftir.json()["dataset"]["key"]
+
+    xrd_workspace = client.put(
+        f"/workspace/{project_id}/compare",
+        headers=_headers(),
+        json={
+            "analysis_type": "XRD",
+            "selected_datasets": [xrd_key, ftir_key],
+        },
+    )
+    assert xrd_workspace.status_code == 200
+    payload = xrd_workspace.json()["compare_workspace"]
+    assert payload["analysis_type"] == "XRD"
+    assert payload["selected_datasets"] == [xrd_key]

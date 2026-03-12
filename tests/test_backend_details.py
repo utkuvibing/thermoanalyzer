@@ -16,23 +16,26 @@ def _as_b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
-def _seed_workspace_with_dsc_result(client: TestClient, thermal_dataset) -> tuple[str, str, str]:
-    created = client.post("/workspace/new", headers=_headers()).json()
-    project_id = created["project_id"]
-
+def _import_dataset(client: TestClient, project_id: str, thermal_dataset, *, file_name: str, data_type: str) -> str:
     csv_bytes = thermal_dataset.data.to_csv(index=False).encode("utf-8")
     imported = client.post(
         "/dataset/import",
         headers=_headers(),
         json={
             "project_id": project_id,
-            "file_name": "seed_dsc.csv",
+            "file_name": file_name,
             "file_base64": _as_b64(csv_bytes),
-            "data_type": "DSC",
+            "data_type": data_type,
         },
     )
     assert imported.status_code == 200
-    dataset_key = imported.json()["dataset"]["key"]
+    return imported.json()["dataset"]["key"]
+
+
+def _seed_workspace_with_dsc_result(client: TestClient, thermal_dataset) -> tuple[str, str, str]:
+    created = client.post("/workspace/new", headers=_headers()).json()
+    project_id = created["project_id"]
+    dataset_key = _import_dataset(client, project_id, thermal_dataset, file_name="seed_dsc.csv", data_type="DSC")
 
     run = client.post(
         "/analysis/run",
@@ -114,6 +117,41 @@ def test_compare_workspace_accepts_spectral_analysis_types():
         payload = compare_put.json()["compare_workspace"]
         assert payload["analysis_type"] == analysis_type
         assert payload["selected_datasets"] == []
+
+
+def test_compare_workspace_accepts_xrd_analysis_type():
+    app = create_app(api_token="details-token")
+    client = TestClient(app)
+    project_id = client.post("/workspace/new", headers=_headers()).json()["project_id"]
+
+    compare_put = client.put(
+        f"/workspace/{project_id}/compare",
+        headers=_headers(),
+        json={"analysis_type": "XRD", "selected_datasets": [], "notes": "XRD lane"},
+    )
+    assert compare_put.status_code == 200
+    payload = compare_put.json()["compare_workspace"]
+    assert payload["analysis_type"] == "XRD"
+    assert payload["selected_datasets"] == []
+
+
+def test_compare_workspace_xrd_lane_filters_incompatible_datasets(thermal_dataset):
+    app = create_app(api_token="details-token")
+    client = TestClient(app)
+    project_id = client.post("/workspace/new", headers=_headers()).json()["project_id"]
+
+    xrd_key = _import_dataset(client, project_id, thermal_dataset, file_name="xrd_lane.csv", data_type="XRD")
+    ftir_key = _import_dataset(client, project_id, thermal_dataset, file_name="ftir_lane.csv", data_type="FTIR")
+
+    compare_put = client.put(
+        f"/workspace/{project_id}/compare",
+        headers=_headers(),
+        json={"analysis_type": "XRD", "selected_datasets": [xrd_key, ftir_key]},
+    )
+    assert compare_put.status_code == 200
+    payload = compare_put.json()["compare_workspace"]
+    assert payload["analysis_type"] == "XRD"
+    assert payload["selected_datasets"] == [xrd_key]
 
 
 def test_compare_workspace_rejects_invalid_analysis_type():

@@ -51,8 +51,8 @@ def build_dataset_detail(state: dict[str, Any], dataset_key: str) -> dict[str, A
         raise KeyError(f"Unknown dataset_key: {dataset_key}")
 
     validation = validate_thermal_dataset(dataset, analysis_type=getattr(dataset, "data_type", "unknown"))
-    compare_workspace = state.get("comparison_workspace", {}) or {}
-    selected_datasets = compare_workspace.get("selected_datasets") or []
+    compare_workspace = normalize_compare_workspace(state)
+    selected_datasets = compare_workspace.selected_datasets
 
     return {
         "dataset": summarize_dataset(dataset_key, dataset),
@@ -156,4 +156,9 @@ def update_compare_workspace(
         workspace["notes"] = str(notes)
 
     workspace["saved_at"] = datetime.now().isoformat(timespec="seconds")
-    return normalize_compare_workspace(state)
+    payload = normalize_compare_workspace(state)
+    if hasattr(payload, "model_dump"):
+        workspace.update(payload.model_dump())
+    else:  # pragma: no cover - pydantic v1 compatibility
+        workspace.update(payload.dict())
+    return payload

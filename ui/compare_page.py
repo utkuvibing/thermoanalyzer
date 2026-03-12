@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from core.batch_runner import execute_batch_template, filter_batch_summary_rows, normalize_batch_summary_rows, summarize_batch_outcomes
-from core.modalities import analysis_state_key, stable_analysis_types
+from core.modalities import analysis_state_key, get_modality, stable_analysis_types
 from core.processing_schema import get_workflow_templates
 from core.result_serialization import split_valid_results
 from ui.components.chrome import render_page_header
@@ -198,10 +198,11 @@ def render():
 
 def _dataset_type_matches_analysis_type(dataset, analysis_type):
     token = str(analysis_type or "").upper()
-    dtype = str(getattr(dataset, "data_type", "UNKNOWN") or "UNKNOWN").upper()
-    if dtype == "UNKNOWN":
-        return True
-    return dtype == token
+    modality = get_modality(token)
+    if modality is None:
+        return False
+    dtype = str(getattr(dataset, "data_type", "UNKNOWN") or "UNKNOWN")
+    return modality.adapter.is_dataset_eligible(dtype)
 
 
 def _x_axis_label(analysis_type, lang):
@@ -209,6 +210,8 @@ def _x_axis_label(analysis_type, lang):
         return "Dalgasayisi (cm^-1)" if lang == "tr" else "Wavenumber (cm^-1)"
     if analysis_type == "RAMAN":
         return "Raman Kaymasi (cm^-1)" if lang == "tr" else "Raman Shift (cm^-1)"
+    if analysis_type == "XRD":
+        return "2θ (derece)" if lang == "tr" else "2θ (degree)"
     return "Sicaklik (°C)" if lang == "tr" else "Temperature (°C)"
 
 
@@ -222,6 +225,8 @@ def _y_quantity_label(analysis_type, lang):
     if analysis_type == "FTIR":
         return "Absorbans" if lang == "tr" else "Absorbance"
     if analysis_type == "RAMAN":
+        return "Yogunluk" if lang == "tr" else "Intensity"
+    if analysis_type == "XRD":
         return "Yogunluk" if lang == "tr" else "Intensity"
     return "Sinyal" if lang == "tr" else "Signal"
 
@@ -259,6 +264,11 @@ def _resolve_signal(dataset_key, dataset, analysis_type, signal_mode):
             return state["normalized"], "Normalize edilmiş" if st.session_state.get("ui_language", "tr") == "tr" else "Normalized"
         if state.get("corrected") is not None:
             return state["corrected"], "Baseline düzeltilmiş" if st.session_state.get("ui_language", "tr") == "tr" else "Baseline corrected"
+        if state.get("smoothed") is not None:
+            return state["smoothed"], "Yumuşatılmış" if st.session_state.get("ui_language", "tr") == "tr" else "Smoothed"
+    if analysis_type == "XRD":
+        if state.get("corrected") is not None:
+            return state["corrected"], "Arkaplan düzeltilmiş" if st.session_state.get("ui_language", "tr") == "tr" else "Background corrected"
         if state.get("smoothed") is not None:
             return state["smoothed"], "Yumuşatılmış" if st.session_state.get("ui_language", "tr") == "tr" else "Smoothed"
     return raw_signal, "Ham" if st.session_state.get("ui_language", "tr") == "tr" else "Raw"
