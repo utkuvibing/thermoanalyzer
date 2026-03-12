@@ -428,6 +428,43 @@ class TestReadCSV:
         assert ds.metadata["spectral_axis_role"] == "wavenumber"
         assert ds.metadata["modality_confirmation_required"] is False
 
+    def test_read_jcamp_single_spectrum_imports_as_ftir_mvp(self):
+        buf = io.StringIO(
+            "##TITLE=FTIR Demo\n"
+            "##JCAMP-DX=5.00\n"
+            "##DATA TYPE=INFRARED SPECTRUM\n"
+            "##XUNITS=1/CM\n"
+            "##YUNITS=ABSORBANCE\n"
+            "##XYDATA=(X++(Y..Y))\n"
+            "4000 0.10\n"
+            "3998 0.11\n"
+            "3996 0.12\n"
+            "##END=\n"
+        )
+        buf.name = "sample.jdx"
+
+        ds = read_thermal_data(buf)
+
+        assert ds.data_type == "FTIR"
+        assert len(ds.data) == 3
+        assert ds.units["temperature"] == "cm^-1"
+        assert ds.metadata["import_format"] == "jcamp_dx"
+
+    def test_read_jcamp_rejects_multiblock_variants_with_explicit_message(self):
+        buf = io.StringIO(
+            "##TITLE=Linked Spectra\n"
+            "##JCAMP-DX=5.00\n"
+            "##BLOCKS=2\n"
+            "##XYDATA=(X++(Y..Y))\n"
+            "4000 0.10\n"
+            "3998 0.11\n"
+            "##END=\n"
+        )
+        buf.name = "linked.dx"
+
+        with pytest.raises(ValueError, match="single-spectrum files only"):
+            read_thermal_data(buf)
+
     def test_read_csv_raises_on_missing_temperature(self):
         """read_thermal_data should raise ValueError when temperature cannot be identified."""
         csv_content = "Signal\n1.0\n2.0\n3.0\n"

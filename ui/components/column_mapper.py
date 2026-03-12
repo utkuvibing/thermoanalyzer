@@ -36,7 +36,7 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
     st.subheader(tx("Kolon Eşleme", "Column Mapping"))
 
     detected_type = guessed_mapping.get("data_type", "unknown")
-    type_options = ["DSC", "TGA", "DTA"]
+    type_options = ["DSC", "TGA", "DTA", "FTIR", "RAMAN"]
     default_idx = 0
     if data_type and data_type in type_options:
         default_idx = type_options.index(data_type)
@@ -55,8 +55,15 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         "DSC": tx("Isı Akışı Kolonu", "Heat Flow Column"),
         "TGA": tx("Kütle / Ağırlık Kolonu", "Mass / Weight Column"),
         "DTA": tx("ΔT / Sinyal Kolonu", "ΔT / Signal Column"),
+        "FTIR": tx("Absorbans / Geçirgenlik Kolonu", "Absorbance / Transmittance Column"),
+        "RAMAN": tx("Raman Yoğunluk Kolonu", "Raman Intensity Column"),
     }
     signal_label = signal_labels.get(selected_type, tx("Sinyal Kolonu", "Signal Column"))
+    axis_labels = {
+        "FTIR": tx("Dalga Sayısı Kolonu", "Wavenumber Column"),
+        "RAMAN": tx("Raman Shift Kolonu", "Raman Shift Column"),
+    }
+    axis_label = axis_labels.get(selected_type, tx("Sıcaklık Kolonu", "Temperature Column"))
 
     col1, col2, col3 = st.columns(3)
 
@@ -65,7 +72,7 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         temp_guess = guessed_mapping.get("temperature")
         temp_default = col_options.index(temp_guess) if temp_guess in columns else 0
         temp_col = st.selectbox(
-            tx("Sıcaklık Kolonu", "Temperature Column"),
+            axis_label,
             col_options,
             index=temp_default,
             key=f"{key_prefix}_temp",

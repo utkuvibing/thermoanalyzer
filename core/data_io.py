@@ -152,6 +152,15 @@ _VENDOR_TOKEN_SETS = {
         "toledo",
     ),
 }
+_JCAMP_EXTENSIONS = (".jdx", ".dx", ".jcamp", ".dxj")
+_JCAMP_UNSUPPORTED_TAGS = {"NTUPLES", "VAR_NAME", "SYMBOL", "CLASS", "XYPOINTS", "PEAK TABLE"}
+_JCAMP_XUNIT_MAP = {
+    "1/CM": "cm^-1",
+    "CM-1": "cm^-1",
+    "CM^-1": "cm^-1",
+    "CM**-1": "cm^-1",
+    "1/CM ": "cm^-1",
+}
 
 # ---------------------------------------------------------------------------
 # ThermalDataset
@@ -356,6 +365,186 @@ def _is_spectral_axis_hint(column_name: str | None) -> bool:
             "cm^-1",
             "1/cm",
         )
+    )
+
+
+def _looks_like_jcamp(source_name: str, text: str) -> bool:
+    source_lower = str(source_name or "").lower()
+    if source_lower.endswith(_JCAMP_EXTENSIONS):
+        return True
+    sample = (text or "")[:3000].upper()
+    return "##TITLE=" in sample and ("##XYDATA=" in sample or "##PEAK TABLE=" in sample)
+
+
+def _parse_jcamp_numeric_tokens(line: str) -> list[float]:
+    raw = re.findall(r"[-+]?\d*\.?\d+(?:[Ee][-+]?\d+)?", line)
+    values: list[float] = []
+    for token in raw:
+        try:
+            values.append(float(token))
+        except ValueError:
+            continue
+    return values
+
+
+def _parse_jcamp_dataset(
+    text: str,
+    *,
+    source_name: str,
+    data_type: str | None = None,
+    metadata: dict | None = None,
+) -> ThermalDataset:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("JCAMP-DX source is empty.")
+
+    tags: dict[str, str] = {}
+    xydata_seen = 0
+    tag_pattern = re.compile(r"^##([^=]+)=(.*)$")
+    for line in lines:
+        match = tag_pattern.match(line)
+        if not match:
+            continue
+        key = match.group(1).strip().upper()
+        value = match.group(2).strip()
+        tags.setdefault(key, value)
+        if key == "XYDATA":
+            xydata_seen += 1
+
+    blocks_value = str(tags.get("BLOCKS") or "").strip()
+    if blocks_value and blocks_value not in {"", "1"}:
+        raise ValueError(
+            "JCAMP-DX MVP supports single-spectrum files only; linked/multi-block JCAMP variants are unsupported."
+        )
+
+    unsupported = [key for key in tags if key in _JCAMP_UNSUPPORTED_TAGS and key != "PEAK TABLE"]
+    if unsupported:
+        raise ValueError(
+            "JCAMP-DX MVP supports only single-spectrum ##XYDATA core files; advanced constructs "
+            f"({', '.join(sorted(set(unsupported)))}) are unsupported."
+        )
+    if "PEAK TABLE" in tags:
+        raise ValueError("JCAMP-DX peak-table imports are outside MVP scope; provide single-spectrum ##XYDATA data.")
+    if xydata_seen != 1:
+        raise ValueError(
+            "JCAMP-DX MVP supports exactly one ##XYDATA block per file; linked or multi-spectrum files are unsupported."
+        )
+
+    xydata_index = next((idx for idx, line in enumerate(lines) if line.upper().startswith("##XYDATA=")), -1)
+    if xydata_index < 0:
+        raise ValueError("JCAMP-DX import requires a ##XYDATA section for MVP support.")
+
+    data_lines: list[str] = []
+    for line in lines[xydata_index + 1 :]:
+        if line.upper().startswith("##"):
+            break
+        data_lines.append(line)
+    if not data_lines:
+        raise ValueError("JCAMP-DX ##XYDATA section did not contain numeric data.")
+
+    delta_x: float | None = None
+    try:
+        if tags.get("DELTAX") not in (None, ""):
+            delta_x = float(str(tags.get("DELTAX")))
+    except ValueError:
+        delta_x = None
+
+    x_values: list[float] = []
+    y_values: list[float] = []
+    for line in data_lines:
+        values = _parse_jcamp_numeric_tokens(line)
+        if len(values) < 2:
+            continue
+        if len(values) == 2:
+            x_values.append(values[0])
+            y_values.append(values[1])
+            continue
+
+        if len(values) % 2 == 0 and delta_x is None:
+            for index in range(0, len(values), 2):
+                x_values.append(values[index])
+                y_values.append(values[index + 1])
+            continue
+
+        if delta_x is None:
+            raise ValueError(
+                "JCAMP-DX compressed XYDATA without DELTAX is unsupported in MVP; provide pairwise XY rows."
+            )
+        start_x = values[0]
+        for index, y_value in enumerate(values[1:]):
+            x_values.append(start_x + (delta_x * index))
+            y_values.append(y_value)
+
+    if len(x_values) < 2 or len(y_values) < 2:
+        raise ValueError("JCAMP-DX import could not extract a usable single spectrum.")
+
+    out_df = pd.DataFrame({"temperature": x_values, "signal": y_values})
+    out_df.dropna(subset=["temperature", "signal"], inplace=True)
+    out_df.reset_index(drop=True, inplace=True)
+    if out_df.empty:
+        raise ValueError("JCAMP-DX spectrum contains no valid numeric points.")
+
+    resolved_type = str(data_type or "").upper().strip()
+    inferred_type = "RAMAN" if "RAMAN" in (str(tags.get("TITLE") or "") + " " + str(tags.get("DATATYPE") or "")).upper() else "FTIR"
+    if resolved_type not in {"FTIR", "RAMAN"}:
+        resolved_type = inferred_type
+
+    x_unit_raw = str(tags.get("XUNITS") or "1/CM").strip().upper()
+    x_unit = _JCAMP_XUNIT_MAP.get(x_unit_raw, "cm^-1")
+    y_unit_raw = str(tags.get("YUNITS") or "").strip().lower()
+    if "abs" in y_unit_raw:
+        y_unit = "absorbance"
+    elif "trans" in y_unit_raw:
+        y_unit = "transmittance"
+    elif "count" in y_unit_raw or "cps" in y_unit_raw:
+        y_unit = "counts"
+    else:
+        y_unit = "a.u."
+
+    import_warnings: list[str] = []
+    if "RAMAN" not in resolved_type and "RAMAN" in inferred_type:
+        import_warnings.append("JCAMP title metadata suggested RAMAN while FTIR was selected; review modality selection.")
+
+    metadata = metadata or {}
+    display_name = metadata.get("display_name") or os.path.basename(source_name) or metadata.get("sample_name", "")
+    payload_meta = {
+        "sample_name": metadata.get("sample_name", ""),
+        "sample_mass": metadata.get("sample_mass", None),
+        "heating_rate": metadata.get("heating_rate", None),
+        "instrument": metadata.get("instrument", ""),
+        "vendor": metadata.get("vendor", "Generic"),
+        "display_name": display_name,
+        "source_data_hash": _hash_dataframe(out_df),
+        "import_method": "auto",
+        "import_confidence": "medium",
+        "import_review_required": bool(import_warnings),
+        "import_warnings": import_warnings,
+        "inferred_analysis_type": inferred_type,
+        "inferred_signal_unit": y_unit,
+        "inferred_vendor": "Generic",
+        "vendor_detection_confidence": "review",
+        "modality_confirmation_required": inferred_type != resolved_type,
+        "modality_confirmation_applied": bool(data_type and inferred_type != resolved_type),
+        "import_format": "jcamp_dx",
+        "import_delimiter": "jcamp",
+        "import_decimal_sep": ".",
+        "import_header_row": 0,
+        "import_data_start_row": max(xydata_index + 1, 0),
+        "spectral_axis_role": "wavenumber",
+        "spectral_axis_column": "JCAMP_X",
+        "jcamp_title": str(tags.get("TITLE") or ""),
+        "jcamp_xunits": x_unit_raw or "1/CM",
+        "jcamp_yunits": str(tags.get("YUNITS") or ""),
+    }
+    payload_meta.update(metadata)
+
+    return ThermalDataset(
+        data=out_df,
+        metadata=payload_meta,
+        data_type=resolved_type,
+        units={"temperature": x_unit, "signal": y_unit},
+        original_columns={"temperature": "JCAMP_X", "signal": "JCAMP_Y"},
+        file_path=source_name,
     )
 
 
@@ -912,6 +1101,22 @@ def read_thermal_data(
     """
     metadata = metadata or {}
     source_name = ""
+
+    # ------------------------------------------------------------------
+    # JCAMP-DX fast path (single-spectrum MVP only)
+    # ------------------------------------------------------------------
+    readable_buf, source_name = _to_readable_buffer(source)
+    source_text = readable_buf.getvalue()
+    if _looks_like_jcamp(source_name, source_text):
+        return _parse_jcamp_dataset(
+            source_text,
+            source_name=source_name,
+            data_type=data_type,
+            metadata=metadata,
+        )
+
+    if hasattr(source, "seek"):
+        source.seek(0)
 
     # ------------------------------------------------------------------
     # Detect format
