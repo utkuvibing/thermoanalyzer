@@ -27,7 +27,7 @@ from core.report_generator import (
     generate_docx_report,
     generate_pdf_report,
 )
-from core.result_serialization import serialize_dsc_result, serialize_kissinger_result, serialize_tga_result
+from core.result_serialization import serialize_dsc_result, serialize_kissinger_result, serialize_spectral_result, serialize_tga_result
 from core.tga_processor import MassLossStep, TGAResult
 from core.validation import validate_thermal_dataset
 from ui.export_page import _batch_summary_preview_frame, _results_to_xlsx
@@ -168,6 +168,62 @@ def _make_tga_result(temperature_range, tga_signal):
     )
 
 
+def _make_ftir_no_match_result():
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [650.0, 980.0, 1450.0], "signal": [0.08, 0.52, 0.18]}),
+        metadata={
+            "sample_name": "SyntheticFTIR",
+            "sample_mass": 1.0,
+            "heating_rate": 1.0,
+            "instrument": "SpecBench",
+            "vendor": "TestVendor",
+            "display_name": "Synthetic FTIR Spectrum",
+        },
+        data_type="FTIR",
+        units={"temperature": "cm^-1", "signal": "a.u."},
+        original_columns={"temperature": "wavenumber", "signal": "intensity"},
+        file_path="",
+    )
+    processing = ensure_processing_payload(
+        analysis_type="FTIR",
+        workflow_template="ftir.general",
+        workflow_template_label="General FTIR",
+    )
+    processing = update_processing_step(processing, "normalization", {"method": "vector"})
+    processing = update_processing_step(processing, "peak_detection", {"prominence": 0.05, "min_distance": 6})
+    processing = update_processing_step(processing, "similarity_matching", {"metric": "cosine", "top_n": 3, "minimum_score": 0.45})
+    validation = validate_thermal_dataset(dataset, analysis_type="FTIR", processing=processing)
+    return serialize_spectral_result(
+        "synthetic_ftir",
+        dataset,
+        analysis_type="FTIR",
+        summary={
+            "peak_count": 3,
+            "match_status": "no_match",
+            "candidate_count": 1,
+            "top_match_id": None,
+            "top_match_name": None,
+            "top_match_score": 0.33,
+            "confidence_band": "no_match",
+            "caution_code": "spectral_no_match",
+        },
+        rows=[
+            {
+                "rank": 1,
+                "candidate_id": "ftir_ref_unknown",
+                "candidate_name": "Unknown",
+                "normalized_score": 0.33,
+                "confidence_band": "no_match",
+                "evidence": {"shared_peak_count": 0, "peak_overlap_ratio": 0.0},
+            }
+        ],
+        artifacts={"figure_keys": ["FTIR Analysis - synthetic_ftir"]},
+        processing=processing,
+        provenance={"saved_at_utc": "2026-03-12T02:00:00+00:00", "app_version": "2.0"},
+        validation=validation,
+    )
+
+
 def test_generate_csv_summary_with_normalized_records(thermal_dataset):
     dsc_result = _make_dsc_result(thermal_dataset)
     kissinger_result = serialize_kissinger_result(
@@ -258,6 +314,36 @@ def test_generate_docx_report_separates_stable_and_experimental(thermal_dataset)
     assert "Single-Step Decomposition" in xml
     assert "Major Decomposition Events" in xml
     assert "Full Raw Data Table" in xml
+
+
+def test_generate_docx_report_renders_ftir_caution_semantics():
+    ftir_result = _make_ftir_no_match_result()
+    docx_bytes = generate_docx_report(
+        {ftir_result["id"]: ftir_result},
+        datasets={"synthetic_ftir": ThermalDataset(
+            data=pd.DataFrame({"temperature": [650.0, 980.0, 1450.0], "signal": [0.08, 0.52, 0.18]}),
+            metadata={
+                "sample_name": "SyntheticFTIR",
+                "sample_mass": 1.0,
+                "heating_rate": 1.0,
+                "instrument": "SpecBench",
+                "vendor": "TestVendor",
+                "display_name": "Synthetic FTIR Spectrum",
+            },
+            data_type="FTIR",
+            units={"temperature": "cm^-1", "signal": "a.u."},
+            original_columns={"temperature": "wavenumber", "signal": "intensity"},
+            file_path="",
+        )},
+    )
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "FTIR - synthetic_ftir" in xml
+    assert "Match Status" in xml
+    assert "no_match" in xml
+    assert "Caution Code" in xml
+    assert "spectral_no_match" in xml
 
 
 def test_results_to_xlsx_writes_summary_and_detail_sheets(thermal_dataset, temperature_range, tga_signal):
@@ -489,7 +575,37 @@ def test_final_conclusion_does_not_overclaim_caco3_as_near_complete():
     )
 
     assert "near-complete decomposition with minimal residue" not in conclusion
-    assert "near-complete decarbonation to a stable oxide-rich residue" in conclusion
+    assert "decarbonation of caco3 to cao" in conclusion.lower()
+
+
+def test_final_conclusion_uses_formula_specific_hydrate_product_when_available():
+    conclusion = _build_final_conclusion_paragraph(
+        [
+            {
+                "analysis_type": "TGA",
+                "status": "stable",
+                "dataset_key": "tga_CuSO4_5H2O_dehydration.csv",
+                "summary": {
+                    "sample_name": "CuSO4·5H2O",
+                    "step_count": 4,
+                    "total_mass_loss_percent": 36.06,
+                    "residue_percent": 63.99,
+                },
+                "rows": [
+                    {"midpoint_temperature": 118.0, "mass_loss_percent": 14.5},
+                    {"midpoint_temperature": 172.0, "mass_loss_percent": 11.2},
+                    {"midpoint_temperature": 223.0, "mass_loss_percent": 8.1},
+                    {"midpoint_temperature": 318.0, "mass_loss_percent": 2.3},
+                ],
+                "metadata": {"file_name": "tga_CuSO4_5H2O_dehydration.csv"},
+            }
+        ],
+        comparison_payload=None,
+    )
+
+    lowered = conclusion.lower()
+    assert "dehydration of cuso4" in lowered
+    assert "anhydrous cuso4" in lowered
 
 
 def test_figures_for_record_excludes_comparison_workspace_figures_from_dataset_section():
@@ -541,6 +657,38 @@ def test_figures_for_record_uses_sample_artifact_key_when_caption_is_generic():
     matched = _figures_for_record(record, figures, used=set())
 
     assert matched == [("Thermogram Figure", b"sample")]
+
+
+def test_figures_for_record_uses_non_conflicting_generic_when_no_direct_match():
+    record = {
+        "analysis_type": "TGA",
+        "dataset_key": "run_a",
+        "metadata": {"sample_name": "Run A"},
+        "artifacts": {"figure_keys": []},
+    }
+    figures = {
+        "Thermogram Figure": b"sample",
+        "Comparison Workspace - TGA": b"cmp",
+    }
+    matched = _figures_for_record(record, figures, used=set())
+
+    assert matched == [("Thermogram Figure", b"sample")]
+
+
+def test_generate_docx_report_renders_non_conflicting_sample_figure_in_dataset_section(temperature_range, tga_signal):
+    tga_result = _make_tga_result(temperature_range, tga_signal)
+    tga_result["artifacts"] = {"figure_keys": []}
+    dataset = _make_tga_dataset(temperature_range, tga_signal)
+    docx_bytes = generate_docx_report(
+        {tga_result["id"]: tga_result},
+        datasets={"synthetic_tga": dataset},
+        figures={"Thermogram Figure": b"not-a-real-png"},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Figure 1: Thermogram Figure" in xml
 
 
 def test_select_comparison_figures_returns_only_comparison_captions():

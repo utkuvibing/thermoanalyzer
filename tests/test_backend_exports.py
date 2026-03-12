@@ -4,9 +4,14 @@ import base64
 import io
 import zipfile
 
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from backend.exports import build_export_preparation, generate_report_docx_artifact, generate_results_csv_artifact
+from core.data_io import ThermalDataset
+from core.processing_schema import ensure_processing_payload, update_processing_step
+from core.result_serialization import serialize_spectral_result
 
 
 def _headers() -> dict[str, str]:
@@ -148,3 +153,93 @@ def test_export_rejects_unknown_selected_result_id(thermal_dataset):
     )
     assert response.status_code == 400
     assert "Unknown selected_result_ids" in response.json()["detail"]
+
+
+def _build_spectral_export_state() -> tuple[dict, str]:
+    dataset_key = "ftir_export_seed"
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [650.0, 980.0, 1450.0], "signal": [0.08, 0.52, 0.18]}),
+        metadata={
+            "sample_name": "SyntheticFTIR",
+            "sample_mass": 1.0,
+            "heating_rate": 1.0,
+            "instrument": "SpecBench",
+            "vendor": "TestVendor",
+            "display_name": "Synthetic FTIR Spectrum",
+        },
+        data_type="FTIR",
+        units={"temperature": "cm^-1", "signal": "a.u."},
+        original_columns={"temperature": "wavenumber", "signal": "intensity"},
+        file_path="",
+    )
+    processing = ensure_processing_payload(analysis_type="FTIR", workflow_template="ftir.general")
+    processing = update_processing_step(processing, "similarity_matching", {"metric": "cosine", "top_n": 3, "minimum_score": 0.45})
+    spectral_record = serialize_spectral_result(
+        dataset_key,
+        dataset,
+        analysis_type="FTIR",
+        summary={
+            "peak_count": 3,
+            "match_status": "no_match",
+            "candidate_count": 1,
+            "top_match_id": None,
+            "top_match_name": None,
+            "top_match_score": 0.31,
+            "confidence_band": "no_match",
+            "caution_code": "spectral_no_match",
+        },
+        rows=[
+            {
+                "rank": 1,
+                "candidate_id": "ftir_ref_unknown",
+                "candidate_name": "Unknown",
+                "normalized_score": 0.31,
+                "confidence_band": "no_match",
+                "evidence": {"shared_peak_count": 0, "peak_overlap_ratio": 0.0},
+            }
+        ],
+        artifacts={"figure_keys": []},
+        processing=processing,
+        validation={"status": "warn", "issues": [], "warnings": ["FTIR produced no confident library match."]},
+    )
+    state = {
+        "datasets": {dataset_key: dataset},
+        "results": {spectral_record["id"]: spectral_record},
+        "figures": {},
+        "comparison_workspace": {
+            "analysis_type": "FTIR",
+            "selected_datasets": [dataset_key],
+            "notes": "Spectral caution lane",
+        },
+    }
+    return state, spectral_record["id"]
+
+
+def test_export_preparation_includes_spectral_workspace_and_results():
+    state, result_id = _build_spectral_export_state()
+    prep = build_export_preparation(state)
+    compare_workspace = prep["compare_workspace"]
+
+    assert compare_workspace.analysis_type == "FTIR"
+    assert compare_workspace.selected_datasets == ["ftir_export_seed"]
+    assert len(prep["exportable_results"]) == 1
+    assert prep["exportable_results"][0].id == result_id
+    assert prep["exportable_results"][0].analysis_type == "FTIR"
+
+
+def test_export_artifacts_preserve_spectral_caution_fields():
+    state, result_id = _build_spectral_export_state()
+
+    csv_artifact = generate_results_csv_artifact(state, selected_result_ids=[result_id])
+    csv_text = base64.b64decode(csv_artifact["artifact_base64"].encode("ascii")).decode("utf-8")
+    assert "spectral_no_match" in csv_text
+
+    docx_artifact = generate_report_docx_artifact(state, selected_result_ids=[result_id])
+    docx_bytes = base64.b64decode(docx_artifact["artifact_base64"].encode("ascii"))
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "FTIR - ftir_export_seed" in xml
+    assert "Match Status" in xml
+    assert "Caution Code" in xml
+    assert "spectral_no_match" in xml
