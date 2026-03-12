@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_phase_name: ftir and raman mvp
-current_plan: 3
-status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-12T01:29:52.138Z"
-last_activity: 2026-03-11
+current_phase: 04
+current_phase_name: xrd mvp
+current_plan: Not started
+status: planning
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-03-12T01:47:08.998Z"
+last_activity: 2026-03-12
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
   percent: 100
 ---
 
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 
 ## Current Position
 
-**Current Phase:** 03
-**Current Phase Name:** ftir and raman mvp
-**Current Plan:** 3
+**Current Phase:** 04
+**Current Phase Name:** xrd mvp
+**Current Plan:** Not started
 **Total Plans in Phase:** 3
-**Status:** Ready to execute
-**Last Activity:** 2026-03-11
-**Last Activity Description:** Phase 02 complete, transitioned to Phase 03
+**Status:** Ready to plan
+**Last Activity:** 2026-03-12
+**Last Activity Description:** Phase 03 complete, transitioned to Phase 04
 
 Progress: [██████████] 100%
 
@@ -61,6 +61,7 @@ Progress: [██████████] 100%
 | Phase 02 P03 | 9 min | 3 tasks | 8 files |
 | Phase 03 P01 | 8 min | 3 tasks | 10 files |
 | Phase 03 P02 | 18 min | 3 tasks | 12 files |
+| Phase 03 P03 | 5 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 03]: JCAMP-DX support is bounded to single-spectrum XYDATA while advanced variants return explicit unsupported messages.
 - [Phase 03]: FTIR/RAMAN stable execution now serializes through a dedicated spectral serializer with explicit caution metadata. — Ensures report/export/compare flows get consistent caution-safe stable fields.
 - [Phase 03]: No-match and low-confidence outcomes are represented as warning-safe valid outputs instead of forced failures. — Preserves scientific caution semantics while keeping stable execution deterministic.
+- [Phase 03]: Compare workspace selection is now constrained by modality eligibility so FTIR and RAMAN lanes do not silently mix. — Prevents cross-modality compare contamination while preserving stable workflow defaults.
+- [Phase 03]: SPC-04 is guarded with explicit FTIR/RAMAN caution-field assertions in export/report regression tests. — Keeps no-match and low-confidence semantics visible in downstream artifacts.
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T01:29:23.126Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-12T01:45:31.011Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
