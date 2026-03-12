@@ -5,6 +5,31 @@ from __future__ import annotations
 from typing import Any
 
 
+def _recommendation_concept(text: str) -> str:
+    lowered = str(text or "").lower()
+    if "missing metadata" in lowered or "record missing metadata" in lowered:
+        return "metadata_completion"
+    if "baseline" in lowered or "signal preprocessing" in lowered:
+        return "signal_quality"
+    if "sample mass calibration" in lowered or "mass-balance mismatch" in lowered:
+        return "mass_balance_recheck"
+    if "xrd" in lowered or "raman" in lowered or "phase" in lowered:
+        return "phase_confirmation"
+    if "isothermal hold" in lowered or "controlled reheating" in lowered:
+        return "thermal_hold"
+    if "dsc" in lowered or "sta" in lowered:
+        return "coupled_dsc_sta"
+    if "controlled atmosphere" in lowered or "heating rates" in lowered or "heating-rate" in lowered:
+        return "atmosphere_rate_repeat"
+    if "co2" in lowered:
+        return "co2_confirmation"
+    if "evolved-gas" in lowered or "ftir/ms" in lowered:
+        return "gas_speciation"
+    if "replicate tga" in lowered:
+        return "replicate_runs"
+    return lowered.casefold().strip()
+
+
 def recommend_next_experiments(
     analysis_type: str,
     *,
@@ -122,8 +147,10 @@ def recommend_next_experiments(
     seen: set[str] = set()
     deduped: list[str] = []
     for item in recommendations:
-        key = item.casefold().strip()
+        key = _recommendation_concept(item)
         if key and key not in seen:
             seen.add(key)
             deduped.append(item)
-    return deduped[:5]
+
+    max_items = 3 if analysis == "TGA" else 4
+    return deduped[:max_items]

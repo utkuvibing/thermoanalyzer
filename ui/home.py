@@ -281,6 +281,14 @@ def render():
                 "filename": "dta_tnaa_5c_mendeley.csv",
                 "data_type": "DTA",
             },
+            tx("FTIR - Particleboard (50 g, Figshare)", "FTIR - Particleboard (50 g, Figshare)"): {
+                "filename": "ftir_particleboard_50g_figshare.csv",
+                "data_type": "FTIR",
+            },
+            tx("Raman - CNT Spectrum (Figshare)", "Raman - CNT Spectrum (Figshare)"): {
+                "filename": "raman_cnt_figshare.csv",
+                "data_type": "RAMAN",
+            },
             tx("XRD - 2024-0304 (Zenodo)", "XRD - 2024-0304 (Zenodo)"): {
                 "filename": "xrd_2024_0304_zenodo.csv",
                 "data_type": "XRD",

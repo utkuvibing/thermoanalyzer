@@ -25,6 +25,42 @@ from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 
 
+_SPECTRAL_TEMPLATE_DEFAULTS = {
+    "FTIR": {
+        "ftir.general": {
+            "smoothing": {"method": "moving_average", "window_length": 11},
+            "baseline": {"method": "linear"},
+            "normalization": {"method": "vector"},
+            "peak_detection": {"prominence": 0.05, "min_distance": 6, "max_peaks": 12},
+            "similarity_matching": {"metric": "cosine", "top_n": 3, "minimum_score": 0.45},
+        },
+        "ftir.functional_groups": {
+            "smoothing": {"method": "moving_average", "window_length": 9},
+            "baseline": {"method": "linear"},
+            "normalization": {"method": "vector"},
+            "peak_detection": {"prominence": 0.04, "min_distance": 5, "max_peaks": 16},
+            "similarity_matching": {"metric": "cosine", "top_n": 5, "minimum_score": 0.42},
+        },
+    },
+    "RAMAN": {
+        "raman.general": {
+            "smoothing": {"method": "moving_average", "window_length": 9},
+            "baseline": {"method": "linear"},
+            "normalization": {"method": "snv"},
+            "peak_detection": {"prominence": 0.04, "min_distance": 5, "max_peaks": 14},
+            "similarity_matching": {"metric": "cosine", "top_n": 3, "minimum_score": 0.45},
+        },
+        "raman.polymorph_screening": {
+            "smoothing": {"method": "moving_average", "window_length": 7},
+            "baseline": {"method": "linear"},
+            "normalization": {"method": "snv"},
+            "peak_detection": {"prominence": 0.03, "min_distance": 4, "max_peaks": 18},
+            "similarity_matching": {"metric": "pearson", "top_n": 5, "minimum_score": 0.4},
+        },
+    },
+}
+
+
 def _get_spectral_datasets(analysis_type: str):
     datasets = st.session_state.get("datasets", {})
     token = str(analysis_type or "").upper()
@@ -120,6 +156,36 @@ def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
     return fig
 
 
+def _merge_with_defaults(existing, defaults):
+    payload = dict(defaults or {})
+    if isinstance(existing, dict):
+        payload.update(existing)
+    return payload
+
+
+def _seed_spectral_processing_defaults(token: str, processing, workflow_template_id: str, dataset):
+    by_type = _SPECTRAL_TEMPLATE_DEFAULTS.get(token, {})
+    defaults = by_type.get(workflow_template_id) or next(iter(by_type.values()), {})
+    seeded = ensure_processing_payload(processing, analysis_type=token)
+    for section_name in ("smoothing", "baseline", "normalization"):
+        current = (seeded.get("signal_pipeline") or {}).get(section_name)
+        seeded = update_processing_step(
+            seeded,
+            section_name,
+            _merge_with_defaults(current, defaults.get(section_name)),
+            analysis_type=token,
+        )
+    for section_name in ("peak_detection", "similarity_matching"):
+        current = (seeded.get("analysis_steps") or {}).get(section_name)
+        seeded = update_processing_step(
+            seeded,
+            section_name,
+            _merge_with_defaults(current, defaults.get(section_name)),
+            analysis_type=token,
+        )
+    return seeded
+
+
 def render_spectral_page(
     analysis_type: str,
     *,
@@ -181,6 +247,7 @@ def render_spectral_page(
         analysis_type=token,
         workflow_template_label=template_labels.get(workflow_template_id),
     )
+    state["processing"] = _seed_spectral_processing_defaults(token, state.get("processing"), workflow_template_id, dataset)
 
     dataset_validation = validate_thermal_dataset(dataset, analysis_type=token, processing=state.get("processing"))
     if dataset_validation["status"] == "fail":

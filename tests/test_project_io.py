@@ -185,6 +185,8 @@ def test_project_archive_round_trip_restores_stable_state(thermal_dataset, tempe
                     "error_id": "",
                 }
             ],
+            "batch_result_ids": ["dsc_synthetic_dsc", "tga_synthetic_tga"],
+            "batch_last_feedback": {"total": 2, "saved": 2, "blocked": 0, "failed": 0},
         },
         "dsc_state_synthetic_dsc": {
             "smoothed": thermal_dataset.data["signal"].values,
@@ -217,6 +219,8 @@ def test_project_archive_round_trip_restores_stable_state(thermal_dataset, tempe
     assert restored["comparison_workspace"]["notes"] == "Synthetic comparison notes"
     assert restored["comparison_workspace"]["batch_run_id"] == "batch_dsc_20260307_demo"
     assert restored["comparison_workspace"]["batch_summary"][0]["result_id"] == "dsc_synthetic_dsc"
+    assert restored["comparison_workspace"]["batch_result_ids"] == ["dsc_synthetic_dsc", "tga_synthetic_tga"]
+    assert restored["comparison_workspace"]["batch_last_feedback"]["saved"] == 2
     assert restored["results"]["dsc_synthetic_dsc"]["processing"]["workflow_template"] == "Polymer Tg"
     assert restored["results"]["dsc_synthetic_dsc"]["processing"]["workflow_template_id"] == "dsc.polymer_tg"
     assert restored["results"]["dsc_synthetic_dsc"]["processing"]["method_context"]["reference_state"] == "reference_out_of_window"

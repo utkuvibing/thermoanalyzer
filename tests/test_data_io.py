@@ -577,6 +577,28 @@ class TestReadCSV:
         assert ds.metadata["xrd_axis_role"] == "two_theta"
         assert ds.units["temperature"] == "degree_2theta"
 
+    def test_read_academic_ftir_sample_with_explicit_type(self):
+        sample_path = os.path.join(_ROOT, "sample_data", "ftir_particleboard_50g_figshare.csv")
+        if not os.path.exists(sample_path):
+            pytest.skip("Academic FTIR sample not present in this checkout.")
+
+        ds = read_thermal_data(sample_path, data_type="FTIR")
+
+        assert ds.data_type == "FTIR"
+        assert len(ds.data) > 1000
+        assert ds.units["temperature"] == "cm^-1"
+
+    def test_read_academic_raman_sample_with_explicit_type(self):
+        sample_path = os.path.join(_ROOT, "sample_data", "raman_cnt_figshare.csv")
+        if not os.path.exists(sample_path):
+            pytest.skip("Academic Raman sample not present in this checkout.")
+
+        ds = read_thermal_data(sample_path, data_type="RAMAN")
+
+        assert ds.data_type == "RAMAN"
+        assert len(ds.data) > 500
+        assert ds.units["temperature"] == "cm^-1"
+
     def test_read_csv_raises_on_missing_temperature(self):
         """read_thermal_data should raise ValueError when temperature cannot be identified."""
         csv_content = "Signal\n1.0\n2.0\n3.0\n"

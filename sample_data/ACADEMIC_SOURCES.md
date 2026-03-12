@@ -22,6 +22,40 @@ Generated files:
 - `test_data/dta_tnaa_2p5c_mendeley.csv`
 - `test_data/dta_tnaa_7p5c_mendeley.csv`
 
+## FTIR Source
+
+- Repository: Figshare
+- DOI: `10.6084/m9.figshare.29484818.v1`
+- Landing page: https://figshare.com/articles/dataset/Particleboard_properties/29484818
+- Raw file used: `ftir.csv`
+
+The source file has a multi-column FTIR table. Cleaned files were generated as:
+
+- `temperature` = Wave number (`cm^-1`)
+- `signal` = selected transmittance column
+
+Generated files:
+
+- `sample_data/ftir_particleboard_50g_figshare.csv`
+- `test_data/ftir_particleboard_100g_figshare.csv`
+
+## Raman Source
+
+- Repository: Figshare
+- DOI: `10.6084/m9.figshare.28477127.v1`
+- Landing page: https://figshare.com/articles/dataset/Q-switched_Mode-locking_in_Er_ZBLAN_fiber_lasers_using_Carbon_Nanotube_saturable_absorber_and_GaAs-based_SESAM/28477127
+- Raw file used: `Raman.txt`
+
+The cleaned Raman files were generated as:
+
+- `temperature` = Raman shift (`cm^-1`)
+- `signal` = normalized intensity (`a.u.`)
+
+Generated files:
+
+- `sample_data/raman_cnt_figshare.csv`
+- `test_data/raman_cnt_figshare_sparse.csv`
+
 ## XRD Sources
 
 - Repository: Zenodo
@@ -46,4 +80,3 @@ Generated files:
 - `test_data/xrd_2024_0303_zenodo.csv`
 - `test_data/xrd_2024_1784_zenodo.csv`
 - `test_data/xrd_2024_2097_zenodo.csv`
-

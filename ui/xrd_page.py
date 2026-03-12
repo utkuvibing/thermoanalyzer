@@ -26,6 +26,38 @@ from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 
 
+_XRD_TEMPLATE_DEFAULTS = {
+    "xrd.general": {
+        "axis_normalization": {"sort_axis": True, "deduplicate": "first", "axis_min": None, "axis_max": None},
+        "smoothing": {"method": "savgol", "window_length": 11, "polyorder": 3},
+        "baseline": {"method": "rolling_minimum", "window_length": 31, "smoothing_window": 9},
+        "peak_detection": {"method": "scipy_find_peaks", "prominence": 0.08, "distance": 6, "width": 2, "max_peaks": 12},
+        "method_context": {
+            "xrd_match_metric": "peak_overlap_weighted",
+            "xrd_match_tolerance_deg": 0.28,
+            "xrd_match_top_n": 5,
+            "xrd_match_minimum_score": 0.42,
+            "xrd_match_intensity_weight": 0.35,
+            "xrd_match_major_peak_fraction": 0.4,
+        },
+    },
+    "xrd.phase_screening": {
+        "axis_normalization": {"sort_axis": True, "deduplicate": "first", "axis_min": 5.0, "axis_max": 90.0},
+        "smoothing": {"method": "savgol", "window_length": 15, "polyorder": 3},
+        "baseline": {"method": "rolling_minimum", "window_length": 41, "smoothing_window": 9},
+        "peak_detection": {"method": "scipy_find_peaks", "prominence": 0.12, "distance": 8, "width": 3, "max_peaks": 16},
+        "method_context": {
+            "xrd_match_metric": "peak_overlap_weighted",
+            "xrd_match_tolerance_deg": 0.24,
+            "xrd_match_top_n": 7,
+            "xrd_match_minimum_score": 0.45,
+            "xrd_match_intensity_weight": 0.4,
+            "xrd_match_major_peak_fraction": 0.45,
+        },
+    },
+}
+
+
 def _get_xrd_datasets():
     datasets = st.session_state.get("datasets", {})
     return {
@@ -119,6 +151,29 @@ def _build_processed_plot(dataset_key, dataset, state, lang: str):
     return fig
 
 
+def _merge_with_defaults(existing, defaults):
+    payload = dict(defaults or {})
+    if isinstance(existing, dict):
+        payload.update(existing)
+    return payload
+
+
+def _seed_xrd_processing_defaults(processing, workflow_template_id: str, dataset):
+    defaults = _XRD_TEMPLATE_DEFAULTS.get(workflow_template_id, _XRD_TEMPLATE_DEFAULTS["xrd.general"])
+    seeded = ensure_processing_payload(processing, analysis_type="XRD")
+    for section_name in ("axis_normalization", "smoothing", "baseline", "peak_detection"):
+        current = ((seeded.get("signal_pipeline") or {}).get(section_name) if section_name != "peak_detection" else (seeded.get("analysis_steps") or {}).get(section_name))
+        merged = _merge_with_defaults(current, defaults.get(section_name))
+        seeded = update_processing_step(seeded, section_name, merged, analysis_type="XRD")
+
+    context_defaults = dict(defaults.get("method_context") or {})
+    context_defaults["xrd_axis_role"] = dataset.metadata.get("xrd_axis_role") or "two_theta"
+    context_defaults["xrd_axis_unit"] = dataset.metadata.get("xrd_axis_unit") or (dataset.units or {}).get("temperature") or "degree_2theta"
+    context_defaults["xrd_wavelength_angstrom"] = dataset.metadata.get("xrd_wavelength_angstrom")
+    seeded = update_method_context(seeded, _merge_with_defaults((seeded.get("method_context") or {}), context_defaults), analysis_type="XRD")
+    return seeded
+
+
 def render():
     lang = st.session_state.get("ui_language", "tr")
     render_page_header(t("xrd.title"), t("xrd.caption"), badge=t("xrd.hero_badge"))
@@ -171,6 +226,7 @@ def render():
         analysis_type="XRD",
         workflow_template_label=template_labels.get(workflow_template_id),
     )
+    state["processing"] = _seed_xrd_processing_defaults(state.get("processing"), workflow_template_id, dataset)
 
     dataset_validation = validate_thermal_dataset(dataset, analysis_type="XRD", processing=state.get("processing"))
     if dataset_validation["status"] == "fail":

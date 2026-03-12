@@ -250,6 +250,8 @@ def test_build_scientific_reasoning_tga_follow_up_experiments_are_class_specific
 
     hydrate_text = " ".join(hydrate_payload["next_experiments"]).lower()
     carbonate_text = " ".join(carbonate_payload["next_experiments"]).lower()
+    assert 1 <= len(hydrate_payload["next_experiments"]) <= 3
+    assert 1 <= len(carbonate_payload["next_experiments"]) <= 3
 
     assert "isothermal hold" in hydrate_text or "controlled reheating" in hydrate_text
     assert "xrd" in hydrate_text
