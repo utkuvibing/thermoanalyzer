@@ -149,6 +149,13 @@ def test_streamlit_artifact_promotes_dta_to_primary_stable_navigation():
     assert "Kinetik ve dekonvolüsyon modülleri önizleme anahtarı arkasında kalır" in app_source
 
 
+def test_streamlit_artifact_exposes_ftir_and_raman_in_primary_navigation():
+    app_source = _project_file("app.py")
+
+    assert 'st.Page(ftir_render, title=t("nav.ftir"), icon="🧬", url_path="ftir")' in app_source
+    assert 'st.Page(raman_render, title=t("nav.raman"), icon="🔦", url_path="raman")' in app_source
+
+
 def test_desktop_artifacts_expose_primary_dta_and_remove_preview_locked_dta():
     index_html = _project_file("desktop/electron/index.html")
     renderer_source = _project_file("desktop/electron/renderer.js")

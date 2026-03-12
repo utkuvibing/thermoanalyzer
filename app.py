@@ -1,7 +1,7 @@
 """ThermoAnalyzer - Streamlit entrypoint.
 
 Vendor-independent thermal analysis data processing tool.
-Supports DSC, TGA, and DTA data analysis.
+Supports DSC, TGA, DTA, FTIR, RAMAN, and XRD data analysis.
 
 Run with: streamlit run app.py
 """
@@ -377,6 +377,9 @@ from ui.tga_page import render as tga_render
 from ui.project_page import render as project_render
 from ui.license_page import render as license_render
 from ui.dta_page import render as dta_render
+from ui.ftir_page import render as ftir_render
+from ui.raman_page import render as raman_render
+from ui.xrd_page import render as xrd_render
 from ui.kinetics_page import render as kinetics_render
 from ui.deconvolution_page import render as deconv_render
 from ui.export_page import render as export_render
@@ -394,6 +397,9 @@ pages = {
         st.Page(dsc_render, title=t("nav.dsc"), icon="📈", url_path="dsc"),
         st.Page(tga_render, title=t("nav.tga"), icon="📉", url_path="tga"),
         st.Page(dta_render, title=tx("DTA Analizi", "DTA Analysis"), icon="📊", url_path="dta"),
+        st.Page(ftir_render, title=t("nav.ftir"), icon="🧬", url_path="ftir"),
+        st.Page(raman_render, title=t("nav.raman"), icon="🔦", url_path="raman"),
+        st.Page(xrd_render, title=t("nav.xrd"), icon="🧿", url_path="xrd"),
         st.Page(export_render, title=t("nav.report"), icon="📝", url_path="report"),
         st.Page(project_render, title=t("nav.project"), icon="🗂️", url_path="project"),
         st.Page(license_render, title=t("nav.license"), icon="🔐", url_path="license"),
@@ -421,12 +427,12 @@ with st.sidebar:
         if st.session_state.get("ui_language", "tr") == "tr":
             st.markdown(
                 f"**ThermoAnalyzer Professional v{APP_VERSION}**\n\n"
-                "QC ve Ar-Ge laboratuvarları için cihazdan bağımsız DSC/TGA/DTA çalışma alanı.\n\n"
+                "QC ve Ar-Ge laboratuvarları için cihazdan bağımsız DSC/TGA/DTA/FTIR/RAMAN/XRD çalışma alanı.\n\n"
                 "**Kararlı beta kapsamı**\n"
-                "- CSV/TXT/XLSX DSC ve TGA koşularını içe aktar\n"
-                "- DTA koşularını içe aktar ve DTA analiz akışını çalıştır\n"
+                "- CSV/TXT/XLSX DSC, TGA, DTA, FTIR, RAMAN ve XRD koşularını içe aktar\n"
+                "- DSC, TGA, DTA, FTIR, RAMAN ve XRD analiz akışlarını çalıştır\n"
                 "- Çoklu koşuları Karşılaştırma Alanı ve Toplu Şablon Uygulayıcı ile yönet\n"
-                "- DSC/TGA/DTA sonuçlarını proje durumu, rapor ve export akışıyla sakla\n\n"
+                "- Kararlı sonuçları proje durumu, rapor ve export akışıyla sakla\n\n"
                 "**Laboratuvar önizleme modülleri**\n"
                 "- Kinetik ve dekonvolüsyon modülleri önizleme anahtarı arkasında kalır ve ticari stabilite sözüne dahil değildir.\n\n"
                 "**Referans standartlar**\n"
@@ -442,12 +448,12 @@ with st.sidebar:
         else:
             st.markdown(
                 f"**ThermoAnalyzer Professional v{APP_VERSION}**\n\n"
-                "Vendor-independent DSC/TGA/DTA workbench for QC and R&D labs.\n\n"
+                "Vendor-independent DSC/TGA/DTA/FTIR/RAMAN/XRD workbench for QC and R&D labs.\n\n"
                 "**Stable beta scope**\n"
-                "- Import DSC and TGA runs from CSV/TXT/XLSX exports\n"
-                "- Import DTA runs and execute the DTA analysis workflow\n"
+                "- Import DSC, TGA, DTA, FTIR, RAMAN, and XRD runs from CSV/TXT/XLSX exports\n"
+                "- Execute stable DSC, TGA, DTA, FTIR, RAMAN, and XRD analysis workflows\n"
                 "- Manage multiple runs through Compare Workspace and the Batch Template Runner\n"
-                "- Save DSC/TGA/DTA results through the current project, report, and export flows\n\n"
+                "- Save stable results through the current project, report, and export flows\n\n"
                 "**Lab Preview modules**\n"
                 "- Kinetics and deconvolution stay available behind the preview toggle and are excluded from the commercial stability promise.\n\n"
                 "**Reference standards**\n"

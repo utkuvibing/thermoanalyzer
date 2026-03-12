@@ -23,8 +23,8 @@ def render_home_workflow_guide() -> None:
                 tx("Program ne yapar?", "What does the program do?"),
                 [
                     tx(
-                        "CSV, TXT ve Excel formatlarındaki DSC/TGA veri setlerini cihazdan bağımsız olarak içe aktarır.",
-                        "Imports DSC/TGA datasets from CSV, TXT, and Excel files without locking the workflow to a single vendor.",
+                        "CSV, TXT ve Excel formatlarındaki DSC/TGA/DTA/FTIR/RAMAN/XRD veri setlerini cihazdan bağımsız olarak içe aktarır.",
+                        "Imports DSC/TGA/DTA/FTIR/RAMAN/XRD datasets from CSV, TXT, and Excel files without locking the workflow to a single vendor.",
                     ),
                     tx(
                         "Sıcaklık, sinyal ve metadata alanlarını tek çalışma alanında normalize eder.",
@@ -59,8 +59,8 @@ def render_home_workflow_guide() -> None:
                         "3. Use Quick View or Compare Workspace to confirm that the run behaves as expected.",
                     ),
                     tx(
-                        "4. Aktif koşuya göre DSC Analizi veya TGA Analizi sayfasına geçin ve sekmeleri soldan sağa takip edin.",
-                        "4. Open DSC Analysis or TGA Analysis for the active run and move through the tabs from left to right.",
+                        "4. Aktif koşuya göre DSC/TGA/DTA/FTIR/RAMAN/XRD Analizi sayfasına geçin ve sekmeleri soldan sağa takip edin.",
+                        "4. Open DSC/TGA/DTA/FTIR/RAMAN/XRD Analysis for the active run and move through the tabs from left to right.",
                     ),
                     tx(
                         "5. Sonuçları oturuma kaydedin; ardından rapor veya proje çıktısını Rapor Merkezi / Proje Alanı sayfalarından alın.",
@@ -71,8 +71,8 @@ def render_home_workflow_guide() -> None:
 
         st.caption(
             tx(
-                "Kararlı beta kapsamı: DSC, TGA, Karşılaştırma Alanı, Toplu Şablon Uygulayıcı, rapor/dışa aktarım ve proje arşivi. DTA, kinetik ve dekonvolüsyon önizleme olarak kalır.",
-                "Stable beta scope: DSC, TGA, Compare Workspace, Batch Template Runner, report/export, and project archive flows. DTA, kinetics, and deconvolution remain preview.",
+                "Kararlı beta kapsamı: DSC, TGA, DTA, FTIR, RAMAN, XRD, Karşılaştırma Alanı, Toplu Şablon Uygulayıcı, rapor/dışa aktarım ve proje arşivi. Kinetik ve dekonvolüsyon önizleme olarak kalır.",
+                "Stable beta scope: DSC, TGA, DTA, FTIR, RAMAN, XRD, Compare Workspace, Batch Template Runner, report/export, and project archive flows. Kinetics and deconvolution remain preview.",
             )
         )
 

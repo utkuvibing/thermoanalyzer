@@ -16,16 +16,16 @@ TRANSLATIONS = {
         "en": "THERMOANALYZER PRO",
     },
     "app.tagline": {
-        "tr": "Cihazdan bağımsız DSC/TGA çalışma alanı",
-        "en": "Vendor-independent DSC/TGA workbench",
+        "tr": "Cihazdan bağımsız DSC/TGA/DTA/FTIR/RAMAN/XRD çalışma alanı",
+        "en": "Vendor-independent DSC/TGA/DTA/FTIR/RAMAN/XRD workbench",
     },
     "app.preview_toggle": {
         "tr": "Laboratuvar Önizleme Modüllerini Göster",
         "en": "Show Lab Preview Modules",
     },
     "app.preview_toggle_help": {
-        "tr": "DTA, kinetik ve dekonvolüsyon sayfalarını pilot değerlendirme için açar.",
-        "en": "Expose DTA, kinetics, and deconvolution pages used for pilot evaluations.",
+        "tr": "Kinetik ve dekonvolüsyon sayfalarını pilot değerlendirme için açar.",
+        "en": "Expose kinetics and deconvolution pages used for pilot evaluations.",
     },
     "app.language": {
         "tr": "Dil",
@@ -66,6 +66,18 @@ TRANSLATIONS = {
     "nav.tga": {
         "tr": "TGA Analizi",
         "en": "TGA Analysis",
+    },
+    "nav.ftir": {
+        "tr": "FTIR Analizi",
+        "en": "FTIR Analysis",
+    },
+    "nav.raman": {
+        "tr": "Raman Analizi",
+        "en": "Raman Analysis",
+    },
+    "nav.xrd": {
+        "tr": "XRD Analizi",
+        "en": "XRD Analysis",
     },
     "nav.report": {
         "tr": "Rapor Merkezi",
@@ -136,8 +148,8 @@ TRANSLATIONS = {
         "en": "Compare Workspace",
     },
     "compare.caption": {
-        "tr": "DSC/TGA koşularını üst üste koy, normalize metadata’yı gör ve rapora girecek overlay’i hazırla.",
-        "en": "Overlay DSC/TGA runs, review normalized metadata, and prepare a report-ready comparison figure.",
+        "tr": "Kararlı modaliteleri üst üste koy, normalize metadata’yı gör ve rapora girecek overlay’i hazırla.",
+        "en": "Overlay stable-modality runs, review normalized metadata, and prepare a report-ready comparison figure.",
     },
     "compare.hero_badge": {
         "tr": "Çoklu Koşu Overlay",
@@ -194,6 +206,42 @@ TRANSLATIONS = {
     "tga.caption": {
         "tr": "Kütle kaybı adımlarını, DTG eğrisini ve kalıntı yüzdesini tek iş akışında çıkar.",
         "en": "Extract mass-loss steps, DTG curves, and residue metrics in one workflow.",
+    },
+    "xrd.title": {
+        "tr": "XRD Analizi",
+        "en": "XRD Analysis",
+    },
+    "xrd.caption": {
+        "tr": "XRD desenlerinde ön işleme, pik çıkarımı ve nitel faz adayı eşlemesini kararlı akışta çalıştır.",
+        "en": "Run stable XRD preprocessing, peak extraction, and qualitative phase-candidate matching workflows.",
+    },
+    "xrd.hero_badge": {
+        "tr": "Difraksiyon İş Akışı",
+        "en": "Diffraction Workflow",
+    },
+    "ftir.title": {
+        "tr": "FTIR Analizi",
+        "en": "FTIR Analysis",
+    },
+    "ftir.caption": {
+        "tr": "FTIR spektrumlarında ön işleme, pik çıkarımı ve nitel benzerlik adayı sıralamasını kararlı akışta çalıştır.",
+        "en": "Run stable FTIR preprocessing, peak extraction, and qualitative similarity-candidate ranking workflows.",
+    },
+    "ftir.hero_badge": {
+        "tr": "FTIR İş Akışı",
+        "en": "FTIR Workflow",
+    },
+    "raman.title": {
+        "tr": "Raman Analizi",
+        "en": "Raman Analysis",
+    },
+    "raman.caption": {
+        "tr": "Raman spektrumlarında ön işleme, pik çıkarımı ve nitel benzerlik adayı sıralamasını kararlı akışta çalıştır.",
+        "en": "Run stable Raman preprocessing, peak extraction, and qualitative similarity-candidate ranking workflows.",
+    },
+    "raman.hero_badge": {
+        "tr": "Raman İş Akışı",
+        "en": "Raman Workflow",
     },
 }
 

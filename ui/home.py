@@ -25,8 +25,8 @@ def render():
     render_home_workflow_guide()
     st.info(
         tx(
-            "Bu beta build'de kararlı akış Veri Alma -> Karşılaştırma Alanı -> DSC/TGA Analizi -> Toplu Şablon Uygulayıcı -> Rapor/Proje Kaydı zinciridir. DTA, kinetik ve dekonvolüsyon önizleme kapsamındadır.",
-            "In this beta build, the stable workflow is Import -> Compare Workspace -> DSC/TGA Analysis -> Batch Template Runner -> Report/Project Save. DTA, kinetics, and deconvolution remain preview modules.",
+            "Bu beta build'de kararlı akış Veri Alma -> Karşılaştırma Alanı -> DSC/TGA/DTA/FTIR/RAMAN/XRD Analizi -> Toplu Şablon Uygulayıcı -> Rapor/Proje Kaydı zinciridir. Kinetik ve dekonvolüsyon modülleri önizleme kapsamındadır.",
+            "In this beta build, the stable workflow is Import -> Compare Workspace -> DSC/TGA/DTA/FTIR/RAMAN/XRD Analysis -> Batch Template Runner -> Report/Project Save. Kinetics and deconvolution remain preview modules.",
         )
     )
 
@@ -35,9 +35,13 @@ def render():
         vendors = {ds.metadata.get("vendor", "Generic") for ds in datasets.values()}
         dsc_count = sum(1 for ds in datasets.values() if ds.data_type == "DSC")
         tga_count = sum(1 for ds in datasets.values() if ds.data_type == "TGA")
+        dta_count = sum(1 for ds in datasets.values() if ds.data_type == "DTA")
+        ftir_count = sum(1 for ds in datasets.values() if ds.data_type == "FTIR")
+        raman_count = sum(1 for ds in datasets.values() if ds.data_type == "RAMAN")
+        xrd_count = sum(1 for ds in datasets.values() if ds.data_type == "XRD")
         m1, m2, m3 = st.columns(3)
         m1.metric(tx("Yüklü Koşu", "Loaded Runs"), str(len(datasets)))
-        m2.metric("DSC / TGA", f"{dsc_count} / {tga_count}")
+        m2.metric("D / T / DTA / F / R / X", f"{dsc_count} / {tga_count} / {dta_count} / {ftir_count} / {raman_count} / {xrd_count}")
         m3.metric(tx("Vendor Sayısı", "Vendors"), str(len(vendors)))
 
     st.header(t("home.title"))
@@ -261,17 +265,36 @@ def render():
         sample_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sample_data")
 
         sample_files = {
-            tx("DSC - Polimer Erime", "DSC - Polymer Melting"): "dsc_polymer_melting.csv",
-            tx("TGA - Kalsiyum Oksalat", "TGA - Calcium Oxalate"): "tga_calcium_oxalate.csv",
-            tx("DSC - Çoklu Isıtma Hızı Kissinger", "DSC - Multi-Rate Kissinger"): "dsc_multirate_kissinger.csv",
+            tx("DSC - Polimer Erime", "DSC - Polymer Melting"): {
+                "filename": "dsc_polymer_melting.csv",
+                "data_type": "DSC",
+            },
+            tx("TGA - Kalsiyum Oksalat", "TGA - Calcium Oxalate"): {
+                "filename": "tga_calcium_oxalate.csv",
+                "data_type": "TGA",
+            },
+            tx("DSC - Çoklu Isıtma Hızı Kissinger", "DSC - Multi-Rate Kissinger"): {
+                "filename": "dsc_multirate_kissinger.csv",
+                "data_type": "DSC",
+            },
+            tx("DTA - TNAA (5 °C/dk, Mendeley)", "DTA - TNAA (5 °C/min, Mendeley)"): {
+                "filename": "dta_tnaa_5c_mendeley.csv",
+                "data_type": "DTA",
+            },
+            tx("XRD - 2024-0304 (Zenodo)", "XRD - 2024-0304 (Zenodo)"): {
+                "filename": "xrd_2024_0304_zenodo.csv",
+                "data_type": "XRD",
+            },
         }
 
-        for label, filename in sample_files.items():
+        for label, spec in sample_files.items():
+            filename = spec["filename"]
+            forced_data_type = spec.get("data_type")
             filepath = os.path.join(sample_dir, filename)
             if os.path.exists(filepath):
                 if st.button(f"{tx('Yükle', 'Load')}: {label}", key=f"sample_{filename}"):
                     try:
-                        dataset = read_thermal_data(filepath)
+                        dataset = read_thermal_data(filepath, data_type=forced_data_type)
                         validation = validate_thermal_dataset(dataset, analysis_type=dataset.data_type)
                         if validation["status"] == "fail":
                             st.error(
@@ -346,6 +369,9 @@ def render():
                 st.session_state.pop(f"dsc_state_{selected}", None)
                 st.session_state.pop(f"tga_state_{selected}", None)
                 st.session_state.pop(f"dta_state_{selected}", None)
+                st.session_state.pop(f"ftir_state_{selected}", None)
+                st.session_state.pop(f"raman_state_{selected}", None)
+                st.session_state.pop(f"xrd_state_{selected}", None)
                 workspace = st.session_state.get("comparison_workspace", {})
                 if workspace.get("selected_datasets"):
                     workspace["selected_datasets"] = [
@@ -390,17 +416,50 @@ def render():
                     )
                 elif dataset.data_type == "DTA":
                     y_label = f"ΔT ({dataset.units.get('signal', 'µV')})"
+                elif dataset.data_type == "FTIR":
+                    y_label = tx(
+                        f"Absorbans ({dataset.units.get('signal', 'a.u.')})",
+                        f"Absorbance ({dataset.units.get('signal', 'a.u.')})",
+                    )
+                elif dataset.data_type == "RAMAN":
+                    y_label = tx(
+                        f"Yoğunluk ({dataset.units.get('signal', 'counts')})",
+                        f"Intensity ({dataset.units.get('signal', 'counts')})",
+                    )
+                elif dataset.data_type == "XRD":
+                    y_label = tx(
+                        f"Yoğunluk ({dataset.units.get('signal', 'counts')})",
+                        f"Intensity ({dataset.units.get('signal', 'counts')})",
+                    )
                 else:
                     y_label = tx("Sinyal", "Signal")
+
+                if dataset.data_type == "FTIR":
+                    x_label = tx(
+                        f"Dalgasayısı ({dataset.units.get('temperature', 'cm^-1')})",
+                        f"Wavenumber ({dataset.units.get('temperature', 'cm^-1')})",
+                    )
+                elif dataset.data_type == "RAMAN":
+                    x_label = tx(
+                        f"Raman Kayması ({dataset.units.get('temperature', 'cm^-1')})",
+                        f"Raman Shift ({dataset.units.get('temperature', 'cm^-1')})",
+                    )
+                elif dataset.data_type == "XRD":
+                    x_label = tx(
+                        f"2θ ({dataset.units.get('temperature', 'degree_2theta')})",
+                        f"2θ ({dataset.units.get('temperature', 'degree_2theta')})",
+                    )
+                else:
+                    x_label = tx(
+                        f"Sıcaklık ({dataset.units.get('temperature', '°C')})",
+                        f"Temperature ({dataset.units.get('temperature', '°C')})",
+                    )
 
                 fig = create_thermal_plot(
                     dataset.data["temperature"].values,
                     dataset.data["signal"].values,
                     title=f"{dataset.data_type} - {dataset.metadata.get('file_name', tx('Veri', 'Data'))}",
-                    x_label=tx(
-                        f"Sıcaklık ({dataset.units.get('temperature', '°C')})",
-                        f"Temperature ({dataset.units.get('temperature', '°C')})",
-                    ),
+                    x_label=x_label,
                     y_label=y_label,
                 )
                 st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
@@ -409,8 +468,8 @@ def render():
             (
                 '<div class="status-bar">'
                 + tx(
-                    "Önerilen sonraki adım: çoklu overlay için Karşılaştırma Alanı'na geçin veya aktif koşu için doğrudan DSC / TGA analizini açın.",
-                    "Recommended next step: open Compare Workspace for multi-run overlays, or continue directly into DSC / TGA analysis for the active run.",
+                    "Önerilen sonraki adım: çoklu overlay için Karşılaştırma Alanı'na geçin veya aktif koşu için doğrudan DSC / TGA / DTA / FTIR / RAMAN / XRD analizini açın.",
+                    "Recommended next step: open Compare Workspace for multi-run overlays, or continue directly into DSC / TGA / DTA / FTIR / RAMAN / XRD analysis for the active run.",
                 )
                 + "</div>"
             ),

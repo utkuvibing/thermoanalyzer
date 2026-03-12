@@ -552,6 +552,31 @@ class TestReadCSV:
 
         with pytest.raises(ValueError, match="exactly one data_ block"):
             read_thermal_data(buf)
+
+    def test_read_academic_dta_sample_with_explicit_type(self):
+        sample_path = os.path.join(_ROOT, "sample_data", "dta_tnaa_5c_mendeley.csv")
+        if not os.path.exists(sample_path):
+            pytest.skip("Academic DTA sample not present in this checkout.")
+
+        ds = read_thermal_data(sample_path, data_type="DTA")
+
+        assert ds.data_type == "DTA"
+        assert len(ds.data) > 1000
+        assert "temperature" in ds.data.columns
+        assert "signal" in ds.data.columns
+
+    def test_read_academic_xrd_sample_with_explicit_type(self):
+        sample_path = os.path.join(_ROOT, "sample_data", "xrd_2024_0304_zenodo.csv")
+        if not os.path.exists(sample_path):
+            pytest.skip("Academic XRD sample not present in this checkout.")
+
+        ds = read_thermal_data(sample_path, data_type="XRD")
+
+        assert ds.data_type == "XRD"
+        assert len(ds.data) > 1000
+        assert ds.metadata["xrd_axis_role"] == "two_theta"
+        assert ds.units["temperature"] == "degree_2theta"
+
     def test_read_csv_raises_on_missing_temperature(self):
         """read_thermal_data should raise ValueError when temperature cannot be identified."""
         csv_content = "Signal\n1.0\n2.0\n3.0\n"
