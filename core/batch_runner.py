@@ -6,6 +6,7 @@ import copy
 from typing import Any, Mapping
 
 import numpy as np
+from scipy.signal import find_peaks, savgol_filter
 
 from core.dta_processor import DTAProcessor
 from core.dsc_processor import DSCProcessor
@@ -18,7 +19,13 @@ from core.processing_schema import (
     update_tga_unit_context,
 )
 from core.provenance import build_calibration_reference_context, build_result_provenance
-from core.result_serialization import serialize_dsc_result, serialize_dta_result, serialize_spectral_result, serialize_tga_result
+from core.result_serialization import (
+    make_result_record,
+    serialize_dsc_result,
+    serialize_dta_result,
+    serialize_spectral_result,
+    serialize_tga_result,
+)
 from core.tga_processor import TGAProcessor, resolve_tga_unit_interpretation
 from core.validation import enrich_spectral_result_validation, validate_thermal_dataset
 
@@ -108,6 +115,20 @@ _RAMAN_TEMPLATE_DEFAULTS = {
         "normalization": {"method": "snv"},
         "peak_detection": {"prominence": 0.03, "min_distance": 4, "max_peaks": 18},
         "similarity_matching": {"metric": "pearson", "top_n": 5, "minimum_score": 0.4},
+    },
+}
+_XRD_TEMPLATE_DEFAULTS = {
+    "xrd.general": {
+        "axis_normalization": {"sort_axis": True, "deduplicate": "first", "axis_min": None, "axis_max": None},
+        "smoothing": {"method": "savgol", "window_length": 11, "polyorder": 3},
+        "baseline": {"method": "rolling_minimum", "window_length": 31},
+        "peak_detection": {"method": "scipy_find_peaks", "prominence": 0.08, "distance": 6, "width": 2, "max_peaks": 12},
+    },
+    "xrd.phase_screening": {
+        "axis_normalization": {"sort_axis": True, "deduplicate": "first", "axis_min": 5.0, "axis_max": 90.0},
+        "smoothing": {"method": "savgol", "window_length": 15, "polyorder": 3},
+        "baseline": {"method": "rolling_minimum", "window_length": 41},
+        "peak_detection": {"method": "scipy_find_peaks", "prominence": 0.12, "distance": 8, "width": 3, "max_peaks": 16},
     },
 }
 _VALID_EXECUTION_STATUSES = {"saved", "blocked", "failed"}
@@ -207,6 +228,16 @@ def execute_batch_template(
             app_version=app_version,
             batch_run_id=batch_run_id,
         )
+    if normalized_type == "XRD":
+        return _execute_xrd_batch(
+            dataset_key=dataset_key,
+            dataset=dataset,
+            processing=processing,
+            analysis_history=analysis_history,
+            analyst_name=analyst_name,
+            app_version=app_version,
+            batch_run_id=batch_run_id,
+        )
     raise ValueError(f"Unsupported batch analysis type '{analysis_type}'")
 
 
@@ -226,16 +257,33 @@ def _build_processing_payload(
     )
     defaults = _template_defaults(analysis_type, workflow_template_id)
     for section_name, values in defaults.items():
+        override = _resolve_processing_override(processing, section_name)
+        merged_values = copy.deepcopy(values)
+        if isinstance(override, Mapping):
+            merged_values.update(copy.deepcopy(dict(override)))
         if section_name == "method_context":
-            processing = update_method_context(processing, values, analysis_type=analysis_type)
+            processing = update_method_context(processing, merged_values, analysis_type=analysis_type)
         else:
-            processing = update_processing_step(processing, section_name, values, analysis_type=analysis_type)
+            processing = update_processing_step(processing, section_name, merged_values, analysis_type=analysis_type)
 
     method_context = {
         "batch_template_runner": "compare_workspace",
         "batch_run_id": batch_run_id or "",
     }
     return update_method_context(processing, method_context, analysis_type=analysis_type)
+
+
+def _resolve_processing_override(processing: Mapping[str, Any], section_name: str) -> Mapping[str, Any]:
+    signal_pipeline = processing.get("signal_pipeline")
+    if isinstance(signal_pipeline, Mapping) and isinstance(signal_pipeline.get(section_name), Mapping):
+        return dict(signal_pipeline.get(section_name) or {})
+    analysis_steps = processing.get("analysis_steps")
+    if isinstance(analysis_steps, Mapping) and isinstance(analysis_steps.get(section_name), Mapping):
+        return dict(analysis_steps.get(section_name) or {})
+    section = processing.get(section_name)
+    if isinstance(section, Mapping):
+        return dict(section)
+    return {}
 
 
 def _execute_dsc_batch(
@@ -460,6 +508,9 @@ def _template_defaults(analysis_type: str, workflow_template_id: str) -> dict[st
     elif analysis_type == "RAMAN":
         catalog = _RAMAN_TEMPLATE_DEFAULTS
         fallback = "raman.general"
+    elif analysis_type == "XRD":
+        catalog = _XRD_TEMPLATE_DEFAULTS
+        fallback = "xrd.general"
     else:
         raise ValueError(f"Unsupported batch analysis type '{analysis_type}'")
 
@@ -1008,6 +1059,294 @@ def _execute_spectral_batch(
             dataset_key=dataset_key,
             dataset=dataset,
             analysis_type=analysis_type,
+            processing=processing,
+            validation=validation,
+            execution_status="saved",
+            record=record,
+            failure_reason="",
+        ),
+    }
+
+
+def _coerce_optional_float(value: Any, default: float | None = None) -> float | None:
+    if value in (None, ""):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not np.isfinite(parsed):
+        return default
+    return parsed
+
+
+def _coerce_positive_float(value: Any, default: float) -> float:
+    parsed = _coerce_optional_float(value, default)
+    if parsed is None or parsed <= 0.0:
+        return default
+    return float(parsed)
+
+
+def _coerce_positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed < 1:
+        return default
+    return parsed
+
+
+def _resolve_odd_window(window: int, sample_count: int, *, minimum: int = 3) -> int:
+    resolved = max(int(window), minimum)
+    if resolved % 2 == 0:
+        resolved += 1
+    max_allowed = sample_count if sample_count % 2 == 1 else sample_count - 1
+    if max_allowed < minimum:
+        return minimum
+    return min(resolved, max_allowed)
+
+
+def _apply_xrd_smoothing(signal: np.ndarray, config: Mapping[str, Any]) -> np.ndarray:
+    method = str(config.get("method") or "savgol").strip().lower()
+    if method in {"none", "off"}:
+        return signal.copy()
+    if method in {"moving_average", "mean"}:
+        return _apply_spectral_smoothing(signal, config)
+
+    window = _resolve_odd_window(
+        _coerce_positive_int(config.get("window_length"), 11),
+        signal.size,
+    )
+    polyorder = _coerce_positive_int(config.get("polyorder"), 3)
+    if polyorder >= window:
+        polyorder = max(1, window - 2)
+    return savgol_filter(signal, window_length=window, polyorder=polyorder, mode="interp")
+
+
+def _rolling_minimum(signal: np.ndarray, window: int) -> np.ndarray:
+    half = window // 2
+    padded = np.pad(signal, (half, half), mode="edge")
+    slices = [padded[index:index + signal.size] for index in range(window)]
+    return np.min(np.vstack(slices), axis=0)
+
+
+def _estimate_xrd_baseline(signal: np.ndarray, config: Mapping[str, Any]) -> np.ndarray:
+    method = str(config.get("method") or "rolling_minimum").strip().lower()
+    if method in {"none", "off"}:
+        return np.zeros_like(signal)
+    if method in {"linear", "asls"}:
+        return np.linspace(float(signal[0]), float(signal[-1]), num=signal.size, endpoint=True)
+
+    window = _resolve_odd_window(
+        _coerce_positive_int(config.get("window_length"), 31),
+        signal.size,
+    )
+    baseline = _rolling_minimum(signal, window)
+    smooth_window = _resolve_odd_window(
+        _coerce_positive_int(config.get("smoothing_window"), 9),
+        signal.size,
+    )
+    if smooth_window >= 3:
+        kernel = np.ones(smooth_window, dtype=float) / float(smooth_window)
+        pad = smooth_window // 2
+        padded = np.pad(baseline, (pad, pad), mode="edge")
+        baseline = np.convolve(padded, kernel, mode="valid")
+    return baseline
+
+
+def _detect_xrd_peaks(
+    axis: np.ndarray,
+    corrected_signal: np.ndarray,
+    config: Mapping[str, Any],
+) -> tuple[list[dict[str, float]], dict[str, Any]]:
+    prominence = _coerce_positive_float(config.get("prominence"), 0.08)
+    distance = _coerce_positive_int(config.get("distance"), 6)
+    width = _coerce_positive_int(config.get("width"), 2)
+    max_peaks = _coerce_positive_int(config.get("max_peaks"), 12)
+
+    peak_indices, properties = find_peaks(
+        corrected_signal,
+        prominence=prominence,
+        distance=distance,
+        width=width,
+    )
+    prominences = np.asarray(properties.get("prominences", []), dtype=float)
+    widths = np.asarray(properties.get("widths", []), dtype=float)
+    if peak_indices.size == 0:
+        return [], {
+            "method": "scipy_find_peaks",
+            "prominence": prominence,
+            "distance": distance,
+            "width": width,
+            "max_peaks": max_peaks,
+            "peak_ranking": "prominence_desc_then_position_asc",
+        }
+
+    ranking = sorted(
+        range(len(peak_indices)),
+        key=lambda idx: (-float(prominences[idx]), float(axis[peak_indices[idx]])),
+    )
+    selected = ranking[:max_peaks]
+    peaks: list[dict[str, float]] = []
+    for rank, index in enumerate(selected, start=1):
+        peak_index = int(peak_indices[index])
+        peaks.append(
+            {
+                "rank": rank,
+                "position": float(axis[peak_index]),
+                "intensity": float(corrected_signal[peak_index]),
+                "prominence": float(prominences[index]),
+                "width": float(widths[index]) if index < len(widths) else 0.0,
+            }
+        )
+
+    return peaks, {
+        "method": "scipy_find_peaks",
+        "prominence": prominence,
+        "distance": distance,
+        "width": width,
+        "max_peaks": max_peaks,
+        "peak_ranking": "prominence_desc_then_position_asc",
+    }
+
+
+def _execute_xrd_batch(
+    *,
+    dataset_key: str,
+    dataset,
+    processing: dict[str, Any],
+    analysis_history: list[dict[str, Any]] | None,
+    analyst_name: str | None,
+    app_version: str | None,
+    batch_run_id: str | None,
+) -> dict[str, Any]:
+    axis = np.asarray(dataset.data["temperature"], dtype=float)
+    signal = np.asarray(dataset.data["signal"], dtype=float)
+    axis, signal = _sorted_axis_signal(axis, signal)
+
+    axis_normalization = copy.deepcopy((processing.get("signal_pipeline") or {}).get("axis_normalization") or {})
+    smoothing = copy.deepcopy((processing.get("signal_pipeline") or {}).get("smoothing") or {})
+    baseline = copy.deepcopy((processing.get("signal_pipeline") or {}).get("baseline") or {})
+    peak_detection = copy.deepcopy((processing.get("analysis_steps") or {}).get("peak_detection") or {})
+
+    axis_min = _coerce_optional_float(axis_normalization.get("axis_min"))
+    axis_max = _coerce_optional_float(axis_normalization.get("axis_max"))
+    if axis_min is not None or axis_max is not None:
+        mask = np.ones(axis.shape[0], dtype=bool)
+        if axis_min is not None:
+            mask &= axis >= float(axis_min)
+        if axis_max is not None:
+            mask &= axis <= float(axis_max)
+        if int(np.count_nonzero(mask)) >= 3:
+            axis = axis[mask]
+            signal = signal[mask]
+
+    smoothed = _apply_xrd_smoothing(signal, smoothing)
+    baseline_curve = _estimate_xrd_baseline(smoothed, baseline)
+    corrected = np.maximum(smoothed - baseline_curve, 0.0)
+    peaks, resolved_peak_detection = _detect_xrd_peaks(axis, corrected, peak_detection)
+
+    resolved_axis_normalization = {
+        "sort_axis": bool(axis_normalization.get("sort_axis", True)),
+        "deduplicate": str(axis_normalization.get("deduplicate") or "first"),
+        "axis_min": axis_min,
+        "axis_max": axis_max,
+    }
+    processing = update_processing_step(processing, "axis_normalization", resolved_axis_normalization, analysis_type="XRD")
+    processing = update_processing_step(processing, "smoothing", smoothing, analysis_type="XRD")
+    processing = update_processing_step(processing, "baseline", baseline, analysis_type="XRD")
+    processing = update_processing_step(processing, "peak_detection", resolved_peak_detection, analysis_type="XRD")
+
+    processing = update_method_context(
+        processing,
+        {
+            "batch_run_id": batch_run_id or "",
+            "batch_template_runner": "compare_workspace",
+            "xrd_axis_role": dataset.metadata.get("xrd_axis_role") or "two_theta",
+            "xrd_axis_unit": (dataset.metadata.get("xrd_axis_unit") or (dataset.units or {}).get("temperature") or "degree_2theta"),
+            "xrd_wavelength_angstrom": dataset.metadata.get("xrd_wavelength_angstrom"),
+            "xrd_preprocessing_order": ["axis_normalization", "smoothing", "baseline", "peak_detection"],
+            "xrd_peak_detection_method": resolved_peak_detection["method"],
+            "xrd_peak_prominence": resolved_peak_detection["prominence"],
+            "xrd_peak_distance": resolved_peak_detection["distance"],
+            "xrd_peak_width": resolved_peak_detection["width"],
+            "xrd_peak_max": resolved_peak_detection["max_peaks"],
+            "xrd_peak_ranking": resolved_peak_detection["peak_ranking"],
+            "xrd_peak_count": len(peaks),
+        },
+        analysis_type="XRD",
+    )
+    validation = validate_thermal_dataset(dataset, analysis_type="XRD", processing=processing)
+    provenance = build_result_provenance(
+        dataset=dataset,
+        dataset_key=dataset_key,
+        analysis_history=analysis_history,
+        app_version=app_version,
+        analyst_name=analyst_name,
+        extra={
+            "batch_run_id": batch_run_id,
+            "batch_runner": "compare_workspace",
+            "analysis_type": "XRD",
+            "peak_count": len(peaks),
+        },
+    )
+
+    summary = {
+        "peak_count": len(peaks),
+        "match_status": "not_run",
+        "candidate_count": 0,
+        "top_match_id": None,
+        "top_match_name": None,
+        "top_match_score": None,
+        "confidence_band": "not_run",
+        "caution_code": "",
+    }
+    rows = [
+        {
+            "rank": peak["rank"],
+            "position": peak["position"],
+            "intensity": peak["intensity"],
+            "prominence": peak["prominence"],
+            "width": peak["width"],
+        }
+        for peak in peaks
+    ]
+    record = make_result_record(
+        result_id=f"xrd_{dataset_key}",
+        analysis_type="XRD",
+        status="stable",
+        dataset_key=dataset_key,
+        metadata=dataset.metadata,
+        summary=summary,
+        rows=rows,
+        artifacts={},
+        processing=processing,
+        provenance=provenance,
+        validation=validation,
+        review={"commercial_scope": "stable_xrd", "batch_runner": "compare_workspace"},
+        scientific_context={},
+    )
+    state = {
+        "axis": axis.tolist(),
+        "smoothed": smoothed.tolist(),
+        "baseline": baseline_curve.tolist(),
+        "corrected": corrected.tolist(),
+        "peaks": peaks,
+        "processing": processing,
+    }
+    return {
+        "status": "saved",
+        "analysis_type": "XRD",
+        "dataset_key": dataset_key,
+        "processing": processing,
+        "validation": validation,
+        "record": record,
+        "state": state,
+        "summary_row": _make_summary_row(
+            dataset_key=dataset_key,
+            dataset=dataset,
+            analysis_type="XRD",
             processing=processing,
             validation=validation,
             execution_status="saved",

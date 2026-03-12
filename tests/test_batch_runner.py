@@ -114,6 +114,38 @@ def _make_spectral_dataset(*, analysis_type: str, include_reference_library: boo
     )
 
 
+def _make_xrd_dataset():
+    axis = np.linspace(8.0, 88.0, 700)
+    baseline = 18.0 + 0.03 * axis
+    signal = (
+        baseline
+        + _gaussian(axis, 18.4, 0.25, 95.0)
+        + _gaussian(axis, 33.2, 0.35, 160.0)
+        + _gaussian(axis, 47.8, 0.45, 130.0)
+        + _gaussian(axis, 63.5, 0.4, 84.0)
+        + 0.8 * np.sin(axis / 4.0)
+    )
+    return ThermalDataset(
+        data=pd.DataFrame({"temperature": axis, "signal": signal}),
+        metadata={
+            "sample_name": "SyntheticXRD",
+            "sample_mass": 1.0,
+            "heating_rate": 1.0,
+            "instrument": "XRDBench",
+            "vendor": "TestVendor",
+            "display_name": "Synthetic XRD Pattern",
+            "source_data_hash": "synthetic-xrd-hash",
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+            "xrd_wavelength_angstrom": 1.5406,
+        },
+        data_type="XRD",
+        units={"temperature": "degree_2theta", "signal": "counts"},
+        original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+
+
 def test_execute_dsc_batch_template_saves_normalized_record(thermal_dataset):
     dataset = thermal_dataset.copy()
     dataset.metadata.update(
@@ -292,6 +324,77 @@ def test_execute_ftir_batch_template_similarity_is_deterministic():
     assert first_processing == second_processing
     assert first["record"]["summary"] == second["record"]["summary"]
     assert first["record"]["rows"] == second["record"]["rows"]
+
+
+def test_execute_xrd_batch_template_detects_ranked_peaks_with_processing_context():
+    dataset = _make_xrd_dataset()
+
+    outcome = execute_batch_template(
+        dataset_key="synthetic_xrd",
+        dataset=dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        batch_run_id="batch_xrd_demo",
+    )
+
+    assert outcome["status"] == "saved"
+    assert outcome["record"]["id"] == "xrd_synthetic_xrd"
+    assert outcome["record"]["processing"]["workflow_template_id"] == "xrd.general"
+    assert outcome["record"]["processing"]["method_context"]["xrd_peak_detection_method"] == "scipy_find_peaks"
+    assert outcome["record"]["processing"]["method_context"]["xrd_peak_ranking"] == "prominence_desc_then_position_asc"
+    assert outcome["record"]["summary"]["peak_count"] >= 3
+    assert outcome["record"]["summary"]["match_status"] == "not_run"
+    assert outcome["summary_row"]["peak_count"] == outcome["record"]["summary"]["peak_count"]
+    assert outcome["summary_row"]["execution_status"] == "saved"
+
+    rows = list(outcome["record"]["rows"])
+    ranks = [row["rank"] for row in rows]
+    assert ranks == sorted(ranks)
+    prominence_pairs = [(row["prominence"], row["position"]) for row in rows]
+    assert prominence_pairs == sorted(prominence_pairs, key=lambda item: (-item[0], item[1]))
+
+
+def test_execute_xrd_batch_template_is_deterministic_and_honors_peak_limit_override():
+    dataset = _make_xrd_dataset()
+    existing_processing = {
+        "analysis_type": "XRD",
+        "workflow_template_id": "xrd.general",
+        "analysis_steps": {
+            "peak_detection": {"prominence": 0.14, "distance": 9, "width": 3, "max_peaks": 3},
+        },
+    }
+
+    first = execute_batch_template(
+        dataset_key="synthetic_xrd",
+        dataset=dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        existing_processing=existing_processing,
+        batch_run_id="batch_xrd_first",
+    )
+    second = execute_batch_template(
+        dataset_key="synthetic_xrd",
+        dataset=dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        existing_processing=existing_processing,
+        batch_run_id="batch_xrd_second",
+    )
+
+    first_processing = dict(first["record"]["processing"])
+    second_processing = dict(second["record"]["processing"])
+    first_context = dict(first_processing["method_context"])
+    second_context = dict(second_processing["method_context"])
+    first_context.pop("batch_run_id", None)
+    second_context.pop("batch_run_id", None)
+    first_processing["method_context"] = first_context
+    second_processing["method_context"] = second_context
+
+    assert first["status"] == second["status"] == "saved"
+    assert first_processing == second_processing
+    assert first["record"]["summary"] == second["record"]["summary"]
+    assert first["record"]["rows"] == second["record"]["rows"]
+    assert first["record"]["summary"]["peak_count"] <= 3
 
 
 def test_execute_batch_template_blocks_failed_validation(thermal_dataset):

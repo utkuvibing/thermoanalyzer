@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 
+import numpy as np
+
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
@@ -177,3 +179,47 @@ def test_batch_run_ftir_similarity_path_returns_no_match_as_saved(thermal_datase
     assert len(payload["batch_summary"]) == 1
     assert payload["batch_summary"][0]["match_status"] == "no_match"
     assert payload["batch_summary"][0]["caution_code"] == "spectral_no_match"
+
+
+def test_batch_run_xrd_preprocessing_path_returns_saved_with_peak_summary(thermal_dataset):
+    app = create_app(api_token="batch-token")
+    client = TestClient(app)
+    project_id = client.post("/workspace/new", headers=_headers()).json()["project_id"]
+
+    xrd_dataset = thermal_dataset.copy()
+    axis = np.linspace(8.0, 88.0, len(xrd_dataset.data))
+    signal = (
+        18.0
+        + 0.02 * axis
+        + 70.0 * np.exp(-0.5 * ((axis - 21.2) / 0.35) ** 2)
+        + 120.0 * np.exp(-0.5 * ((axis - 35.7) / 0.42) ** 2)
+        + 85.0 * np.exp(-0.5 * ((axis - 52.4) / 0.38) ** 2)
+    )
+    xrd_dataset.data["temperature"] = axis
+    xrd_dataset.data["signal"] = signal
+
+    xrd_key = _import_dataset(client, project_id, xrd_dataset, "batch_xrd.csv", "XRD")
+    compare_set = client.post(
+        f"/workspace/{project_id}/compare/selection",
+        headers=_headers(),
+        json={"operation": "replace", "dataset_keys": [xrd_key]},
+    )
+    assert compare_set.status_code == 200
+
+    batch_run = client.post(
+        f"/workspace/{project_id}/batch/run",
+        headers=_headers(),
+        json={"analysis_type": "XRD", "workflow_template_id": "xrd.general"},
+    )
+    assert batch_run.status_code == 200
+    payload = batch_run.json()
+
+    assert payload["analysis_type"] == "XRD"
+    assert payload["outcomes"]["total"] == 1
+    assert payload["outcomes"]["saved"] == 1
+    assert payload["outcomes"]["blocked"] == 0
+    assert payload["outcomes"]["failed"] == 0
+    assert len(payload["saved_result_ids"]) == 1
+    assert len(payload["batch_summary"]) == 1
+    assert payload["batch_summary"][0]["peak_count"] >= 1
+    assert payload["batch_summary"][0]["match_status"] == "not_run"
