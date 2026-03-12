@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pytest
 
@@ -20,7 +20,7 @@ def _assert_lifecycle_surface(adapter) -> None:
 
 
 def test_stable_analysis_types_are_explicit_and_sorted():
-    assert stable_analysis_types() == ("DSC", "DTA", "FTIR", "RAMAN", "TGA")
+    assert stable_analysis_types() == ("DSC", "DTA", "FTIR", "RAMAN", "TGA", "XRD")
 
 
 def test_require_stable_modality_returns_registered_specs_with_contract_surface():
@@ -33,12 +33,12 @@ def test_require_stable_modality_returns_registered_specs_with_contract_surface(
 
 
 def test_get_modality_returns_none_for_unknown_type():
-    assert get_modality("XRD") is None
+    assert get_modality("XRF") is None
 
 
 def test_require_stable_modality_rejects_unsupported_types():
     with pytest.raises(ValueError, match="Unsupported stable analysis_type"):
-        require_stable_modality("XRD")
+        require_stable_modality("XRF")
 
 
 def test_state_key_mapping_is_centralized_and_deterministic():
@@ -47,9 +47,10 @@ def test_state_key_mapping_is_centralized_and_deterministic():
     assert analysis_state_key("FTIR", "run_3") == "ftir_state_run_3"
     assert analysis_state_key("RAMAN", "run_4") == "raman_state_run_4"
     assert analysis_state_key("TGA", "run_5") == "tga_state_run_5"
+    assert analysis_state_key("XRD", "run_6") == "xrd_state_run_6"
 
     with pytest.raises(ValueError, match="Unsupported stable analysis_type"):
-        analysis_state_key("XRD", "run_6")
+        analysis_state_key("XRF", "run_7")
 
 
 def test_adapter_run_delegates_to_batch_template(monkeypatch):
@@ -101,6 +102,9 @@ def test_adapter_run_delegates_to_batch_template(monkeypatch):
         ("TGA", "TGA", True),
         ("TGA", "UNKNOWN", True),
         ("TGA", "DSC", False),
+        ("XRD", "XRD", True),
+        ("XRD", "UNKNOWN", True),
+        ("XRD", "DSC", False),
     ),
 )
 def test_dataset_eligibility_follows_stable_rules(analysis_type, dataset_type, expected):

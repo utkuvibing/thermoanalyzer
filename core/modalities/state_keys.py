@@ -1,4 +1,4 @@
-"""Helpers for analysis-state key naming."""
+﻿"""Helpers for analysis-state key naming."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ _PREFIX_BY_ANALYSIS_TYPE = {
     "FTIR": "ftir_state",
     "RAMAN": "raman_state",
     "TGA": "tga_state",
+    "XRD": "xrd_state",
 }
 
 

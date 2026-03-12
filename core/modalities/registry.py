@@ -1,8 +1,8 @@
-"""Central registry for stable modality specs."""
+﻿"""Central registry for stable modality specs."""
 
 from __future__ import annotations
 
-from core.modalities.adapters import DSCAdapter, DTAAdapter, FTIRAdapter, RAMANAdapter, TGAAdapter
+from core.modalities.adapters import DSCAdapter, DTAAdapter, FTIRAdapter, RAMANAdapter, TGAAdapter, XRDAdapter
 from core.modalities.contracts import ModalitySpec
 
 
@@ -36,6 +36,12 @@ _REGISTRY: dict[str, ModalitySpec] = {
         stable=True,
         default_workflow_template_id="raman.general",
         adapter=RAMANAdapter(),
+    ),
+    "XRD": ModalitySpec(
+        analysis_type="XRD",
+        stable=True,
+        default_workflow_template_id="xrd.general",
+        adapter=XRDAdapter(),
     ),
 }
 

@@ -1,4 +1,4 @@
-"""Stable modality adapters that wrap existing batch execution kernels."""
+﻿"""Stable modality adapters that wrap existing batch execution kernels."""
 
 from __future__ import annotations
 
@@ -110,3 +110,12 @@ class RAMANAdapter(StableBatchAdapter):
             default_workflow_template_id="raman.general",
             eligible_dataset_types=frozenset({"RAMAN", "UNKNOWN"}),
         )
+
+class XRDAdapter(StableBatchAdapter):
+    def __init__(self) -> None:
+        super().__init__(
+            analysis_type="XRD",
+            default_workflow_template_id="xrd.general",
+            eligible_dataset_types=frozenset({"XRD", "UNKNOWN"}),
+        )
+

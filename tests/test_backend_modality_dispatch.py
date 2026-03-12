@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 
@@ -71,12 +71,30 @@ def test_analysis_run_rejects_unknown_analysis_type_with_explicit_stable_set(the
         json={
             "project_id": project_id,
             "dataset_key": dataset_key,
-            "analysis_type": "XRD",
+            "analysis_type": "XRF",
         },
     )
     assert response.status_code == 400
     assert response.json()["detail"] == f"analysis_type must be one of: {', '.join(stable_analysis_types())}."
 
+
+def test_analysis_run_routes_xrd_through_stable_registry_validation(thermal_dataset):
+    app = create_app(api_token="dispatch-token")
+    client = TestClient(app)
+    project_id = _new_project(client)
+    dataset_key = _import_dataset(client, project_id, thermal_dataset, "dispatch_dsc.csv", "DSC")
+
+    response = client.post(
+        "/analysis/run",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "dataset_key": dataset_key,
+            "analysis_type": "XRD",
+        },
+    )
+    assert response.status_code == 400
+    assert f"Dataset '{dataset_key}' is not eligible for XRD analysis." in response.json()["detail"]
 
 def test_analysis_run_rejects_ineligible_dataset_with_explicit_error(thermal_dataset):
     app = create_app(api_token="dispatch-token")
@@ -206,3 +224,4 @@ def test_compare_workspace_validation_uses_registry_set(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["compare_workspace"]["analysis_type"] == "DTA"
+
