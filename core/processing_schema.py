@@ -1,4 +1,4 @@
-"""Helpers for stable DSC/TGA processing payloads."""
+"""Helpers for stable processing payloads across supported modalities."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ _SIGNAL_PIPELINE_SECTIONS = {
     "DSC": ("smoothing", "baseline"),
     "TGA": ("smoothing",),
     "DTA": ("smoothing", "baseline"),
+    "FTIR": ("smoothing", "baseline", "normalization"),
+    "RAMAN": ("smoothing", "baseline", "normalization"),
     "KISSINGER": (),
     "OZAWA-FLYNN-WALL": (),
     "FRIEDMAN": (),
@@ -22,6 +24,8 @@ _ANALYSIS_STEP_SECTIONS = {
     "DSC": ("glass_transition", "peak_detection"),
     "TGA": ("step_detection",),
     "DTA": ("peak_detection",),
+    "FTIR": ("peak_detection", "similarity_matching"),
+    "RAMAN": ("peak_detection", "similarity_matching"),
     "KISSINGER": ("kinetic_regression",),
     "OZAWA-FLYNN-WALL": ("isoconversional_analysis",),
     "FRIEDMAN": ("isoconversional_analysis",),
@@ -31,6 +35,8 @@ _DEFAULT_WORKFLOW_TEMPLATE = {
     "DSC": "General DSC",
     "TGA": "General TGA",
     "DTA": "General DTA",
+    "FTIR": "General FTIR",
+    "RAMAN": "General Raman",
     "KISSINGER": "Kissinger Kinetics",
     "OZAWA-FLYNN-WALL": "OFW Isoconversional",
     "FRIEDMAN": "Friedman Isoconversional",
@@ -50,6 +56,14 @@ _WORKFLOW_TEMPLATES = {
     "DTA": (
         {"id": "dta.general", "label": "General DTA", "version": 1},
         {"id": "dta.thermal_events", "label": "Thermal Event Screening", "version": 1},
+    ),
+    "FTIR": (
+        {"id": "ftir.general", "label": "General FTIR", "version": 1},
+        {"id": "ftir.functional_groups", "label": "Functional Group Screening", "version": 1},
+    ),
+    "RAMAN": (
+        {"id": "raman.general", "label": "General Raman", "version": 1},
+        {"id": "raman.polymorph_screening", "label": "Polymorph Screening", "version": 1},
     ),
     "KISSINGER": (
         {"id": "kinetics.kissinger_general", "label": "Kissinger Kinetics", "version": 1},
@@ -96,6 +110,16 @@ _METHOD_CONTEXT_DEFAULTS = {
     "DTA": {
         "sign_convention_id": "dta.exotherm_up",
         "sign_convention_label": "Exotherm up / Endotherm down",
+    },
+    "FTIR": {
+        "spectral_domain": "wavenumber",
+        "x_unit": "cm^-1",
+        "default_pipeline_order": ["smoothing", "baseline", "normalization"],
+    },
+    "RAMAN": {
+        "spectral_domain": "raman_shift",
+        "x_unit": "cm^-1",
+        "default_pipeline_order": ["smoothing", "baseline", "normalization"],
     },
     "KISSINGER": {
         "kinetic_family": "model_fitting",
