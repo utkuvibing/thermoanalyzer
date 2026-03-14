@@ -424,6 +424,11 @@ def test_execute_xrd_batch_template_returns_ranked_candidate_match_with_confiden
     assert rows[0]["evidence"]["shared_peak_count"] >= 3
     assert rows[0]["evidence"]["mean_delta_position"] is not None
     assert "unmatched_major_peak_positions" in rows[0]["evidence"]
+    assert "matched_peak_pairs" in rows[0]["evidence"]
+    assert "unmatched_observed_peaks" in rows[0]["evidence"]
+    assert "unmatched_reference_peaks" in rows[0]["evidence"]
+    assert rows[0]["evidence"]["matched_peak_pairs"][0]["observed_index"] >= 0
+    assert rows[0]["evidence"]["matched_peak_pairs"][0]["reference_index"] >= 0
 
 
 def test_execute_ftir_batch_template_prefers_cloud_search_when_configured(monkeypatch):
@@ -615,6 +620,9 @@ def test_execute_xrd_batch_template_keeps_no_match_as_cautionary_saved_output():
     assert outcome["record"]["summary"]["top_candidate_score"] is not None
     assert outcome["record"]["summary"]["top_candidate_reason_below_threshold"]
     assert outcome["record"]["summary"]["top_candidate_unmatched_major_peak_count"] >= 0
+    assert "matched_peak_pairs" in outcome["record"]["rows"][0]["evidence"]
+    assert "unmatched_observed_peaks" in outcome["record"]["rows"][0]["evidence"]
+    assert "unmatched_reference_peaks" in outcome["record"]["rows"][0]["evidence"]
     assert "screening result" in outcome["record"]["summary"]["caution_message"].lower()
     assert outcome["record"]["review"]["caution"]["code"] == "xrd_no_match"
     assert outcome["record"]["review"]["caution"]["top_candidate_name"] == "Mismatch A"

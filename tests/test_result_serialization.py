@@ -347,6 +347,9 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
                     "mean_delta_position": 0.09,
                     "unmatched_major_peak_count": 0,
                     "tolerance_deg": 0.28,
+                    "matched_peak_pairs": [{"observed_index": 0, "reference_index": 0, "delta_position": 0.09}],
+                    "unmatched_observed_peaks": [],
+                    "unmatched_reference_peaks": [],
                 },
             }
         ],
@@ -368,6 +371,7 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
     assert record["summary"]["library_result_source"] == "cloud_search"
     assert record["rows"][0]["library_package"] == "cod_xrd_core"
     assert record["rows"][0]["evidence"]["weighted_overlap_score"] == 0.83
+    assert record["rows"][0]["evidence"]["matched_peak_pairs"][0]["observed_index"] == 0
     assert record["review"]["caution"] == {}
     assert record["scientific_context"]["methodology"]["library_context"]["provider"] == "COD"
     assert record["scientific_context"]["methodology"]["library_context"]["request_id"] == "libreq_xrd_001"

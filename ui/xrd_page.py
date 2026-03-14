@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
@@ -59,6 +60,189 @@ _XRD_TEMPLATE_DEFAULTS = {
     },
 }
 
+_XRD_PLOT_DEFAULTS = {
+    "show_peak_labels": True,
+    "label_density_mode": "smart",
+    "max_labels": 10,
+    "min_label_intensity_ratio": 0.12,
+    "marker_size": 8,
+    "label_position_precision": 2,
+    "label_intensity_precision": 0,
+    "show_matched_peaks": True,
+    "show_unmatched_observed": True,
+    "show_unmatched_reference": True,
+    "show_match_connectors": True,
+    "show_match_labels": True,
+    "style_preset": "color_shape",
+    "only_selected_candidate": True,
+}
+
+_XRD_MATCH_STYLE = {
+    "matched_observed": {"color": "#22C55E", "symbol": "diamond"},
+    "unmatched_observed": {"color": "#EF4444", "symbol": "x"},
+    "matched_reference": {"color": "#2563EB", "symbol": "square"},
+    "unmatched_reference": {"color": "#F59E0B", "symbol": "triangle-up"},
+}
+
+
+def _coerce_plot_bool(value, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return bool(value) if value not in (None, "") else fallback
+
+
+def _coerce_plot_int(value, fallback: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def _coerce_plot_float(value, fallback: float, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def _normalize_xrd_plot_settings(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    source = payload if isinstance(payload, Mapping) else {}
+    settings = dict(_XRD_PLOT_DEFAULTS)
+    settings["show_peak_labels"] = _coerce_plot_bool(source.get("show_peak_labels"), settings["show_peak_labels"])
+    label_density = str(source.get("label_density_mode") or settings["label_density_mode"]).strip().lower()
+    settings["label_density_mode"] = label_density if label_density in {"smart", "all", "selected"} else "smart"
+    settings["max_labels"] = _coerce_plot_int(source.get("max_labels"), settings["max_labels"], 1, 60)
+    settings["min_label_intensity_ratio"] = _coerce_plot_float(
+        source.get("min_label_intensity_ratio"),
+        settings["min_label_intensity_ratio"],
+        0.0,
+        1.0,
+    )
+    settings["marker_size"] = _coerce_plot_int(source.get("marker_size"), settings["marker_size"], 4, 20)
+    settings["label_position_precision"] = _coerce_plot_int(
+        source.get("label_position_precision"),
+        settings["label_position_precision"],
+        1,
+        5,
+    )
+    settings["label_intensity_precision"] = _coerce_plot_int(
+        source.get("label_intensity_precision"),
+        settings["label_intensity_precision"],
+        0,
+        4,
+    )
+    settings["show_matched_peaks"] = _coerce_plot_bool(source.get("show_matched_peaks"), settings["show_matched_peaks"])
+    settings["show_unmatched_observed"] = _coerce_plot_bool(
+        source.get("show_unmatched_observed"),
+        settings["show_unmatched_observed"],
+    )
+    settings["show_unmatched_reference"] = _coerce_plot_bool(
+        source.get("show_unmatched_reference"),
+        settings["show_unmatched_reference"],
+    )
+    settings["show_match_connectors"] = _coerce_plot_bool(
+        source.get("show_match_connectors"),
+        settings["show_match_connectors"],
+    )
+    settings["show_match_labels"] = _coerce_plot_bool(source.get("show_match_labels"), settings["show_match_labels"])
+    style_preset = str(source.get("style_preset") or settings["style_preset"]).strip().lower()
+    settings["style_preset"] = style_preset if style_preset in {"color_shape", "color_only", "shape_only"} else "color_shape"
+    settings["only_selected_candidate"] = _coerce_plot_bool(
+        source.get("only_selected_candidate"),
+        settings["only_selected_candidate"],
+    )
+    return settings
+
+
+def _xrd_plot_settings_from_processing(processing: Mapping[str, Any] | None) -> dict[str, Any]:
+    method_context = ((processing or {}).get("method_context") or {}) if isinstance(processing, Mapping) else {}
+    return _normalize_xrd_plot_settings(method_context.get("xrd_plot_settings"))
+
+
+def _xrd_peak_label(position: float, intensity: float, *, settings: Mapping[str, Any], lang: str) -> str:
+    pos_precision = int(settings.get("label_position_precision", 2))
+    intensity_precision = int(settings.get("label_intensity_precision", 0))
+    angle_unit = "°" if lang == "tr" else " deg"
+    return f"{position:.{pos_precision}f}{angle_unit} | I={intensity:.{intensity_precision}f}"
+
+
+def _pick_peak_label_indices(peaks: list[dict[str, float]], settings: Mapping[str, Any]) -> set[int]:
+    if not peaks or not bool(settings.get("show_peak_labels", True)):
+        return set()
+
+    label_mode = str(settings.get("label_density_mode") or "smart").lower()
+    if label_mode == "selected":
+        label_mode = "smart"
+
+    max_labels = int(settings.get("max_labels", 10))
+    if max_labels <= 0:
+        return set()
+
+    intensities = [max(float(item.get("intensity", 0.0)), 0.0) for item in peaks]
+    max_intensity = max(intensities) if intensities else 0.0
+    ratio_threshold = float(settings.get("min_label_intensity_ratio", 0.12))
+    threshold = max_intensity * max(ratio_threshold, 0.0)
+
+    ranked_indices = sorted(
+        range(len(peaks)),
+        key=lambda idx: (
+            -float(peaks[idx].get("intensity", 0.0)),
+            float(peaks[idx].get("position", 0.0)),
+            idx,
+        ),
+    )
+    ranked_order = {idx: order for order, idx in enumerate(ranked_indices)}
+    if label_mode == "all":
+        selected = set(ranked_indices[:max_labels])
+    else:
+        selected = {
+            idx
+            for idx in ranked_indices
+            if float(peaks[idx].get("intensity", 0.0)) >= threshold
+        }
+        if len(selected) > max_labels:
+            selected = set(sorted(selected, key=lambda idx: ranked_order[idx])[:max_labels])
+        if not selected:
+            selected = set(ranked_indices[: max(1, min(max_labels, len(ranked_indices)))])
+    return selected
+
+
+def _short_candidate_label(candidate_name: str | None, *, max_len: int = 20) -> str:
+    text = str(candidate_name or "").strip()
+    if not text:
+        return "N/A"
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 1]}…"
+
+
+def _reference_marker_y(value: Any, observed_max_intensity: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = 0.0
+    if parsed <= 1.5:
+        return max(parsed * max(observed_max_intensity, 1.0), 0.0)
+    return max(parsed, 0.0)
+
+
+def _xrd_match_marker_style(kind: str, settings: Mapping[str, Any]) -> dict[str, Any]:
+    base = dict(_XRD_MATCH_STYLE.get(kind) or {"color": "#94A3B8", "symbol": "circle"})
+    style_preset = str(settings.get("style_preset") or "color_shape").lower()
+    if style_preset == "color_only":
+        base["symbol"] = "circle"
+    elif style_preset == "shape_only":
+        base["color"] = "#CBD5E1"
+    return base
+
 
 def _get_xrd_datasets():
     datasets = st.session_state.get("datasets", {})
@@ -104,9 +288,18 @@ def _build_raw_plot(dataset_key, dataset, lang: str):
     )
 
 
-def _build_processed_plot(dataset_key, dataset, state, lang: str):
+def _build_processed_plot(
+    dataset_key,
+    dataset,
+    state,
+    lang: str,
+    *,
+    plot_settings: Mapping[str, Any] | None = None,
+    selected_match: Mapping[str, Any] | None = None,
+):
     axis = np.asarray(dataset.data["temperature"].values, dtype=float)
     raw_signal = np.asarray(dataset.data["signal"].values, dtype=float)
+    settings = _normalize_xrd_plot_settings(plot_settings)
     fig = create_thermal_plot(
         axis,
         raw_signal,
@@ -141,15 +334,145 @@ def _build_processed_plot(dataset_key, dataset, state, lang: str):
             )
         )
     if peaks:
+        label_indices = _pick_peak_label_indices(peaks, settings)
+        peak_x = [float(item.get("position", 0.0)) for item in peaks]
+        peak_y = [float(item.get("intensity", 0.0)) for item in peaks]
+        peak_text = [
+            _xrd_peak_label(peak_x[idx], peak_y[idx], settings=settings, lang=lang) if idx in label_indices else ""
+            for idx in range(len(peaks))
+        ]
+        peak_mode = "markers+text" if any(peak_text) else "markers"
         fig.add_trace(
             go.Scatter(
-                x=[float(item.get("position", 0.0)) for item in peaks],
-                y=[float(item.get("intensity", 0.0)) for item in peaks],
-                mode="markers",
+                x=peak_x,
+                y=peak_y,
+                mode=peak_mode,
                 name=tx("Pikler", "Peaks"),
-                marker=dict(color="#DC2626", size=8, symbol="diamond"),
+                marker=dict(color="#DC2626", size=int(settings.get("marker_size", 8)), symbol="diamond"),
+                text=peak_text if any(peak_text) else None,
+                textposition="top center",
+                textfont=dict(size=10, color="#F8FAFC"),
+                hovertemplate="<b>2θ</b>: %{x:.4f}<br><b>Intensity</b>: %{y:.3f}<extra></extra>",
             )
         )
+
+    if selected_match:
+        evidence = dict((selected_match.get("evidence") or {}))
+        matched_pairs = [item for item in (evidence.get("matched_peak_pairs") or []) if isinstance(item, Mapping)]
+        unmatched_observed = [item for item in (evidence.get("unmatched_observed_peaks") or []) if isinstance(item, Mapping)]
+        unmatched_reference = [item for item in (evidence.get("unmatched_reference_peaks") or []) if isinstance(item, Mapping)]
+        candidate_label = f"{_short_candidate_label(selected_match.get('candidate_name'))} (#{int(selected_match.get('rank') or 1)})"
+        observed_max = max([float(item.get("intensity", 0.0)) for item in peaks] + [1.0])
+
+        if settings.get("show_match_connectors", True):
+            for pair in matched_pairs:
+                try:
+                    obs_x = float(pair.get("observed_position"))
+                    obs_y = float(pair.get("observed_intensity"))
+                    ref_x = float(pair.get("reference_position"))
+                    ref_y = _reference_marker_y(pair.get("reference_intensity"), observed_max)
+                except (TypeError, ValueError):
+                    continue
+                fig.add_shape(
+                    type="line",
+                    x0=obs_x,
+                    y0=obs_y,
+                    x1=ref_x,
+                    y1=ref_y,
+                    line=dict(color="rgba(148, 163, 184, 0.55)", width=1.0, dash="dot"),
+                )
+
+        if settings.get("show_matched_peaks", True) and matched_pairs:
+            matched_obs_style = _xrd_match_marker_style("matched_observed", settings)
+            matched_ref_style = _xrd_match_marker_style("matched_reference", settings)
+            matched_x = [float(item.get("observed_position", 0.0)) for item in matched_pairs]
+            matched_y = [float(item.get("observed_intensity", 0.0)) for item in matched_pairs]
+            matched_text = [candidate_label] * len(matched_pairs) if settings.get("show_match_labels", True) else None
+            fig.add_trace(
+                go.Scatter(
+                    x=matched_x,
+                    y=matched_y,
+                    mode="markers+text" if matched_text else "markers",
+                    name=tx("Eşleşen Pikler", "Matched Peaks"),
+                    marker=dict(
+                        color=matched_obs_style["color"],
+                        size=int(settings.get("marker_size", 8)) + 2,
+                        symbol=matched_obs_style["symbol"],
+                        line=dict(width=1, color="#052E16"),
+                    ),
+                    text=matched_text,
+                    textposition="top center",
+                    textfont=dict(size=10, color="#86EFAC"),
+                    hovertemplate=(
+                        "<b>Observed 2θ</b>: %{x:.4f}<br>"
+                        "<b>Observed Intensity</b>: %{y:.3f}<br>"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=[float(item.get("reference_position", 0.0)) for item in matched_pairs],
+                    y=[_reference_marker_y(item.get("reference_intensity"), observed_max) for item in matched_pairs],
+                    mode="markers",
+                    name=tx("Eşleşen Referans Pik", "Matched Reference Peaks"),
+                    marker=dict(
+                        color=matched_ref_style["color"],
+                        size=int(settings.get("marker_size", 8)),
+                        symbol=matched_ref_style["symbol"],
+                    ),
+                    hovertemplate=(
+                        "<b>Reference 2θ</b>: %{x:.4f}<br>"
+                        "<b>Scaled Ref Intensity</b>: %{y:.3f}<br>"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+
+        if settings.get("show_unmatched_observed", True) and unmatched_observed:
+            unmatched_obs_style = _xrd_match_marker_style("unmatched_observed", settings)
+            fig.add_trace(
+                go.Scatter(
+                    x=[float(item.get("position", 0.0)) for item in unmatched_observed],
+                    y=[float(item.get("intensity", 0.0)) for item in unmatched_observed],
+                    mode="markers",
+                    name=tx("Eşleşmeyen Gözlenen Pik", "Unmatched Observed Peaks"),
+                    marker=dict(
+                        color=unmatched_obs_style["color"],
+                        size=int(settings.get("marker_size", 8)),
+                        symbol=unmatched_obs_style["symbol"],
+                    ),
+                    hovertemplate="<b>Observed 2θ</b>: %{x:.4f}<br><b>Intensity</b>: %{y:.3f}<extra></extra>",
+                )
+            )
+
+        if settings.get("show_unmatched_reference", True) and unmatched_reference:
+            unmatched_ref_style = _xrd_match_marker_style("unmatched_reference", settings)
+            ref_y = [_reference_marker_y(item.get("intensity"), observed_max) for item in unmatched_reference]
+            ref_hover = [
+                (
+                    f"<b>Reference 2θ</b>: {float(item.get('position', 0.0)):.4f}"
+                    f"<br><b>Scaled Ref Intensity</b>: {float(y_val):.3f}"
+                    f"<br><b>Major Peak</b>: {'yes' if bool(item.get('is_major')) else 'no'}"
+                )
+                for item, y_val in zip(unmatched_reference, ref_y)
+            ]
+            fig.add_trace(
+                go.Scatter(
+                    x=[float(item.get("position", 0.0)) for item in unmatched_reference],
+                    y=ref_y,
+                    mode="markers",
+                    name=tx("Eşleşmeyen Referans Pik", "Unmatched Reference Peaks"),
+                    marker=dict(
+                        color=unmatched_ref_style["color"],
+                        size=int(settings.get("marker_size", 8)),
+                        symbol=unmatched_ref_style["symbol"],
+                    ),
+                    hovertext=ref_hover,
+                    hoverinfo="text",
+                )
+            )
+
     return fig
 
 
@@ -273,6 +596,7 @@ def _sync_xrd_processing_from_controls(processing, *, dataset_key: str, dataset,
     smooth_defaults = signal_pipeline.get("smoothing") or {}
     baseline_defaults = signal_pipeline.get("baseline") or {}
     peak_defaults = analysis_steps.get("peak_detection") or {}
+    plot_defaults = _normalize_xrd_plot_settings(method_context.get("xrd_plot_settings"))
 
     default_axis_min = float(dataset.data["temperature"].min())
     default_axis_max = float(dataset.data["temperature"].max())
@@ -353,15 +677,196 @@ def _sync_xrd_processing_from_controls(processing, *, dataset_key: str, dataset,
             "xrd_match_minimum_score": float(_xrd_control_value(dataset_key, "match_min", state, method_context.get("xrd_match_minimum_score") or 0.42)),
             "xrd_match_intensity_weight": float(_xrd_control_value(dataset_key, "match_iw", state, method_context.get("xrd_match_intensity_weight") or 0.35)),
             "xrd_match_major_peak_fraction": float(_xrd_control_value(dataset_key, "match_major", state, method_context.get("xrd_match_major_peak_fraction") or 0.4)),
+            "xrd_plot_settings": _normalize_xrd_plot_settings(
+                {
+                    "show_peak_labels": _xrd_control_value(dataset_key, "plot_peak_labels", state, plot_defaults["show_peak_labels"]),
+                    "label_density_mode": _xrd_control_value(dataset_key, "plot_label_density", state, plot_defaults["label_density_mode"]),
+                    "max_labels": _xrd_control_value(dataset_key, "plot_max_labels", state, plot_defaults["max_labels"]),
+                    "min_label_intensity_ratio": _xrd_control_value(
+                        dataset_key,
+                        "plot_label_min_ratio",
+                        state,
+                        plot_defaults["min_label_intensity_ratio"],
+                    ),
+                    "marker_size": _xrd_control_value(dataset_key, "plot_marker_size", state, plot_defaults["marker_size"]),
+                    "label_position_precision": _xrd_control_value(
+                        dataset_key,
+                        "plot_pos_precision",
+                        state,
+                        plot_defaults["label_position_precision"],
+                    ),
+                    "label_intensity_precision": _xrd_control_value(
+                        dataset_key,
+                        "plot_int_precision",
+                        state,
+                        plot_defaults["label_intensity_precision"],
+                    ),
+                    "show_matched_peaks": _xrd_control_value(
+                        dataset_key,
+                        "plot_show_matched",
+                        state,
+                        plot_defaults["show_matched_peaks"],
+                    ),
+                    "show_unmatched_observed": _xrd_control_value(
+                        dataset_key,
+                        "plot_show_unmatched_obs",
+                        state,
+                        plot_defaults["show_unmatched_observed"],
+                    ),
+                    "show_unmatched_reference": _xrd_control_value(
+                        dataset_key,
+                        "plot_show_unmatched_ref",
+                        state,
+                        plot_defaults["show_unmatched_reference"],
+                    ),
+                    "show_match_connectors": _xrd_control_value(
+                        dataset_key,
+                        "plot_show_connectors",
+                        state,
+                        plot_defaults["show_match_connectors"],
+                    ),
+                    "show_match_labels": _xrd_control_value(
+                        dataset_key,
+                        "plot_show_match_labels",
+                        state,
+                        plot_defaults["show_match_labels"],
+                    ),
+                    "style_preset": _xrd_control_value(dataset_key, "plot_style", state, plot_defaults["style_preset"]),
+                    "only_selected_candidate": True,
+                }
+            ),
         },
         analysis_type="XRD",
     )
     return payload
 
 
+def _render_xrd_plot_settings_panel(dataset_key: str, state: dict, settings: Mapping[str, Any]) -> dict[str, Any]:
+    with st.expander(tx("Grafik Ayarları", "Plot Settings"), expanded=False):
+        left, right = st.columns(2)
+        with left:
+            show_peak_labels = st.checkbox(
+                tx("Pik etiketlerini göster (2θ + I)", "Show peak labels (2θ + I)"),
+                value=bool(settings.get("show_peak_labels", True)),
+                key=_xrd_control_key(dataset_key, "plot_peak_labels", state),
+            )
+            label_density_mode = st.selectbox(
+                tx("Etiket yoğunluğu", "Label density"),
+                ["smart", "all", "selected"],
+                index=["smart", "all", "selected"].index(str(settings.get("label_density_mode") or "smart")),
+                format_func=lambda item: {
+                    "smart": tx("Akıllı filtre", "Smart filter"),
+                    "all": tx("Hepsini göster", "Show all"),
+                    "selected": tx("Seçili odak", "Selected focus"),
+                }.get(item, item),
+                key=_xrd_control_key(dataset_key, "plot_label_density", state),
+            )
+            max_labels = st.slider(
+                tx("Maks etiket sayısı", "Max label count"),
+                1,
+                60,
+                int(settings.get("max_labels", 10)),
+                key=_xrd_control_key(dataset_key, "plot_max_labels", state),
+            )
+            min_label_ratio = st.slider(
+                tx("Etiket min yoğunluk oranı", "Label min intensity ratio"),
+                0.0,
+                1.0,
+                float(settings.get("min_label_intensity_ratio", 0.12)),
+                0.01,
+                key=_xrd_control_key(dataset_key, "plot_label_min_ratio", state),
+            )
+            marker_size = st.slider(
+                tx("Marker boyutu", "Marker size"),
+                4,
+                20,
+                int(settings.get("marker_size", 8)),
+                key=_xrd_control_key(dataset_key, "plot_marker_size", state),
+            )
+        with right:
+            position_precision = st.slider(
+                tx("2θ hassasiyet", "2θ precision"),
+                1,
+                5,
+                int(settings.get("label_position_precision", 2)),
+                key=_xrd_control_key(dataset_key, "plot_pos_precision", state),
+            )
+            intensity_precision = st.slider(
+                tx("Yoğunluk hassasiyet", "Intensity precision"),
+                0,
+                4,
+                int(settings.get("label_intensity_precision", 0)),
+                key=_xrd_control_key(dataset_key, "plot_int_precision", state),
+            )
+            style_preset = st.selectbox(
+                tx("Renk/şekil kodlaması", "Color/shape encoding"),
+                ["color_shape", "color_only", "shape_only"],
+                index=["color_shape", "color_only", "shape_only"].index(str(settings.get("style_preset") or "color_shape")),
+                format_func=lambda item: {
+                    "color_shape": tx("Renk + Şekil", "Color + Shape"),
+                    "color_only": tx("Sadece Renk", "Color only"),
+                    "shape_only": tx("Sadece Şekil", "Shape only"),
+                }.get(item, item),
+                key=_xrd_control_key(dataset_key, "plot_style", state),
+            )
+            show_matched = st.checkbox(
+                tx("Eşleşen pikleri göster", "Show matched peaks"),
+                value=bool(settings.get("show_matched_peaks", True)),
+                key=_xrd_control_key(dataset_key, "plot_show_matched", state),
+            )
+            show_match_labels = st.checkbox(
+                tx("Eşleşme etiketleri (aday + sıra)", "Match labels (candidate + rank)"),
+                value=bool(settings.get("show_match_labels", True)),
+                key=_xrd_control_key(dataset_key, "plot_show_match_labels", state),
+            )
+            show_unmatched_obs = st.checkbox(
+                tx("Eşleşmeyen gözlenen pikleri göster", "Show unmatched observed peaks"),
+                value=bool(settings.get("show_unmatched_observed", True)),
+                key=_xrd_control_key(dataset_key, "plot_show_unmatched_obs", state),
+            )
+            show_unmatched_ref = st.checkbox(
+                tx("Eşleşmeyen referans pikleri göster", "Show unmatched reference peaks"),
+                value=bool(settings.get("show_unmatched_reference", True)),
+                key=_xrd_control_key(dataset_key, "plot_show_unmatched_ref", state),
+            )
+            show_connectors = st.checkbox(
+                tx("Observed-Reference bağlantı çizgileri", "Observed-Reference connector lines"),
+                value=bool(settings.get("show_match_connectors", True)),
+                key=_xrd_control_key(dataset_key, "plot_show_connectors", state),
+            )
+
+    return _normalize_xrd_plot_settings(
+        {
+            "show_peak_labels": show_peak_labels,
+            "label_density_mode": label_density_mode,
+            "max_labels": max_labels,
+            "min_label_intensity_ratio": min_label_ratio,
+            "marker_size": marker_size,
+            "label_position_precision": position_precision,
+            "label_intensity_precision": intensity_precision,
+            "show_matched_peaks": show_matched,
+            "show_unmatched_observed": show_unmatched_obs,
+            "show_unmatched_reference": show_unmatched_ref,
+            "show_match_connectors": show_connectors,
+            "show_match_labels": show_match_labels,
+            "style_preset": style_preset,
+            "only_selected_candidate": True,
+        }
+    )
+
+
 def _attach_xrd_report_figure(record, *, dataset_key: str, dataset, state, lang: str, figures_store):
     figure_key = _xrd_figure_key(dataset_key)
-    figures_store[figure_key] = fig_to_bytes(_build_processed_plot(dataset_key, dataset, state, lang))
+    plot_settings = _xrd_plot_settings_from_processing((state or {}).get("processing") or {})
+    figures_store[figure_key] = fig_to_bytes(
+        _build_processed_plot(
+            dataset_key,
+            dataset,
+            state,
+            lang,
+            plot_settings=plot_settings,
+        )
+    )
 
     updated_record = dict(record or {})
     artifacts = dict(updated_record.get("artifacts") or {})
@@ -795,8 +1300,15 @@ def render():
                     "Template defaults and the overrides from this panel are applied in the same run.",
                 )
             )
+            preview_plot_settings = _xrd_plot_settings_from_processing((st.session_state.get(state_key, {}) or {}).get("processing"))
             st.plotly_chart(
-                _build_processed_plot(selected_key, dataset, st.session_state.get(state_key, {}), lang),
+                _build_processed_plot(
+                    selected_key,
+                    dataset,
+                    st.session_state.get(state_key, {}),
+                    lang,
+                    plot_settings=preview_plot_settings,
+                ),
                 use_container_width=True,
                 config=PLOTLY_CONFIG,
                 key=f"xrd_pipeline_plot_{selected_key}",
@@ -804,8 +1316,16 @@ def render():
 
     with tab_peaks:
         current_state = st.session_state.get(state_key, {})
+        current_plot_settings = _xrd_plot_settings_from_processing((current_state.get("processing") or {}))
+        current_plot_settings = _render_xrd_plot_settings_panel(selected_key, current_state, current_plot_settings)
         st.plotly_chart(
-            _build_processed_plot(selected_key, dataset, current_state, lang),
+            _build_processed_plot(
+                selected_key,
+                dataset,
+                current_state,
+                lang,
+                plot_settings=current_plot_settings,
+            ),
             use_container_width=True,
             config=PLOTLY_CONFIG,
             key=f"xrd_peak_plot_{selected_key}",
@@ -880,6 +1400,53 @@ def render():
             )
 
         if matches:
+            candidate_options = []
+            option_to_match: dict[str, dict[str, Any]] = {}
+            for item in matches:
+                try:
+                    display_score = float(item.get("normalized_score", 0.0))
+                except (TypeError, ValueError):
+                    display_score = 0.0
+                candidate_name = str(item.get("candidate_name") or item.get("candidate_id") or "N/A")
+                option = f"#{int(item.get('rank') or 0)} {candidate_name} | {display_score:.3f}"
+                candidate_options.append(option)
+                option_to_match[option] = item
+
+            selected_option = st.selectbox(
+                tx("Grafik aday overlay", "Candidate overlay"),
+                candidate_options,
+                key=_xrd_control_key(selected_key, "match_candidate", current_state),
+            )
+            selected_match = option_to_match.get(selected_option) or matches[0]
+            matches_plot_settings = _xrd_plot_settings_from_processing((current_state.get("processing") or {}))
+            st.plotly_chart(
+                _build_processed_plot(
+                    selected_key,
+                    dataset,
+                    current_state,
+                    lang,
+                    plot_settings=matches_plot_settings,
+                    selected_match=selected_match,
+                ),
+                use_container_width=True,
+                config=PLOTLY_CONFIG,
+                key=f"xrd_match_plot_{selected_key}",
+            )
+            selected_evidence = dict((selected_match.get("evidence") or {}))
+            st.caption(
+                tx(
+                    "Seçili aday grafikte renk/şekil ile gösterildi. Eşleşen pikler, eşleşmeyen gözlenen/referans pikler ve bağlantı çizgileri Grafik Ayarları'ndan yönetilir.",
+                    "Selected candidate is highlighted with color/shape. Matched peaks, unmatched observed/reference peaks, and connector lines are controlled from Plot Settings.",
+                )
+            )
+            if not (selected_evidence.get("matched_peak_pairs") or []):
+                st.info(
+                    tx(
+                        "Seçili aday için tolerans içinde eşleşen pik çifti bulunamadı.",
+                        "No peak pairs were matched within tolerance for the selected candidate.",
+                    )
+                )
+
             rows = []
             for item in matches:
                 evidence = item.get("evidence") or {}

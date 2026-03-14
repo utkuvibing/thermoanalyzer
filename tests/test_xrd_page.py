@@ -105,6 +105,19 @@ def test_sync_xrd_processing_from_controls_prefers_widget_state(monkeypatch):
         "xrd_match_topn_synthetic_xrd_2": 8,
         "xrd_match_iw_synthetic_xrd_2": 0.47,
         "xrd_match_major_synthetic_xrd_2": 0.58,
+        "xrd_plot_peak_labels_synthetic_xrd_2": True,
+        "xrd_plot_label_density_synthetic_xrd_2": "all",
+        "xrd_plot_max_labels_synthetic_xrd_2": 14,
+        "xrd_plot_label_min_ratio_synthetic_xrd_2": 0.2,
+        "xrd_plot_marker_size_synthetic_xrd_2": 12,
+        "xrd_plot_pos_precision_synthetic_xrd_2": 3,
+        "xrd_plot_int_precision_synthetic_xrd_2": 1,
+        "xrd_plot_show_matched_synthetic_xrd_2": True,
+        "xrd_plot_show_match_labels_synthetic_xrd_2": True,
+        "xrd_plot_show_unmatched_obs_synthetic_xrd_2": False,
+        "xrd_plot_show_unmatched_ref_synthetic_xrd_2": True,
+        "xrd_plot_show_connectors_synthetic_xrd_2": False,
+        "xrd_plot_style_synthetic_xrd_2": "shape_only",
     }
     monkeypatch.setattr(xrd_page.st, "session_state", widget_state)
 
@@ -129,3 +142,78 @@ def test_sync_xrd_processing_from_controls_prefers_widget_state(monkeypatch):
     assert peaks["prominence"] == 0.22
     assert context["xrd_match_tolerance_deg"] == 0.19
     assert context["xrd_match_top_n"] == 8
+    assert context["xrd_plot_settings"]["label_density_mode"] == "all"
+    assert context["xrd_plot_settings"]["marker_size"] == 12
+    assert context["xrd_plot_settings"]["show_unmatched_observed"] is False
+    assert context["xrd_plot_settings"]["style_preset"] == "shape_only"
+
+
+def test_pick_peak_label_indices_uses_smart_filter():
+    peaks = [
+        {"position": 10.0, "intensity": 10.0},
+        {"position": 20.0, "intensity": 120.0},
+        {"position": 30.0, "intensity": 90.0},
+        {"position": 40.0, "intensity": 5.0},
+    ]
+    settings = {
+        "show_peak_labels": True,
+        "label_density_mode": "smart",
+        "max_labels": 2,
+        "min_label_intensity_ratio": 0.2,
+    }
+
+    selected = xrd_page._pick_peak_label_indices(peaks, settings)
+
+    assert selected == {1, 2}
+
+
+def test_build_processed_plot_adds_match_overlay_traces():
+    dataset = _xrd_dataset()
+    state = {
+        "peaks": [
+            {"position": 18.2, "intensity": 130.0},
+            {"position": 27.5, "intensity": 290.0},
+            {"position": 36.1, "intensity": 175.0},
+        ]
+    }
+    selected_match = {
+        "rank": 1,
+        "candidate_name": "Phase Alpha",
+        "evidence": {
+            "matched_peak_pairs": [
+                {
+                    "observed_position": 27.5,
+                    "observed_intensity": 290.0,
+                    "reference_position": 27.62,
+                    "reference_intensity": 1.0,
+                }
+            ],
+            "unmatched_observed_peaks": [{"position": 18.2, "intensity": 130.0}],
+            "unmatched_reference_peaks": [{"position": 36.4, "intensity": 0.8, "is_major": True}],
+        },
+    }
+    settings = xrd_page._normalize_xrd_plot_settings(
+        {
+            "show_peak_labels": True,
+            "show_match_connectors": True,
+            "show_matched_peaks": True,
+            "show_unmatched_observed": True,
+            "show_unmatched_reference": True,
+        }
+    )
+
+    fig = xrd_page._build_processed_plot(
+        "synthetic_xrd",
+        dataset,
+        state,
+        "tr",
+        plot_settings=settings,
+        selected_match=selected_match,
+    )
+    trace_names = [trace.name for trace in fig.data]
+
+    assert "Pikler" in trace_names
+    assert "Eşleşen Pikler" in trace_names
+    assert "Eşleşen Referans Pik" in trace_names
+    assert "Eşleşmeyen Gözlenen Pik" in trace_names
+    assert "Eşleşmeyen Referans Pik" in trace_names

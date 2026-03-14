@@ -1841,6 +1841,8 @@ def _match_xrd_reference_peaks(
         )
         matches.append(
             {
+                "reference_index": int(ref_index),
+                "observed_index": int(best_observed_index),
                 "reference_position": float(reference_position),
                 "observed_position": float(observed_position if observed_position is not None else observed.get("position", 0.0)),
                 "delta_position": float(best_delta),
@@ -1848,6 +1850,8 @@ def _match_xrd_reference_peaks(
                 "reference_intensity": float(reference["intensity"]),
                 "observed_intensity": float(observed.get("intensity", 0.0)),
                 "comparison_space": comparison_space,
+                "reference_position_raw": float(reference.get("position", 0.0)),
+                "observed_position_raw": float(observed.get("position", 0.0)),
                 "reference_d_spacing": _resolve_xrd_comparison_value(
                     reference,
                     comparison_space="d_spacing",
@@ -1964,6 +1968,7 @@ def _rank_xrd_phase_candidates(
             idx for idx, item in enumerate(reference_peaks)
             if float(item.get("intensity", 0.0)) >= major_threshold
         ]
+        major_reference_index_set = set(major_reference_indices)
         unmatched_major_positions = [
             float(
                 _resolve_xrd_comparison_value(
@@ -1978,6 +1983,94 @@ def _rank_xrd_phase_candidates(
             if idx in major_reference_indices
         ]
         major_penalty = float(len(unmatched_major_positions) / max(len(major_reference_indices), 1))
+
+        matched_peak_pairs: list[dict[str, Any]] = []
+        matched_observed_indices: set[int] = set()
+        for item in matches:
+            observed_index = int(item.get("observed_index", -1))
+            reference_index = int(item.get("reference_index", -1))
+            matched_observed_indices.add(observed_index)
+            matched_peak_pairs.append(
+                {
+                    "observed_index": observed_index,
+                    "reference_index": reference_index,
+                    "observed_position": round(float(item.get("observed_position_raw", item.get("observed_position", 0.0))), 4),
+                    "reference_position": round(float(item.get("reference_position_raw", item.get("reference_position", 0.0))), 4),
+                    "delta_position": round(float(item.get("delta_position", 0.0)), 4),
+                    "comparison_tolerance": round(float(item.get("comparison_tolerance", tolerance_deg)), 4),
+                    "observed_intensity": round(float(item.get("observed_intensity", 0.0)), 4),
+                    "reference_intensity": round(float(item.get("reference_intensity", 0.0)), 4),
+                    "observed_d_spacing": (
+                        round(float(item["observed_d_spacing"]), 4)
+                        if item.get("observed_d_spacing") not in (None, "")
+                        else None
+                    ),
+                    "reference_d_spacing": (
+                        round(float(item["reference_d_spacing"]), 4)
+                        if item.get("reference_d_spacing") not in (None, "")
+                        else None
+                    ),
+                    "comparison_space": comparison_space,
+                }
+            )
+        matched_peak_pairs.sort(
+            key=lambda item: (
+                float(item.get("observed_position") or 0.0),
+                float(item.get("reference_position") or 0.0),
+            )
+        )
+
+        unmatched_observed_peaks: list[dict[str, Any]] = []
+        for observed_index, observed in enumerate(observed_peaks):
+            if observed_index in matched_observed_indices:
+                continue
+            observed_d_spacing = _resolve_xrd_comparison_value(
+                observed,
+                comparison_space="d_spacing",
+                wavelength_angstrom=wavelength_angstrom,
+            )
+            unmatched_observed_peaks.append(
+                {
+                    "observed_index": int(observed_index),
+                    "position": round(float(observed.get("position", 0.0)), 4),
+                    "intensity": round(float(observed.get("intensity", 0.0)), 4),
+                    "d_spacing": (
+                        round(float(observed_d_spacing), 4)
+                        if observed_d_spacing not in (None, "")
+                        else None
+                    ),
+                }
+            )
+        unmatched_observed_peaks.sort(
+            key=lambda item: float(item.get("position") or 0.0)
+        )
+
+        unmatched_reference_peaks: list[dict[str, Any]] = []
+        for ref_index in sorted(set(int(idx) for idx in unmatched_indices)):
+            if ref_index < 0 or ref_index >= len(reference_peaks):
+                continue
+            ref_peak = reference_peaks[ref_index]
+            reference_d_spacing = _resolve_xrd_comparison_value(
+                ref_peak,
+                comparison_space="d_spacing",
+                wavelength_angstrom=wavelength_angstrom,
+            )
+            unmatched_reference_peaks.append(
+                {
+                    "reference_index": int(ref_index),
+                    "position": round(float(ref_peak.get("position", 0.0)), 4),
+                    "intensity": round(float(ref_peak.get("intensity", 0.0)), 4),
+                    "d_spacing": (
+                        round(float(reference_d_spacing), 4)
+                        if reference_d_spacing not in (None, "")
+                        else None
+                    ),
+                    "is_major": ref_index in major_reference_index_set,
+                }
+            )
+        unmatched_reference_peaks.sort(
+            key=lambda item: float(item.get("position") or 0.0)
+        )
 
         delta_weight = max(0.0, 0.45 - intensity_weight)
         score = (0.5 * coverage_ratio) + (intensity_weight * weighted_overlap_score) + (delta_weight * delta_score)
@@ -2006,6 +2099,9 @@ def _rank_xrd_phase_candidates(
                     "mean_delta_ratio": round(mean_delta_ratio, 4) if mean_delta_ratio is not None else None,
                     "unmatched_major_peak_count": len(unmatched_major_positions),
                     "unmatched_major_peak_positions": [round(item, 4) for item in sorted(unmatched_major_positions)],
+                    "matched_peak_pairs": matched_peak_pairs,
+                    "unmatched_observed_peaks": unmatched_observed_peaks,
+                    "unmatched_reference_peaks": unmatched_reference_peaks,
                     "library_provider": reference.get("provider") or "",
                     "library_package": reference.get("package_id") or "",
                     "library_version": reference.get("package_version") or "",
