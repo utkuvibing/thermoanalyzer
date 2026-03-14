@@ -325,6 +325,11 @@ def _record_key_results(record: dict) -> dict[str, str]:
             "top_match_score",
             "confidence_band",
             "candidate_count",
+            "library_provider",
+            "library_package",
+            "library_version",
+            "library_sync_mode",
+            "library_cache_status",
             "caution_code",
             "caution_message",
             "sample_name",
@@ -341,6 +346,11 @@ def _record_key_results(record: dict) -> dict[str, str]:
             "candidate_count",
             "reference_candidate_count",
             "match_tolerance_deg",
+            "library_provider",
+            "library_package",
+            "library_version",
+            "library_sync_mode",
+            "library_cache_status",
             "caution_code",
             "caution_message",
             "sample_name",
@@ -373,12 +383,14 @@ def _record_metric_snapshot(record: dict) -> str:
         confidence_band = str(summary.get("confidence_band") or "not_recorded")
         top_score = _format_number(summary.get("top_match_score"), digits=3)
         top_match = summary.get("top_match_name") or summary.get("top_match_id") or "N/A"
+        library_label = summary.get("library_package") or summary.get("library_provider") or "embedded"
         if match_status.lower() == "matched":
             return ", ".join(
                 [
                     f"top match {top_match}",
                     f"score {top_score}",
                     f"confidence {confidence_band}",
+                    f"library {library_label}",
                 ]
             )
         caution = summary.get("caution_code") or "spectral_no_match"
@@ -386,6 +398,7 @@ def _record_metric_snapshot(record: dict) -> str:
             [
                 f"match status {match_status}",
                 f"top score {top_score}",
+                f"library {library_label}",
                 f"caution {caution}",
             ]
         )
@@ -394,12 +407,14 @@ def _record_metric_snapshot(record: dict) -> str:
         confidence_band = str(summary.get("confidence_band") or "not_recorded")
         top_score = _format_number(summary.get("top_phase_score"), digits=3)
         top_phase = summary.get("top_phase") or summary.get("top_phase_id") or "N/A"
+        library_label = summary.get("library_package") or summary.get("library_provider") or "embedded"
         if match_status.lower() == "matched":
             return ", ".join(
                 [
                     f"top phase {top_phase}",
                     f"score {top_score}",
                     f"confidence {confidence_band}",
+                    f"library {library_label}",
                 ]
             )
         caution = summary.get("caution_code") or "xrd_no_match"
@@ -407,6 +422,7 @@ def _record_metric_snapshot(record: dict) -> str:
             [
                 f"match status {match_status}",
                 f"top phase score {top_score}",
+                f"library {library_label}",
                 f"caution {caution}",
             ]
         )
@@ -1344,6 +1360,8 @@ def _xrd_caution_note(summary_payload: dict[str, Any]) -> str:
     match_status = str(summary_payload.get("match_status") or "").strip().lower()
     confidence_band = str(summary_payload.get("confidence_band") or "").strip().lower()
     caution_message = str(summary_payload.get("caution_message") or "").strip()
+    if match_status == "not_run":
+        return caution_message or "Phase matching was not run because no reference library candidates were available."
     if match_status == "no_match":
         return caution_message or "No candidate exceeded the minimum match threshold; treat as qualitative caution outcome."
     if match_status == "matched" and confidence_band == "low":

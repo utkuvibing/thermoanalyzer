@@ -9,6 +9,7 @@ import pandas as pd
 
 from core.processing_schema import ensure_processing_payload
 from core.provenance import classify_calibration_state, classify_reference_acceptance
+from core.reference_library import get_reference_library_manager
 from core.tga_processor import resolve_tga_unit_interpretation
 
 
@@ -58,10 +59,10 @@ _SPECTRAL_TEMPLATE_IDS = {
     "FTIR": {"ftir.general", "ftir.functional_groups"},
     "RAMAN": {"raman.general", "raman.polymorph_screening"},
 }
-_SPECTRAL_METRICS = {"cosine", "pearson"}
+_SPECTRAL_METRICS = {"cosine", "pearson", "cosine_prerank_then_pearson_peak_overlap"}
 _XRD_TEMPLATE_IDS = {"xrd.general", "xrd.phase_screening"}
-_XRD_MATCH_STATUSES = {"matched", "no_match"}
-_XRD_CONFIDENCE_BANDS = {"high", "medium", "low", "no_match"}
+_XRD_MATCH_STATUSES = {"matched", "no_match", "not_run"}
+_XRD_CONFIDENCE_BANDS = {"high", "medium", "low", "no_match", "not_run"}
 _XRD_REQUIRED_EVIDENCE_FIELDS = (
     "shared_peak_count",
     "weighted_overlap_score",
@@ -69,6 +70,13 @@ _XRD_REQUIRED_EVIDENCE_FIELDS = (
     "unmatched_major_peak_count",
     "tolerance_deg",
 )
+
+
+def _global_reference_candidate_count(analysis_type: str) -> int:
+    try:
+        return int(get_reference_library_manager().count_installed_candidates(analysis_type))
+    except Exception:
+        return 0
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -455,9 +463,13 @@ def _check_spectral_workflow(
                 issues.append(f"{analysis_type} similarity minimum_score must be within [0, 1].")
 
     method_context = processing.get("method_context") or {}
+    checks["library_sync_mode"] = method_context.get("library_sync_mode") or "not recorded"
+    checks["library_cache_status"] = method_context.get("library_cache_status") or "not recorded"
     reference_candidate_count = method_context.get("reference_candidate_count")
     if reference_candidate_count in (None, ""):
-        reference_candidate_count = len(metadata.get("spectral_reference_library") or [])
+        reference_candidate_count = len(metadata.get("spectral_reference_library") or []) + _global_reference_candidate_count(
+            analysis_type
+        )
     try:
         reference_candidate_count = int(reference_candidate_count or 0)
     except (TypeError, ValueError):
@@ -575,6 +587,8 @@ def _check_xrd_workflow(
     checks["xrd_match_minimum_score"] = (
         match_minimum_score if match_minimum_score not in (None, "") else "not recorded"
     )
+    checks["library_sync_mode"] = method_context.get("library_sync_mode") or "not recorded"
+    checks["library_cache_status"] = method_context.get("library_cache_status") or "not recorded"
     checks["xrd_reference_candidate_count"] = (
         reference_candidate_count if reference_candidate_count not in (None, "") else "not recorded"
     )
@@ -621,7 +635,10 @@ def _check_xrd_workflow(
             issues.append("XRD matching minimum_score must be within [0, 1].")
 
     if reference_candidate_count in (None, ""):
-        reference_count = len(metadata.get("xrd_reference_library") or metadata.get("reference_library") or [])
+        reference_count = (
+            len(metadata.get("xrd_reference_library") or metadata.get("reference_library") or [])
+            + _global_reference_candidate_count("XRD")
+        )
     else:
         try:
             reference_count = int(reference_candidate_count)
@@ -767,7 +784,7 @@ def enrich_xrd_result_validation(
     checks["caution_code"] = caution_code or "not_recorded"
 
     if match_status not in _XRD_MATCH_STATUSES:
-        issues.append("XRD match_status must be either 'matched' or 'no_match'.")
+        issues.append("XRD match_status must be one of 'matched', 'no_match', or 'not_run'.")
         checks["caution_state_output"] = "invalid"
     elif match_status == "matched":
         checks["caution_state_output"] = "clear"
@@ -775,7 +792,7 @@ def enrich_xrd_result_validation(
             issues.append("XRD matched outputs must include top_phase_id.")
         if confidence_band not in {"high", "medium", "low"}:
             issues.append("XRD matched outputs must include confidence_band high/medium/low.")
-    else:
+    elif match_status == "no_match":
         checks["caution_state_output"] = "no_match"
         if confidence_band != "no_match":
             issues.append("XRD no_match outputs must use confidence_band='no_match'.")
@@ -784,9 +801,16 @@ def enrich_xrd_result_validation(
             warnings.append(message)
         if not caution_code:
             warnings.append("XRD no-match output is missing caution_code metadata.")
+    else:
+        checks["caution_state_output"] = "not_run"
+        if confidence_band != "not_run":
+            issues.append("XRD not_run outputs must use confidence_band='not_run'.")
+        message = "XRD phase matching was not run because no reference library candidates were available."
+        if message not in warnings:
+            warnings.append(message)
 
     if confidence_band not in _XRD_CONFIDENCE_BANDS:
-        issues.append("XRD confidence_band must be one of high/medium/low/no_match.")
+        issues.append("XRD confidence_band must be one of high/medium/low/no_match/not_run.")
 
     if confidence_band == "low" and match_status == "matched":
         checks["caution_state_output"] = "low_confidence"

@@ -213,6 +213,11 @@ def test_serialize_ftir_result_persists_no_match_caution_and_evidence():
             "top_match_score": 0.31,
             "confidence_band": "no_match",
             "caution_code": "spectral_no_match",
+            "library_provider": "OpenSpecy",
+            "library_package": "openspecy_ftir_core",
+            "library_version": "2026.03-core",
+            "library_sync_mode": "online_sync",
+            "library_cache_status": "warm",
         },
         rows=[
             {
@@ -221,6 +226,9 @@ def test_serialize_ftir_result_persists_no_match_caution_and_evidence():
                 "candidate_name": "FTIR Ref A",
                 "normalized_score": 0.31,
                 "confidence_band": "no_match",
+                "library_provider": "OpenSpecy",
+                "library_package": "openspecy_ftir_core",
+                "library_version": "2026.03-core",
                 "evidence": {"shared_peak_count": 0, "peak_overlap_ratio": 0.0},
             }
         ],
@@ -232,8 +240,11 @@ def test_serialize_ftir_result_persists_no_match_caution_and_evidence():
     assert record["analysis_type"] == "FTIR"
     assert record["summary"]["match_status"] == "no_match"
     assert record["summary"]["caution_code"] == "spectral_no_match"
+    assert record["summary"]["library_package"] == "openspecy_ftir_core"
     assert record["review"]["caution"]["code"] == "spectral_no_match"
+    assert record["rows"][0]["library_provider"] == "OpenSpecy"
     assert record["rows"][0]["evidence"]["shared_peak_count"] == 0
+    assert record["scientific_context"]["methodology"]["library_context"]["package"] == "openspecy_ftir_core"
     assert record["scientific_context"]["fit_quality"]["confidence_band"] == "no_match"
     assert any("no-match outcomes are valid cautionary results" in item.lower() for item in record["scientific_context"]["limitations"])
 
@@ -302,6 +313,9 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
             "top_phase": "Phase Alpha",
             "top_phase_score": 0.79,
             "confidence_band": "medium",
+            "library_provider": "COD",
+            "library_package": "cod_xrd_core",
+            "library_version": "2026.03-core",
         },
         rows=[
             {
@@ -310,6 +324,9 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
                 "candidate_name": "Phase Alpha",
                 "normalized_score": 0.79,
                 "confidence_band": "medium",
+                "library_provider": "COD",
+                "library_package": "cod_xrd_core",
+                "library_version": "2026.03-core",
                 "evidence": {
                     "shared_peak_count": 4,
                     "weighted_overlap_score": 0.83,
@@ -328,8 +345,11 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
     assert record["summary"]["top_phase_id"] == "xrd_phase_alpha"
     assert record["summary"]["top_match_id"] == "xrd_phase_alpha"
     assert record["summary"]["confidence_band"] == "medium"
+    assert record["summary"]["library_provider"] == "COD"
+    assert record["rows"][0]["library_package"] == "cod_xrd_core"
     assert record["rows"][0]["evidence"]["weighted_overlap_score"] == 0.83
     assert record["review"]["caution"] == {}
+    assert record["scientific_context"]["methodology"]["library_context"]["provider"] == "COD"
     assert record["scientific_context"]["fit_quality"]["confidence_band"] == "medium"
 
 

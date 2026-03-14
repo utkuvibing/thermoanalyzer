@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-14T00:00:00Z",
+  "providers": [
+    {
+      "provider_id": "cod",
+      "name": "COD",
+      "modalities": [
+        "XRD"
+      ],
+      "source_url": "https://www.crystallography.net/cod/",
+      "license_name": "CC0-1.0",
+      "license_text": "",
+      "attribution": "Starter qualitative phase fingerprints derived from COD-compatible open crystal references."
+    },
+    {
+      "provider_id": "openspecy",
+      "name": "OpenSpecy",
+      "modalities": [
+        "FTIR",
+        "RAMAN"
+      ],
+      "source_url": "https://github.com/wincowgerDEV/OpenSpecy-package",
+      "license_name": "CC-BY-4.0",
+      "license_text": "",
+      "attribution": "Normalized starter FTIR references curated from OpenSpecy-compatible sources."
+    },
+    {
+      "provider_id": "rod",
+      "name": "ROD",
+      "modalities": [
+        "RAMAN"
+      ],
+      "source_url": "https://solsa.crystallography.net/rod/new.html",
+      "license_name": "CC0-1.0",
+      "license_text": "",
+      "attribution": "Supplemental Raman references modeled after ROD-style open mineral fingerprints."
+    }
+  ],
+  "packages": [
+    {
+      "package_id": "openspecy_ftir_core",
+      "analysis_type": "FTIR",
+      "provider": "OpenSpecy",
+      "version": "2026.03-core",
+      "archive_name": "openspecy_ftir_core-2026.03-core.zip",
+      "sha256": "b45b102b52c8263f173135c4e3b103a10f20cf4ad3718d6bfd3ae23921b988d9",
+      "entry_count": 2,
+      "source_url": "https://github.com/wincowgerDEV/OpenSpecy-package",
+      "license_name": "CC-BY-4.0",
+      "license_text": "",
+      "attribution": "Normalized starter FTIR references curated from OpenSpecy-compatible sources.",
+      "priority": 100,
+      "published_at": "2026-03-14T00:00:00Z"
+    },
+    {
+      "package_id": "openspecy_raman_core",
+      "analysis_type": "RAMAN",
+      "provider": "OpenSpecy",
+      "version": "2026.03-core",
+      "archive_name": "openspecy_raman_core-2026.03-core.zip",
+      "sha256": "8681d5cbde6ad61d72cc92c4ef08e74e220ec0c03467046143abd6d9d9dc116a",
+      "entry_count": 1,
+      "source_url": "https://github.com/wincowgerDEV/OpenSpecy-package",
+      "license_name": "CC-BY-4.0",
+      "license_text": "",
+      "attribution": "Normalized starter Raman references curated from OpenSpecy-compatible sources.",
+      "priority": 100,
+      "published_at": "2026-03-14T00:00:00Z"
+    },
+    {
+      "package_id": "rod_raman_core",
+      "analysis_type": "RAMAN",
+      "provider": "ROD",
+      "version": "2026.03-core",
+      "archive_name": "rod_raman_core-2026.03-core.zip",
+      "sha256": "c63f0806816c728c9b94b9231e9454d7599830999af14ae65501fde4d24fb631",
+      "entry_count": 1,
+      "source_url": "https://solsa.crystallography.net/rod/new.html",
+      "license_name": "CC0-1.0",
+      "license_text": "",
+      "attribution": "Supplemental Raman references modeled after ROD-style open mineral fingerprints.",
+      "priority": 80,
+      "published_at": "2026-03-14T00:00:00Z"
+    },
+    {
+      "package_id": "cod_xrd_core",
+      "analysis_type": "XRD",
+      "provider": "COD",
+      "version": "2026.03-core",
+      "archive_name": "cod_xrd_core-2026.03-core.zip",
+      "sha256": "bac2137e77df18f3da534662c3891ddf44b3e9084da24ec78eb39fa3f7dc5133",
+      "entry_count": 2,
+      "source_url": "https://www.crystallography.net/cod/",
+      "license_name": "CC0-1.0",
+      "license_text": "",
+      "attribution": "Starter qualitative phase fingerprints derived from COD-compatible open crystal references.",
+      "priority": 100,
+      "published_at": "2026-03-14T00:00:00Z"
+    }
+  ],
+  "etag": "cac6ab2c48a89bfd4186c2fa85ad8712eb9e49aa781a7a003d7d9b2b33ef22c3"
+}

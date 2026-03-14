@@ -337,12 +337,33 @@ def _build_spectral_scientific_context(
         or f"General {normalized_type}",
         "signal_pipeline": (processing or {}).get("signal_pipeline") or {},
         "analysis_steps": (processing or {}).get("analysis_steps") or {},
+        "matching_context": {
+            "metric": ((processing or {}).get("method_context") or {}).get("matching_metric")
+            or ((processing or {}).get("similarity_matching") or {}).get("metric"),
+            "minimum_score": ((processing or {}).get("method_context") or {}).get("matching_minimum_score")
+            or ((processing or {}).get("similarity_matching") or {}).get("minimum_score"),
+            "top_n": ((processing or {}).get("method_context") or {}).get("matching_top_n")
+            or ((processing or {}).get("similarity_matching") or {}).get("top_n"),
+        },
+        "library_context": {
+            "sync_mode": ((processing or {}).get("method_context") or {}).get("library_sync_mode"),
+            "cache_status": ((processing or {}).get("method_context") or {}).get("library_cache_status"),
+            "reference_package_count": ((processing or {}).get("method_context") or {}).get(
+                "library_reference_package_count"
+            ),
+            "reference_candidate_count": ((processing or {}).get("method_context") or {}).get(
+                "library_reference_candidate_count"
+            ),
+            "provider": summary.get("library_provider"),
+            "package": summary.get("library_package"),
+            "version": summary.get("library_version"),
+        },
     }
     equations = [
         build_equation(
             "Similarity Normalization",
             "normalized_score = clip((similarity + 1) / 2, 0, 1)",
-            notes="Applies to cosine/pearson similarities before confidence-band assignment.",
+            notes="Applies to cosine-based preranking and similarity reranking before confidence-band assignment.",
         )
     ]
     interpretation = [
@@ -406,6 +427,19 @@ def _build_xrd_scientific_context(
         or "General XRD",
         "signal_pipeline": (processing or {}).get("signal_pipeline") or {},
         "analysis_steps": (processing or {}).get("analysis_steps") or {},
+        "library_context": {
+            "sync_mode": ((processing or {}).get("method_context") or {}).get("library_sync_mode"),
+            "cache_status": ((processing or {}).get("method_context") or {}).get("library_cache_status"),
+            "reference_package_count": ((processing or {}).get("method_context") or {}).get(
+                "library_reference_package_count"
+            ),
+            "reference_candidate_count": ((processing or {}).get("method_context") or {}).get(
+                "library_reference_candidate_count"
+            ),
+            "provider": summary.get("library_provider"),
+            "package": summary.get("library_package"),
+            "version": summary.get("library_version"),
+        },
         "matching_context": {
             "metric": ((processing or {}).get("method_context") or {}).get("xrd_match_metric"),
             "tolerance_deg": ((processing or {}).get("method_context") or {}).get("xrd_match_tolerance_deg"),
@@ -991,6 +1025,9 @@ def serialize_spectral_result(
                 "candidate_name": payload.get("candidate_name"),
                 "normalized_score": _clean_scalar(payload.get("normalized_score")),
                 "confidence_band": payload.get("confidence_band"),
+                "library_provider": payload.get("library_provider"),
+                "library_package": payload.get("library_package"),
+                "library_version": payload.get("library_version"),
                 "evidence": copy.deepcopy(payload.get("evidence") or {}),
             }
         )
@@ -1003,9 +1040,28 @@ def serialize_spectral_result(
     normalized_summary.setdefault("top_match_score", 0.0)
     normalized_summary.setdefault("top_match_id", None)
     normalized_summary.setdefault("top_match_name", None)
+    normalized_summary.setdefault("library_provider", None)
+    normalized_summary.setdefault("library_package", None)
+    normalized_summary.setdefault("library_version", None)
+    normalized_summary.setdefault("library_sync_mode", None)
+    normalized_summary.setdefault("library_cache_status", None)
     normalized_summary.setdefault("sample_name", dataset.metadata.get("sample_name"))
     normalized_summary.setdefault("sample_mass", dataset.metadata.get("sample_mass"))
     normalized_summary.setdefault("heating_rate", dataset.metadata.get("heating_rate"))
+    if normalized_rows and not normalized_summary.get("library_provider"):
+        normalized_summary["library_provider"] = normalized_rows[0].get("library_provider")
+    if normalized_rows and not normalized_summary.get("library_package"):
+        normalized_summary["library_package"] = normalized_rows[0].get("library_package")
+    if normalized_rows and not normalized_summary.get("library_version"):
+        normalized_summary["library_version"] = normalized_rows[0].get("library_version")
+    if normalized_summary.get("library_sync_mode") in (None, ""):
+        normalized_summary["library_sync_mode"] = ((processing or {}).get("method_context") or {}).get(
+            "library_sync_mode"
+        )
+    if normalized_summary.get("library_cache_status") in (None, ""):
+        normalized_summary["library_cache_status"] = ((processing or {}).get("method_context") or {}).get(
+            "library_cache_status"
+        )
     normalized_summary["top_match_score"] = _clean_scalar(normalized_summary.get("top_match_score"))
 
     match_status = str(normalized_summary.get("match_status") or "").lower()
@@ -1093,6 +1149,9 @@ def serialize_xrd_result(
                 "candidate_name": payload.get("candidate_name"),
                 "normalized_score": _clean_scalar(payload.get("normalized_score")),
                 "confidence_band": payload.get("confidence_band"),
+                "library_provider": payload.get("library_provider"),
+                "library_package": payload.get("library_package"),
+                "library_version": payload.get("library_version"),
                 "evidence": copy.deepcopy(payload.get("evidence") or {}),
             }
         )
@@ -1108,9 +1167,28 @@ def serialize_xrd_result(
     normalized_summary.setdefault("top_match_id", normalized_summary.get("top_phase_id"))
     normalized_summary.setdefault("top_match_name", normalized_summary.get("top_phase"))
     normalized_summary.setdefault("top_match_score", normalized_summary.get("top_phase_score"))
+    normalized_summary.setdefault("library_provider", None)
+    normalized_summary.setdefault("library_package", None)
+    normalized_summary.setdefault("library_version", None)
+    normalized_summary.setdefault("library_sync_mode", None)
+    normalized_summary.setdefault("library_cache_status", None)
     normalized_summary.setdefault("sample_name", dataset.metadata.get("sample_name"))
     normalized_summary.setdefault("sample_mass", dataset.metadata.get("sample_mass"))
     normalized_summary.setdefault("heating_rate", dataset.metadata.get("heating_rate"))
+    if normalized_rows and not normalized_summary.get("library_provider"):
+        normalized_summary["library_provider"] = normalized_rows[0].get("library_provider")
+    if normalized_rows and not normalized_summary.get("library_package"):
+        normalized_summary["library_package"] = normalized_rows[0].get("library_package")
+    if normalized_rows and not normalized_summary.get("library_version"):
+        normalized_summary["library_version"] = normalized_rows[0].get("library_version")
+    if normalized_summary.get("library_sync_mode") in (None, ""):
+        normalized_summary["library_sync_mode"] = ((processing or {}).get("method_context") or {}).get(
+            "library_sync_mode"
+        )
+    if normalized_summary.get("library_cache_status") in (None, ""):
+        normalized_summary["library_cache_status"] = ((processing or {}).get("method_context") or {}).get(
+            "library_cache_status"
+        )
     normalized_summary["top_phase_score"] = _clean_scalar(normalized_summary.get("top_phase_score"))
     normalized_summary["top_match_score"] = _clean_scalar(normalized_summary.get("top_match_score"))
 

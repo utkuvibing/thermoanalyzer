@@ -8,6 +8,7 @@ Run with: streamlit run app.py
 
 import streamlit as st
 
+from core.reference_library import maybe_refresh_library_manifest
 from core.project_io import PROJECT_EXTENSION, save_project_archive, load_project_archive
 from utils.diagnostics import configure_diagnostics_logger, record_exception
 from utils.i18n import SUPPORTED_LANGUAGES, t, tx
@@ -34,6 +35,10 @@ except Exception as exc:
         "source": None,
         "commercial_mode": commercial_mode_enabled(),
     }
+try:
+    st.session_state["library_status"] = maybe_refresh_library_manifest(st.session_state.get("license_state"))
+except Exception:
+    st.session_state["library_status"] = None
 
 # --- Professional CSS ---
 st.markdown("""
@@ -376,6 +381,7 @@ from ui.dsc_page import render as dsc_render
 from ui.tga_page import render as tga_render
 from ui.project_page import render as project_render
 from ui.license_page import render as license_render
+from ui.library_page import render as library_render
 from ui.dta_page import render as dta_render
 from ui.ftir_page import render as ftir_render
 from ui.raman_page import render as raman_render
@@ -400,6 +406,7 @@ pages = {
         st.Page(ftir_render, title=t("nav.ftir"), icon="🧬", url_path="ftir"),
         st.Page(raman_render, title=t("nav.raman"), icon="🔦", url_path="raman"),
         st.Page(xrd_render, title=t("nav.xrd"), icon="🧿", url_path="xrd"),
+        st.Page(library_render, title=tx("Kütüphane", "Library"), icon="🗃️", url_path="library"),
         st.Page(export_render, title=t("nav.report"), icon="📝", url_path="report"),
         st.Page(project_render, title=t("nav.project"), icon="🗂️", url_path="project"),
         st.Page(license_render, title=t("nav.license"), icon="🔐", url_path="license"),

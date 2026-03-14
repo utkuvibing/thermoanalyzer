@@ -19,6 +19,55 @@ class VersionResponse(BaseModel):
     project_extension: str
 
 
+class LibraryStatusResponse(BaseModel):
+    feed_configured: bool
+    feed_source: str = ""
+    manifest_checked_at: str | None = None
+    last_sync_at: str | None = None
+    sync_mode: str = "not_synced"
+    cache_status: str = "cold"
+    installed_package_count: int = 0
+    installed_entry_count: int = 0
+    update_available_count: int = 0
+    available_package_count: int = 0
+    available_provider_count: int = 0
+    manifest_etag: str = ""
+    last_error: str = ""
+    sync_due: bool = False
+    license_status: str | None = None
+
+
+class LibraryCatalogItem(BaseModel):
+    package_id: str
+    analysis_type: str
+    provider: str
+    version: str
+    entry_count: int = 0
+    source_url: str = ""
+    license_name: str = ""
+    attribution: str = ""
+    priority: int = 0
+    installed: bool = False
+    installed_version: str | None = None
+    update_available: bool = False
+
+
+class LibraryCatalogResponse(BaseModel):
+    status: LibraryStatusResponse
+    libraries: list[LibraryCatalogItem] = Field(default_factory=list)
+
+
+class LibrarySyncRequest(BaseModel):
+    package_ids: list[str] | None = None
+    force: bool = False
+
+
+class LibrarySyncResponse(BaseModel):
+    status: LibraryStatusResponse
+    libraries: list[LibraryCatalogItem] = Field(default_factory=list)
+    synced_package_ids: list[str] = Field(default_factory=list)
+
+
 class ProjectSummary(BaseModel):
     active_dataset: str | None = None
     dataset_count: int = 0

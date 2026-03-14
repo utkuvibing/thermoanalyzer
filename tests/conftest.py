@@ -86,6 +86,16 @@ def _tanh_step(x, center, width, amplitude):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
+@pytest.fixture(autouse=True)
+def isolated_thermoanalyzer_home(monkeypatch, tmp_path):
+    """Isolate license/library disk state so global cache never leaks across tests."""
+    storage_root = tmp_path / "thermoanalyzer-home"
+    storage_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(storage_root))
+    yield
+
+
 @pytest.fixture(scope="session")
 def temperature_range():
     """Uniform temperature grid from 30 to 300 degrees C with 500 points."""

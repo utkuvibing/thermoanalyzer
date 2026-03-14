@@ -156,6 +156,13 @@ def test_streamlit_artifact_exposes_ftir_and_raman_in_primary_navigation():
     assert 'st.Page(raman_render, title=t("nav.raman"), icon="🔦", url_path="raman")' in app_source
 
 
+def test_streamlit_artifact_exposes_global_library_management_page():
+    app_source = _project_file("app.py")
+
+    assert 'from ui.library_page import render as library_render' in app_source
+    assert 'st.Page(library_render, title=tx("Kütüphane", "Library"), icon="🗃️", url_path="library")' in app_source
+
+
 def test_desktop_artifacts_expose_primary_dta_and_remove_preview_locked_dta():
     index_html = _project_file("desktop/electron/index.html")
     renderer_source = _project_file("desktop/electron/renderer.js")

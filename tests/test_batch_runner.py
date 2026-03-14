@@ -8,6 +8,7 @@ import pandas as pd
 from core.batch_runner import execute_batch_template, filter_batch_summary_rows, normalize_batch_summary_rows, summarize_batch_outcomes
 from core.data_io import ThermalDataset, read_thermal_data
 from core.processing_schema import set_tga_unit_mode
+from core.reference_library import get_reference_library_manager
 
 
 def _make_tga_dataset(temperature_range, tga_signal, *, signal_unit="%"):
@@ -463,6 +464,41 @@ def test_execute_xrd_batch_template_keeps_no_match_as_cautionary_saved_output():
     assert outcome["record"]["summary"]["caution_code"] == "xrd_no_match"
     assert outcome["record"]["review"]["caution"]["code"] == "xrd_no_match"
     assert outcome["summary_row"]["match_status"] == "no_match"
+
+
+def test_execute_batch_template_uses_installed_global_reference_libraries():
+    manager = get_reference_library_manager()
+    manager.sync(force=True, package_ids=["openspecy_ftir_core", "cod_xrd_core"])
+
+    spectral_dataset = _make_spectral_dataset(analysis_type="FTIR", include_reference_library=False)
+    spectral_outcome = execute_batch_template(
+        dataset_key="synthetic_ftir_global",
+        dataset=spectral_dataset,
+        analysis_type="FTIR",
+        workflow_template_id="ftir.general",
+        batch_run_id="batch_ftir_global",
+    )
+
+    assert spectral_outcome["status"] == "saved"
+    assert spectral_outcome["record"]["summary"]["library_package"] == "openspecy_ftir_core"
+    assert spectral_outcome["record"]["summary"]["library_provider"] == "OpenSpecy"
+    assert spectral_outcome["record"]["summary"]["library_cache_status"] == "warm"
+    assert spectral_outcome["record"]["rows"][0]["library_package"] == "openspecy_ftir_core"
+
+    xrd_dataset = _make_xrd_dataset(include_reference_library=False)
+    xrd_outcome = execute_batch_template(
+        dataset_key="synthetic_xrd_global",
+        dataset=xrd_dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        batch_run_id="batch_xrd_global",
+    )
+
+    assert xrd_outcome["status"] == "saved"
+    assert xrd_outcome["record"]["summary"]["library_package"] == "cod_xrd_core"
+    assert xrd_outcome["record"]["summary"]["library_provider"] == "COD"
+    assert xrd_outcome["record"]["summary"]["library_cache_status"] == "warm"
+    assert xrd_outcome["record"]["rows"][0]["library_package"] == "cod_xrd_core"
 
 
 def test_execute_batch_template_blocks_failed_validation(thermal_dataset):

@@ -149,6 +149,7 @@ def validate_license_payload(
     app_version: str = APP_VERSION,
     now: datetime | None = None,
     secret: str | None = None,
+    enforce_machine_binding: bool = True,
 ) -> dict[str, Any]:
     """Validate a signed payload and map it to app-facing license state."""
     now = now or datetime.now(UTC)
@@ -175,7 +176,7 @@ def validate_license_payload(
         return state
 
     machine_fingerprint = str(payload.get("machine_fingerprint") or "").strip()
-    if machine_fingerprint and machine_fingerprint != get_machine_fingerprint():
+    if enforce_machine_binding and machine_fingerprint and machine_fingerprint != get_machine_fingerprint():
         state["message"] = "This license key is bound to a different workstation."
         return state
 
@@ -212,6 +213,25 @@ def validate_license_payload(
         }
     )
     return state
+
+
+def validate_encoded_license_key(
+    license_key: str,
+    *,
+    app_version: str = APP_VERSION,
+    now: datetime | None = None,
+    secret: str | None = None,
+    enforce_machine_binding: bool = True,
+) -> dict[str, Any]:
+    """Decode and validate an encoded license key string."""
+    payload = decode_license_key(license_key.strip())
+    return validate_license_payload(
+        payload,
+        app_version=app_version,
+        now=now,
+        secret=secret,
+        enforce_machine_binding=enforce_machine_binding,
+    )
 
 
 def activate_license_key(

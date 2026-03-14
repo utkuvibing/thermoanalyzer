@@ -19,6 +19,7 @@ from core.processing_schema import (
     update_tga_unit_context,
 )
 from core.provenance import build_calibration_reference_context, build_result_provenance
+from core.reference_library import get_reference_library_manager
 from core.result_serialization import (
     make_result_record,
     serialize_dsc_result,
@@ -784,17 +785,62 @@ def _detect_spectral_peaks(axis: np.ndarray, signal: np.ndarray, config: Mapping
     ]
 
 
+def _first_defined_value(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        if isinstance(value, (list, tuple, dict, set)) and not value:
+            continue
+        return value
+    return None
+
+
 def _extract_reference_signal(entry: Mapping[str, Any]) -> tuple[np.ndarray | None, np.ndarray | None]:
-    axis = _to_float_array(entry.get("axis") or entry.get("temperature") or entry.get("x"))
-    signal = _to_float_array(entry.get("signal") or entry.get("intensity") or entry.get("y"))
+    axis = _to_float_array(_first_defined_value(entry.get("axis"), entry.get("temperature"), entry.get("x")))
+    signal = _to_float_array(_first_defined_value(entry.get("signal"), entry.get("intensity"), entry.get("y")))
     if axis is None or signal is None or axis.size != signal.size:
         return None, None
     return _sorted_axis_signal(axis, signal)
 
 
+def _reference_row(
+    *,
+    candidate_id: str,
+    candidate_name: str,
+    priority: int = 0,
+    provider: str = "",
+    package_id: str = "",
+    package_version: str = "",
+    attribution: str = "",
+    source_url: str = "",
+    axis: np.ndarray | None = None,
+    signal: np.ndarray | None = None,
+    peaks: list[dict[str, float]] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "candidate_id": _slug_token(candidate_id),
+        "candidate_name": candidate_name,
+        "priority": int(priority),
+        "provider": provider,
+        "package_id": package_id,
+        "package_version": package_version,
+        "attribution": attribution,
+        "source_url": source_url,
+    }
+    if axis is not None and signal is not None:
+        payload["axis"] = axis
+        payload["signal"] = signal
+    if peaks is not None:
+        payload["peaks"] = peaks
+    return payload
+
+
 def _resolve_spectral_references(
     *,
     dataset,
+    analysis_type: str,
     processing: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     metadata = getattr(dataset, "metadata", {}) or {}
@@ -805,26 +851,56 @@ def _resolve_spectral_references(
         or method_context.get("spectral_reference_library")
         or []
     )
-    if not isinstance(raw_references, list):
-        return []
-
     normalized: list[dict[str, Any]] = []
-    for index, item in enumerate(raw_references, start=1):
-        if not isinstance(item, Mapping):
-            continue
-        candidate_id = str(item.get("id") or item.get("candidate_id") or f"reference_{index}")
-        candidate_name = str(item.get("name") or item.get("candidate_name") or candidate_id)
-        axis, signal = _extract_reference_signal(item)
+    if isinstance(raw_references, list):
+        for index, item in enumerate(raw_references, start=1):
+            if not isinstance(item, Mapping):
+                continue
+            candidate_id = str(item.get("id") or item.get("candidate_id") or f"reference_{index}")
+            candidate_name = str(item.get("name") or item.get("candidate_name") or candidate_id)
+            axis, signal = _extract_reference_signal(item)
+            if axis is None or signal is None:
+                continue
+            normalized.append(
+                _reference_row(
+                    candidate_id=candidate_id,
+                    candidate_name=candidate_name,
+                    priority=1000,
+                    provider=str(item.get("provider") or "dataset"),
+                    package_id=str(item.get("package_id") or "dataset_metadata"),
+                    package_version=str(item.get("package_version") or "embedded"),
+                    attribution=str(item.get("attribution") or ""),
+                    source_url=str(item.get("source_url") or ""),
+                    axis=axis,
+                    signal=signal,
+                )
+            )
+    manager = get_reference_library_manager()
+    for entry in manager.load_entries(analysis_type):
+        axis, signal = _extract_reference_signal(entry)
         if axis is None or signal is None:
             continue
         normalized.append(
-            {
-                "candidate_id": _slug_token(candidate_id),
-                "candidate_name": candidate_name,
-                "axis": axis,
-                "signal": signal,
-            }
+            _reference_row(
+                candidate_id=str(entry.get("candidate_id") or ""),
+                candidate_name=str(entry.get("candidate_name") or ""),
+                priority=int(entry.get("priority") or 0),
+                provider=str(entry.get("provider") or ""),
+                package_id=str(entry.get("package_id") or ""),
+                package_version=str(entry.get("package_version") or ""),
+                attribution=str(entry.get("attribution") or ""),
+                source_url=str(entry.get("source_url") or ""),
+                axis=axis,
+                signal=signal,
+            )
         )
+    normalized.sort(
+        key=lambda item: (
+            -int(item.get("priority") or 0),
+            str(item.get("provider") or ""),
+            str(item.get("candidate_id") or ""),
+        )
+    )
     return normalized
 
 
@@ -886,41 +962,78 @@ def _rank_spectral_matches(
     matching_config: Mapping[str, Any],
     peak_config: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    metric = str(matching_config.get("metric") or "cosine")
     top_n = int(matching_config.get("top_n") or 3)
     minimum_score = float(matching_config.get("minimum_score") or 0.45)
     if top_n < 1:
         top_n = 1
 
-    ranked: list[dict[str, Any]] = []
+    preranked: list[dict[str, Any]] = []
     for reference in references:
         reference_axis = reference["axis"]
         reference_signal = reference["signal"]
         interpolated = np.interp(axis, reference_axis, reference_signal)
         reference_smoothed = _apply_spectral_smoothing(interpolated, {"method": "none"})
         reference_normalized = _normalize_spectral_signal(reference_smoothed, {"method": "vector"})
-        score = _spectral_similarity(normalized_signal, reference_normalized, metric)
-        confidence_band = _confidence_band(score, minimum_score)
         reference_peaks = _detect_spectral_peaks(axis, reference_normalized, peak_config)
+        cosine_score = _spectral_similarity(normalized_signal, reference_normalized, "cosine")
+        preranked.append(
+            {
+                "reference": reference,
+                "reference_normalized": reference_normalized,
+                "reference_peaks": reference_peaks,
+                "cosine_score": cosine_score,
+            }
+        )
+
+    preranked.sort(
+        key=lambda item: (
+            -float(item["cosine_score"]),
+            -int((item["reference"] or {}).get("priority") or 0),
+            str((item["reference"] or {}).get("candidate_id") or ""),
+        )
+    )
+    shortlist_count = min(len(preranked), max(top_n * 5, 10))
+    ranked: list[dict[str, Any]] = []
+    for item in preranked[:shortlist_count]:
+        reference = item["reference"]
+        reference_normalized = item["reference_normalized"]
+        reference_peaks = item["reference_peaks"]
         shared = _shared_peak_count(observed_peaks, reference_peaks)
         overlap_ratio = float(shared / max(len(observed_peaks), len(reference_peaks), 1))
+        pearson_score = _spectral_similarity(normalized_signal, reference_normalized, "pearson")
+        score = float(max(0.0, min(1.0, (0.7 * pearson_score) + (0.3 * overlap_ratio))))
+        confidence_band = _confidence_band(score, minimum_score)
         ranked.append(
             {
                 "candidate_id": reference["candidate_id"],
                 "candidate_name": reference["candidate_name"],
                 "normalized_score": round(score, 4),
                 "confidence_band": confidence_band,
+                "library_provider": reference.get("provider") or "",
+                "library_package": reference.get("package_id") or "",
+                "library_version": reference.get("package_version") or "",
                 "evidence": {
-                    "metric": metric.lower(),
+                    "metric": "cosine_prerank_then_pearson_peak_overlap",
                     "observed_peak_count": len(observed_peaks),
                     "reference_peak_count": len(reference_peaks),
                     "shared_peak_count": shared,
                     "peak_overlap_ratio": round(overlap_ratio, 4),
+                    "cosine_prerank_score": round(float(item["cosine_score"]), 4),
+                    "pearson_score": round(pearson_score, 4),
+                    "library_provider": reference.get("provider") or "",
+                    "library_package": reference.get("package_id") or "",
+                    "library_version": reference.get("package_version") or "",
                 },
             }
         )
 
-    ranked.sort(key=lambda item: (-float(item["normalized_score"]), str(item["candidate_id"])))
+    ranked.sort(
+        key=lambda item: (
+            -float(item["normalized_score"]),
+            str(item.get("library_provider") or ""),
+            str(item["candidate_id"]),
+        )
+    )
     trimmed = ranked[:top_n]
     for rank, item in enumerate(trimmed, start=1):
         item["rank"] = rank
@@ -954,7 +1067,9 @@ def _execute_spectral_batch(
     normalized_signal = _normalize_spectral_signal(corrected, normalization)
     observed_peaks = _detect_spectral_peaks(axis, normalized_signal, peak_detection)
 
-    references = _resolve_spectral_references(dataset=dataset, processing=processing)
+    manager = get_reference_library_manager()
+    library_context = manager.library_context(analysis_type)
+    references = _resolve_spectral_references(dataset=dataset, analysis_type=analysis_type, processing=processing)
     ranked_matches = _rank_spectral_matches(
         axis=axis,
         normalized_signal=normalized_signal,
@@ -970,6 +1085,9 @@ def _execute_spectral_batch(
     match_status = "matched" if matched else "no_match"
     top_score = float(top_match["normalized_score"]) if top_match else 0.0
     confidence_band = top_match["confidence_band"] if matched and top_match else "no_match"
+    top_provider = str(top_match.get("library_provider") or "") if top_match else ""
+    top_package = str(top_match.get("library_package") or "") if top_match else ""
+    top_version = str(top_match.get("library_version") or "") if top_match else ""
     caution_payload = (
         {}
         if matched
@@ -987,9 +1105,13 @@ def _execute_spectral_batch(
             "batch_run_id": batch_run_id or "",
             "batch_template_runner": "compare_workspace",
             "reference_candidate_count": len(references),
-            "matching_metric": str(similarity_matching.get("metric") or "cosine").lower(),
+            "matching_metric": "cosine_prerank_then_pearson_peak_overlap",
             "matching_top_n": int(similarity_matching.get("top_n") or 3),
             "matching_minimum_score": minimum_score,
+            "library_sync_mode": library_context["library_sync_mode"],
+            "library_cache_status": library_context["library_cache_status"],
+            "library_reference_package_count": library_context["reference_package_count"],
+            "library_reference_candidate_count": library_context["reference_candidate_count"],
         },
         analysis_type=analysis_type,
     )
@@ -1006,6 +1128,11 @@ def _execute_spectral_batch(
             "analysis_type": analysis_type,
             "match_status": match_status,
             "reference_candidate_count": len(references),
+            "library_provider": top_provider,
+            "library_package": top_package,
+            "library_version": top_version,
+            "library_sync_mode": library_context["library_sync_mode"],
+            "library_cache_status": library_context["library_cache_status"],
         },
     )
 
@@ -1018,6 +1145,14 @@ def _execute_spectral_batch(
         "top_match_score": round(top_score, 4),
         "confidence_band": confidence_band,
         "caution_code": caution_payload.get("code", ""),
+        "caution_message": caution_payload.get("message", ""),
+        "library_provider": top_provider,
+        "library_package": top_package,
+        "library_version": top_version,
+        "library_sync_mode": library_context["library_sync_mode"],
+        "library_cache_status": library_context["library_cache_status"],
+        "library_reference_package_count": library_context["reference_package_count"],
+        "library_reference_candidate_count": library_context["reference_candidate_count"],
     }
     rows = [
         {
@@ -1026,6 +1161,9 @@ def _execute_spectral_batch(
             "candidate_name": item["candidate_name"],
             "normalized_score": item["normalized_score"],
             "confidence_band": item["confidence_band"],
+            "library_provider": item.get("library_provider") or "",
+            "library_package": item.get("library_package") or "",
+            "library_version": item.get("library_version") or "",
             "evidence": item["evidence"],
         }
         for item in ranked_matches
@@ -1307,25 +1445,54 @@ def _resolve_xrd_references(
         or method_context.get("xrd_reference_library")
         or []
     )
-    if not isinstance(raw_references, list):
-        return []
-
     normalized: list[dict[str, Any]] = []
-    for index, entry in enumerate(raw_references, start=1):
-        if not isinstance(entry, Mapping):
-            continue
+    if isinstance(raw_references, list):
+        for index, entry in enumerate(raw_references, start=1):
+            if not isinstance(entry, Mapping):
+                continue
+            peaks = _extract_xrd_reference_peaks(entry)
+            if not peaks:
+                continue
+            candidate_id = str(entry.get("id") or entry.get("candidate_id") or f"xrd_reference_{index}")
+            candidate_name = str(entry.get("name") or entry.get("candidate_name") or candidate_id)
+            normalized.append(
+                _reference_row(
+                    candidate_id=candidate_id,
+                    candidate_name=candidate_name,
+                    priority=1000,
+                    provider=str(entry.get("provider") or "dataset"),
+                    package_id=str(entry.get("package_id") or "dataset_metadata"),
+                    package_version=str(entry.get("package_version") or "embedded"),
+                    attribution=str(entry.get("attribution") or ""),
+                    source_url=str(entry.get("source_url") or ""),
+                    peaks=peaks,
+                )
+            )
+    manager = get_reference_library_manager()
+    for entry in manager.load_entries("XRD"):
         peaks = _extract_xrd_reference_peaks(entry)
         if not peaks:
             continue
-        candidate_id = str(entry.get("id") or entry.get("candidate_id") or f"xrd_reference_{index}")
-        candidate_name = str(entry.get("name") or entry.get("candidate_name") or candidate_id)
         normalized.append(
-            {
-                "candidate_id": _slug_token(candidate_id),
-                "candidate_name": candidate_name,
-                "peaks": peaks,
-            }
+            _reference_row(
+                candidate_id=str(entry.get("candidate_id") or ""),
+                candidate_name=str(entry.get("candidate_name") or ""),
+                priority=int(entry.get("priority") or 0),
+                provider=str(entry.get("provider") or ""),
+                package_id=str(entry.get("package_id") or ""),
+                package_version=str(entry.get("package_version") or ""),
+                attribution=str(entry.get("attribution") or ""),
+                source_url=str(entry.get("source_url") or ""),
+                peaks=peaks,
+            )
         )
+    normalized.sort(
+        key=lambda item: (
+            -int(item.get("priority") or 0),
+            str(item.get("provider") or ""),
+            str(item.get("candidate_id") or ""),
+        )
+    )
     return normalized
 
 
@@ -1383,8 +1550,32 @@ def _rank_xrd_phase_candidates(
     metric = str(matching_config.get("metric") or "peak_overlap_weighted")
 
     observed_scale = max([float(item.get("intensity", 0.0)) for item in observed_peaks] + [1.0])
-    ranked: list[dict[str, Any]] = []
+    prefiltered: list[dict[str, Any]] = []
+    prefilter_tolerance = tolerance_deg * 2.0
+    prefilter_limit = max(top_n * 10, 20)
     for reference in references:
+        reference_peaks = [dict(item) for item in reference.get("peaks") or [] if isinstance(item, Mapping)]
+        loose_matches, _ = _match_xrd_reference_peaks(
+            observed_peaks=observed_peaks,
+            reference_peaks=reference_peaks,
+            tolerance_deg=prefilter_tolerance,
+        )
+        prefiltered.append(
+            {
+                "reference": reference,
+                "shared_peak_count": len(loose_matches),
+            }
+        )
+    prefiltered.sort(
+        key=lambda item: (
+            -int(item["shared_peak_count"]),
+            -int((item["reference"] or {}).get("priority") or 0),
+            str((item["reference"] or {}).get("candidate_id") or ""),
+        )
+    )
+    ranked: list[dict[str, Any]] = []
+    for candidate in prefiltered[:prefilter_limit]:
+        reference = candidate["reference"]
         reference_peaks = [dict(item) for item in reference.get("peaks") or [] if isinstance(item, Mapping)]
         if not reference_peaks:
             continue
@@ -1447,6 +1638,9 @@ def _rank_xrd_phase_candidates(
                 "candidate_name": reference["candidate_name"],
                 "normalized_score": round(score, 4),
                 "confidence_band": confidence_band,
+                "library_provider": reference.get("provider") or "",
+                "library_package": reference.get("package_id") or "",
+                "library_version": reference.get("package_version") or "",
                 "evidence": {
                     "metric": metric,
                     "tolerance_deg": tolerance_deg,
@@ -1458,6 +1652,9 @@ def _rank_xrd_phase_candidates(
                     "mean_delta_position": round(mean_delta, 4) if mean_delta is not None else None,
                     "unmatched_major_peak_count": len(unmatched_major_positions),
                     "unmatched_major_peak_positions": [round(item, 4) for item in sorted(unmatched_major_positions)],
+                    "library_provider": reference.get("provider") or "",
+                    "library_package": reference.get("package_id") or "",
+                    "library_version": reference.get("package_version") or "",
                 },
             }
         )
@@ -1467,6 +1664,7 @@ def _rank_xrd_phase_candidates(
             -float(item["normalized_score"]),
             -int(item["evidence"]["shared_peak_count"]),
             float(item["evidence"]["mean_delta_position"] if item["evidence"]["mean_delta_position"] is not None else 1e9),
+            str(item.get("library_provider") or ""),
             str(item["candidate_id"]),
         )
     )
@@ -1511,6 +1709,8 @@ def _execute_xrd_batch(
     baseline_curve = _estimate_xrd_baseline(smoothed, baseline)
     corrected = np.maximum(smoothed - baseline_curve, 0.0)
     peaks, resolved_peak_detection = _detect_xrd_peaks(axis, corrected, peak_detection)
+    manager = get_reference_library_manager()
+    library_context = manager.library_context("XRD")
     references = _resolve_xrd_references(dataset=dataset, processing=processing)
     matching_config = _resolve_xrd_matching_config(processing)
     ranked_matches = _rank_xrd_phase_candidates(
@@ -1523,23 +1723,43 @@ def _execute_xrd_batch(
     top_match = ranked_matches[0] if ranked_matches else None
     top_score = float(top_match["normalized_score"]) if top_match else 0.0
     matched = bool(top_match) and top_score >= minimum_score and top_match["confidence_band"] != "no_match"
-    match_status = "matched" if matched else "no_match"
-    confidence_band = top_match["confidence_band"] if matched and top_match else "no_match"
+    top_provider = str(top_match.get("library_provider") or "") if top_match else ""
+    top_package = str(top_match.get("library_package") or "") if top_match else ""
+    top_version = str(top_match.get("library_version") or "") if top_match else ""
     caution_payload = {}
-    if not matched:
+    if not references:
+        match_status = "not_run"
+        confidence_band = "not_run"
         caution_payload = {
-            "code": "xrd_no_match",
-            "message": "No reference phase candidate met the minimum qualitative matching threshold.",
+            "code": "xrd_reference_library_unavailable",
+            "message": "No XRD reference candidates are installed or embedded; qualitative phase matching was not run.",
             "minimum_score": minimum_score,
             "top_phase_score": round(top_score, 4),
         }
-    elif confidence_band == "low":
-        caution_payload = {
-            "code": "xrd_low_confidence",
-            "message": "Top XRD candidate is low confidence; review evidence before interpretation.",
-            "minimum_score": minimum_score,
-            "top_phase_score": round(top_score, 4),
-        }
+    else:
+        match_status = "matched" if matched else "no_match"
+        confidence_band = top_match["confidence_band"] if matched and top_match else "no_match"
+        if not matched:
+            caution_payload = {
+                "code": "xrd_no_match",
+                "message": "No reference phase candidate met the minimum qualitative matching threshold.",
+                "minimum_score": minimum_score,
+                "top_phase_score": round(top_score, 4),
+            }
+        elif confidence_band == "low":
+            caution_payload = {
+                "code": "xrd_low_confidence",
+                "message": "Top XRD candidate is low confidence; review evidence before interpretation.",
+                "minimum_score": minimum_score,
+                "top_phase_score": round(top_score, 4),
+            }
+        if library_context["reference_candidate_count"] <= 0 and not caution_payload:
+            caution_payload = {
+                "code": "xrd_reference_coverage_limited",
+                "message": "Installed XRD library coverage is limited; treat qualitative candidate ranking with caution.",
+                "minimum_score": minimum_score,
+                "top_phase_score": round(top_score, 4),
+            }
 
     resolved_axis_normalization = {
         "sort_axis": bool(axis_normalization.get("sort_axis", True)),
@@ -1575,6 +1795,10 @@ def _execute_xrd_batch(
             "xrd_match_minimum_score": matching_config["minimum_score"],
             "xrd_match_intensity_weight": matching_config["intensity_weight"],
             "xrd_match_major_peak_fraction": matching_config["major_peak_fraction"],
+            "library_sync_mode": library_context["library_sync_mode"],
+            "library_cache_status": library_context["library_cache_status"],
+            "library_reference_package_count": library_context["reference_package_count"],
+            "library_reference_candidate_count": library_context["reference_candidate_count"],
         },
         analysis_type="XRD",
     )
@@ -1592,6 +1816,11 @@ def _execute_xrd_batch(
             "peak_count": len(peaks),
             "match_status": match_status,
             "reference_candidate_count": len(references),
+            "library_provider": top_provider,
+            "library_package": top_package,
+            "library_version": top_version,
+            "library_sync_mode": library_context["library_sync_mode"],
+            "library_cache_status": library_context["library_cache_status"],
         },
     )
 
@@ -1611,6 +1840,13 @@ def _execute_xrd_batch(
         "reference_candidate_count": len(references),
         "match_tolerance_deg": matching_config["tolerance_deg"],
         "match_metric": matching_config["metric"],
+        "library_provider": top_provider,
+        "library_package": top_package,
+        "library_version": top_version,
+        "library_sync_mode": library_context["library_sync_mode"],
+        "library_cache_status": library_context["library_cache_status"],
+        "library_reference_package_count": library_context["reference_package_count"],
+        "library_reference_candidate_count": library_context["reference_candidate_count"],
     }
     rows = [
         {
@@ -1619,6 +1855,9 @@ def _execute_xrd_batch(
             "candidate_name": item["candidate_name"],
             "normalized_score": item["normalized_score"],
             "confidence_band": item["confidence_band"],
+            "library_provider": item.get("library_provider") or "",
+            "library_package": item.get("library_package") or "",
+            "library_version": item.get("library_version") or "",
             "evidence": item["evidence"],
         }
         for item in ranked_matches

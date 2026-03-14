@@ -1,4 +1,4 @@
-﻿"""FastAPI app for incremental ThermoAnalyzer desktop backend tranches."""
+"""FastAPI app for incremental ThermoAnalyzer desktop backend tranches."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import binascii
 import io
 from datetime import datetime
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException
 
 from backend import BACKEND_API_VERSION
@@ -40,6 +41,10 @@ from backend.models import (
     ExportGenerateRequest,
     ExportPreparationResponse,
     HealthResponse,
+    LibraryCatalogResponse,
+    LibraryStatusResponse,
+    LibrarySyncRequest,
+    LibrarySyncResponse,
     ProjectLoadRequest,
     ProjectLoadResponse,
     ProjectSaveRequest,
@@ -66,9 +71,10 @@ from core.data_io import read_thermal_data
 from core.execution_engine import run_batch_analysis, run_single_analysis
 from core.modalities import stable_analysis_types
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
+from core.reference_library import ReferenceLibraryManager, get_reference_library_manager
 from core.result_serialization import split_valid_results
 from core.validation import validate_thermal_dataset
-from utils.license_manager import APP_VERSION
+from utils.license_manager import APP_VERSION, commercial_mode_enabled, load_license_state
 
 
 def _require_token(expected_token: str | None, provided_token: str | None) -> None:
@@ -107,10 +113,39 @@ def _require_project_state(project_store: ProjectStore, project_id: str) -> dict
     return project_state
 
 
-def create_app(*, api_token: str | None = None, store: ProjectStore | None = None) -> FastAPI:
+def _library_status_payload(manager: ReferenceLibraryManager) -> dict:
+    license_state = _backend_license_state()
+    try:
+        if manager.client.configured and (manager.load_manifest() is None or manager.needs_manifest_refresh()):
+            status = manager.check_manifest(license_state=license_state, force=True)
+        else:
+            status = manager.status()
+    except Exception:
+        status = manager.status()
+    return {
+        **status,
+        "license_status": license_state.get("status"),
+    }
+
+
+def _backend_license_state() -> dict:
+    try:
+        return load_license_state(app_version=APP_VERSION)
+    except Exception as exc:
+        return {
+            "status": "unlicensed" if commercial_mode_enabled() else "development",
+            "message": f"Stored license could not be loaded: {exc}",
+            "license": None,
+            "source": None,
+            "commercial_mode": commercial_mode_enabled(),
+        }
+
+
+def create_app(*, api_token: str | None = None, store: ProjectStore | None = None, library_manager: ReferenceLibraryManager | None = None) -> FastAPI:
     """Create a backend app instance with an in-memory project store."""
     app = FastAPI(title="ThermoAnalyzer Backend", version=BACKEND_API_VERSION)
     project_store = store or ProjectStore()
+    global_library_manager = library_manager or get_reference_library_manager()
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -123,6 +158,43 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             app_version=APP_VERSION,
             api_version=BACKEND_API_VERSION,
             project_extension=PROJECT_EXTENSION,
+        )
+
+    @app.get("/library/status", response_model=LibraryStatusResponse)
+    def library_status(x_ta_token: str | None = Header(default=None, alias="X-TA-Token")) -> LibraryStatusResponse:
+        _require_token(api_token, x_ta_token)
+        return LibraryStatusResponse(**_library_status_payload(global_library_manager))
+
+    @app.get("/library/catalog", response_model=LibraryCatalogResponse)
+    def library_catalog(x_ta_token: str | None = Header(default=None, alias="X-TA-Token")) -> LibraryCatalogResponse:
+        _require_token(api_token, x_ta_token)
+        return LibraryCatalogResponse(
+            status=LibraryStatusResponse(**_library_status_payload(global_library_manager)),
+            libraries=global_library_manager.catalog(),
+        )
+
+    @app.post("/library/sync", response_model=LibrarySyncResponse)
+    def library_sync(
+        request: LibrarySyncRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> LibrarySyncResponse:
+        _require_token(api_token, x_ta_token)
+        license_state = _backend_license_state()
+        try:
+            status = global_library_manager.sync(
+                license_state=license_state,
+                package_ids=request.package_ids,
+                force=request.force,
+            )
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text or str(exc)
+            raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return LibrarySyncResponse(
+            status=LibraryStatusResponse(**{**status, "license_status": license_state.get("status")}),
+            libraries=global_library_manager.catalog(),
+            synced_package_ids=[item.package_id for item in global_library_manager.installed_packages()],
         )
 
     @app.post("/project/load", response_model=ProjectLoadResponse)
