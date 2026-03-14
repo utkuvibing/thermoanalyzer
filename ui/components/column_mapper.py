@@ -49,6 +49,25 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         index=default_idx,
         key=f"{key_prefix}_type",
     )
+    suggested_type = str(
+        guessed_mapping.get("suggested_data_type")
+        or guessed_mapping.get("inferred_analysis_type")
+        or ""
+    ).upper().strip()
+    if suggested_type in type_options and suggested_type != selected_type:
+        st.caption(
+            tx(
+                "Önerilen veri tipi: {type}",
+                "Suggested data type: {type}",
+                type=suggested_type,
+            )
+        )
+        if st.button(
+            tx("Önerilen Tipi Uygula", "Apply Suggested Type"),
+            key=f"{key_prefix}_apply_suggested_type",
+        ):
+            st.session_state[f"{key_prefix}_type"] = suggested_type
+            st.rerun()
 
     # Signal label depends on data type
     signal_labels = {
@@ -112,11 +131,23 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
             tx("Numune Kütlesi (mg)", "Sample Mass (mg)"), min_value=0.0, value=0.0,
             step=0.1, format="%.2f", key=f"{key_prefix}_mass",
         )
+    heating_rate = None
+    xrd_wavelength_angstrom = None
     with meta_col3:
-        heating_rate = st.number_input(
-            tx("Isıtma Hızı (°C/dk)", "Heating Rate (°C/min)"), min_value=0.0, value=10.0,
-            step=1.0, format="%.1f", key=f"{key_prefix}_rate",
-        )
+        if selected_type == "XRD":
+            xrd_wavelength_angstrom = st.number_input(
+                tx("XRD Dalgaboyu (Å)", "XRD Wavelength (Å)"),
+                min_value=0.0,
+                value=1.5406,
+                step=0.0001,
+                format="%.4f",
+                key=f"{key_prefix}_xrd_wavelength",
+            )
+        else:
+            heating_rate = st.number_input(
+                tx("Isıtma Hızı (°C/dk)", "Heating Rate (°C/min)"), min_value=0.0, value=10.0,
+                step=1.0, format="%.1f", key=f"{key_prefix}_rate",
+            )
 
     # Validation
     errors = []
@@ -140,7 +171,10 @@ def render_column_mapper(df, guessed_mapping=None, data_type=None, key_prefix="c
         "metadata": {
             "sample_name": sample_name or tx("Bilinmiyor", "Unknown"),
             "sample_mass": sample_mass if sample_mass > 0 else None,
-            "heating_rate": heating_rate if heating_rate > 0 else None,
+            "heating_rate": heating_rate if heating_rate and heating_rate > 0 else None,
+            "xrd_wavelength_angstrom": (
+                xrd_wavelength_angstrom if selected_type == "XRD" and xrd_wavelength_angstrom and xrd_wavelength_angstrom > 0 else None
+            ),
         },
     }
     return mapping

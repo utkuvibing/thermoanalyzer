@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-from core.data_io import detect_file_format, read_thermal_data
+from core.data_io import detect_file_format, guess_columns, read_thermal_data
 from core.validation import validate_thermal_dataset
 from ui.components.chrome import render_page_header
 from ui.components.column_mapper import render_column_mapper
@@ -16,6 +16,11 @@ from ui.components.workflow_guide import render_home_workflow_guide
 from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.session_state import ensure_session_state
+
+
+def _validate_import_stage(dataset):
+    """Run import-time safety checks without requiring analysis processing context."""
+    return validate_thermal_dataset(dataset, analysis_type="UNKNOWN")
 
 
 def render():
@@ -71,7 +76,7 @@ def render():
 
                 try:
                     dataset = read_thermal_data(uploaded_file)
-                    validation = validate_thermal_dataset(dataset, analysis_type=dataset.data_type)
+                    validation = _validate_import_stage(dataset)
                     if validation["status"] == "fail":
                         st.error(
                             tx(
@@ -82,11 +87,16 @@ def render():
                             )
                         )
                         continue
+                    inferred_type = str(dataset.metadata.get("inferred_analysis_type", dataset.data_type)).upper()
+                    if inferred_type not in {"DSC", "TGA", "DTA", "FTIR", "RAMAN", "XRD"}:
+                        inferred_type = "XRD" if "xrd" in str(uploaded_file.name).lower() else "UNKNOWN"
                     guessed = {
                         "temperature": dataset.original_columns.get("temperature"),
                         "signal": dataset.original_columns.get("signal"),
                         "time": dataset.original_columns.get("time"),
-                        "data_type": dataset.data_type,
+                        "data_type": inferred_type,
+                        "inferred_analysis_type": inferred_type,
+                        "suggested_data_type": inferred_type,
                     }
 
                     with st.expander(tx("Kolon Eşlemeyi Düzenle", "Adjust Column Mapping"), expanded=False):
@@ -126,6 +136,16 @@ def render():
                                 data_type=mapping["data_type"],
                                 metadata=mapping["metadata"],
                             )
+                            validation = _validate_import_stage(dataset)
+                            if validation["status"] == "fail":
+                                st.error(
+                                    tx(
+                                        "Eşleme sonrası veri kararlı iş akışına alınmadı: {issues}",
+                                        "Mapped dataset was blocked from the stable workflow: {issues}",
+                                        issues="; ".join(validation["issues"]),
+                                    )
+                                )
+                                continue
 
                     dataset.metadata.setdefault("file_name", uploaded_file.name)
                     dataset.metadata.setdefault("display_name", uploaded_file.name)
@@ -198,7 +218,15 @@ def render():
                         uploaded_file.seek(0)
 
                         st.write(tx("Lütfen kolonları manuel eşleyin:", "Please map columns manually:"))
-                        mapping = render_column_mapper(raw_df, key_prefix=f"fallback_{file_key}")
+                        guessed_fallback = guess_columns(raw_df, source_name=uploaded_file.name)
+                        mapping = render_column_mapper(
+                            raw_df,
+                            guessed_mapping={
+                                **guessed_fallback,
+                                "suggested_data_type": guessed_fallback.get("inferred_analysis_type", guessed_fallback.get("data_type")),
+                            },
+                            key_prefix=f"fallback_{file_key}",
+                        )
 
                         if mapping and st.button(tx("Eşleme ile Yükle", "Load with Mapping"), key=f"load_{file_key}"):
                             uploaded_file.seek(0)
@@ -215,17 +243,7 @@ def render():
                                 data_type=mapping["data_type"],
                                 metadata=mapping["metadata"],
                             )
-                            validation = validate_thermal_dataset(dataset, analysis_type=dataset.data_type)
-                            if validation["status"] == "fail":
-                                st.error(
-                                    tx(
-                                        "Yeniden eşlenen veri kararlı iş akışına alınmadı: {issues}",
-                                        "Re-mapped dataset was blocked from the stable workflow: {issues}",
-                                        issues="; ".join(validation["issues"]),
-                                    )
-                                )
-                                continue
-                            validation = validate_thermal_dataset(dataset, analysis_type=dataset.data_type)
+                            validation = _validate_import_stage(dataset)
                             if validation["status"] == "fail":
                                 st.error(
                                     tx(
@@ -303,7 +321,7 @@ def render():
                 if st.button(f"{tx('Yükle', 'Load')}: {label}", key=f"sample_{filename}"):
                     try:
                         dataset = read_thermal_data(filepath, data_type=forced_data_type)
-                        validation = validate_thermal_dataset(dataset, analysis_type=dataset.data_type)
+                        validation = _validate_import_stage(dataset)
                         if validation["status"] == "fail":
                             st.error(
                                 tx(
@@ -403,10 +421,16 @@ def render():
             info_cols[0].metric(tx("Tip", "Type"), dataset.data_type)
             info_cols[1].metric("Vendor", dataset.metadata.get("vendor", "Generic"))
             info_cols[2].metric(tx("Nokta", "Points"), str(len(dataset.data)))
-            info_cols[3].metric(
-                tx("Isıtma Hızı", "Heating Rate"),
-                str(dataset.metadata.get("heating_rate") or "—"),
-            )
+            if dataset.data_type == "XRD":
+                info_cols[3].metric(
+                    tx("XRD Dalgaboyu", "XRD Wavelength"),
+                    str(dataset.metadata.get("xrd_wavelength_angstrom") or "—"),
+                )
+            else:
+                info_cols[3].metric(
+                    tx("Isıtma Hızı", "Heating Rate"),
+                    str(dataset.metadata.get("heating_rate") or "—"),
+                )
 
             render_data_preview(dataset, key_prefix=f"prev_{selected}")
 

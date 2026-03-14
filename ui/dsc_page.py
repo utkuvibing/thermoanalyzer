@@ -25,6 +25,7 @@ from ui.components.plot_builder import (
     PLOTLY_CONFIG,
 )
 from ui.components.history_tracker import _log_event
+from ui.components.preset_manager import render_processing_preset_panel
 from ui.components.quality_dashboard import render_quality_dashboard
 from utils.diagnostics import record_exception
 from utils.i18n import t, tx
@@ -189,6 +190,12 @@ def render():
         workflow_template_id,
         analysis_type="DSC",
         workflow_template_label=workflow_labels.get(workflow_template_id),
+    )
+    render_processing_preset_panel(
+        analysis_type="DSC",
+        state=state,
+        key_prefix=f"dsc_presets_{selected_key}",
+        workflow_select_key=f"dsc_template_{selected_key}",
     )
 
     dataset_validation = validate_thermal_dataset(dataset, analysis_type="DSC", processing=state.get("processing"))

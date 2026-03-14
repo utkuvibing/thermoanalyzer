@@ -16,11 +16,17 @@ from core.preprocessing import smooth_signal, compute_derivative
 from core.baseline import correct_baseline, AVAILABLE_METHODS
 from core.peak_analysis import find_thermal_peaks, characterize_peaks
 from core.dta_processor import DTAProcessor, DTAResult
-from core.processing_schema import ensure_processing_payload, update_processing_step
+from core.processing_schema import (
+    ensure_processing_payload,
+    get_workflow_templates,
+    set_workflow_template,
+    update_processing_step,
+)
 from core.result_serialization import serialize_dta_result
 from core.validation import validate_thermal_dataset
 from ui.components.plot_builder import create_dta_plot, create_thermal_plot, fig_to_bytes, PLOTLY_CONFIG
 from ui.components.history_tracker import _log_event
+from ui.components.preset_manager import render_processing_preset_panel
 from ui.components.quality_dashboard import render_quality_dashboard
 from utils.reference_data import render_reference_comparison
 from utils.i18n import tx
@@ -168,6 +174,30 @@ def render():
     state = st.session_state[state_key]
     init_analysis_state_history(state)
     state["processing"] = ensure_processing_payload(state.get("processing"), analysis_type="DTA")
+    workflow_catalog = get_workflow_templates("DTA")
+    workflow_labels = {entry["id"]: entry["label"] for entry in workflow_catalog}
+    workflow_options = list(workflow_labels.keys()) or ["dta.general"]
+    current_template = state["processing"].get("workflow_template_id")
+    template_index = workflow_options.index(current_template) if current_template in workflow_options else 0
+    workflow_template_id = st.selectbox(
+        tx("İş Akışı Şablonu", "Workflow Template"),
+        workflow_options,
+        format_func=lambda template_id: workflow_labels.get(template_id, template_id),
+        index=template_index,
+        key=f"dta_template_{selected_key}",
+    )
+    state["processing"] = set_workflow_template(
+        state.get("processing"),
+        workflow_template_id,
+        analysis_type="DTA",
+        workflow_template_label=workflow_labels.get(workflow_template_id, workflow_template_id),
+    )
+    render_processing_preset_panel(
+        analysis_type="DTA",
+        state=state,
+        key_prefix=f"dta_presets_{selected_key}",
+        workflow_select_key=f"dta_template_{selected_key}",
+    )
     tracked_keys = tuple(default_state.keys())
 
     # y-axis label: DTA uses delta-T in µV

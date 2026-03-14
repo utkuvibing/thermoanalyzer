@@ -34,6 +34,7 @@ from ui.components.plot_builder import (
     create_tga_plot,
     fig_to_bytes,
 )
+from ui.components.preset_manager import render_processing_preset_panel
 from ui.components.quality_dashboard import render_quality_dashboard
 from ui.components.workflow_guide import render_tga_workflow_guide
 from utils.diagnostics import record_exception
@@ -234,6 +235,12 @@ def render():
         workflow_template_id,
         analysis_type="TGA",
         workflow_template_label=workflow_labels.get(workflow_template_id),
+    )
+    render_processing_preset_panel(
+        analysis_type="TGA",
+        state=state,
+        key_prefix=f"tga_presets_{selected_key}",
+        workflow_select_key=f"tga_template_{selected_key}",
     )
     unit_mode_catalog = get_tga_unit_modes()
     unit_mode_labels = {

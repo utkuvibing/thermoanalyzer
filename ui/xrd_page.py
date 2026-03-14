@@ -21,7 +21,9 @@ from core.processing_schema import (
 from core.validation import validate_thermal_dataset
 from ui.components.chrome import render_page_header
 from ui.components.history_tracker import _log_event
-from ui.components.plot_builder import PLOTLY_CONFIG, create_thermal_plot
+from ui.components.preset_manager import render_processing_preset_panel
+from ui.components.plot_builder import PLOTLY_CONFIG, create_thermal_plot, fig_to_bytes
+from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 
@@ -174,6 +176,91 @@ def _seed_xrd_processing_defaults(processing, workflow_template_id: str, dataset
     return seeded
 
 
+def _find_xrd_record(results, dataset_key: str):
+    if not isinstance(results, dict):
+        return None
+
+    direct = results.get(f"xrd_{dataset_key}")
+    if isinstance(direct, dict):
+        return direct
+
+    fallbacks = []
+    for record in results.values():
+        if not isinstance(record, dict):
+            continue
+        if str(record.get("analysis_type") or "").upper() != "XRD":
+            continue
+        if str(record.get("dataset_key") or "") != str(dataset_key):
+            continue
+        provenance = record.get("provenance") or {}
+        timestamp = provenance.get("timestamp_utc") or provenance.get("created_at") or ""
+        fallbacks.append((str(timestamp), record))
+
+    if not fallbacks:
+        return None
+
+    fallbacks.sort(key=lambda item: item[0])
+    return fallbacks[-1][1]
+
+
+def _resolve_xrd_matches(current_state, record):
+    state_matches = (current_state or {}).get("matches") or (current_state or {}).get("phase_candidates") or []
+    if state_matches:
+        return list(state_matches)
+
+    rows = (record or {}).get("rows") or []
+    normalized = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        normalized.append(
+            {
+                "rank": row.get("rank") or index,
+                "candidate_id": row.get("candidate_id"),
+                "candidate_name": row.get("candidate_name"),
+                "normalized_score": row.get("normalized_score"),
+                "confidence_band": row.get("confidence_band"),
+                "evidence": row.get("evidence") or {},
+            }
+        )
+    return normalized
+
+
+def _xrd_figure_key(dataset_key: str) -> str:
+    return f"XRD Analysis - {dataset_key}"
+
+
+def _attach_xrd_report_figure(record, *, dataset_key: str, dataset, state, lang: str, figures_store):
+    figure_key = _xrd_figure_key(dataset_key)
+    figures_store[figure_key] = fig_to_bytes(_build_processed_plot(dataset_key, dataset, state, lang))
+
+    updated_record = dict(record or {})
+    artifacts = dict(updated_record.get("artifacts") or {})
+    figure_keys = [
+        str(item)
+        for item in (artifacts.get("figure_keys") or [])
+        if item not in (None, "", figure_key)
+    ]
+    figure_keys.append(figure_key)
+    artifacts["figure_keys"] = figure_keys
+    updated_record["artifacts"] = artifacts
+    return updated_record, figure_key
+
+
+def _save_xrd_result_to_session(record, *, dataset_key: str, dataset, state, lang: str):
+    figures_store = st.session_state.setdefault("figures", {})
+    updated_record, figure_key = _attach_xrd_report_figure(
+        record,
+        dataset_key=dataset_key,
+        dataset=dataset,
+        state=state,
+        lang=lang,
+        figures_store=figures_store,
+    )
+    st.session_state.setdefault("results", {})[updated_record["id"]] = updated_record
+    return updated_record, figure_key
+
+
 def render():
     lang = st.session_state.get("ui_language", "tr")
     render_page_header(t("xrd.title"), t("xrd.caption"), badge=t("xrd.hero_badge"))
@@ -225,6 +312,12 @@ def render():
         workflow_template_id,
         analysis_type="XRD",
         workflow_template_label=template_labels.get(workflow_template_id),
+    )
+    render_processing_preset_panel(
+        analysis_type="XRD",
+        state=state,
+        key_prefix=f"xrd_presets_{selected_key}",
+        workflow_select_key=f"xrd_template_{selected_key}",
     )
     state["processing"] = _seed_xrd_processing_defaults(state.get("processing"), workflow_template_id, dataset)
 
@@ -500,6 +593,31 @@ def render():
                     record = outcome.get("record")
                     if record:
                         st.session_state.setdefault("results", {})[record["id"]] = record
+                        current_saved_state = st.session_state.get(state_key, {})
+                        try:
+                            record, _ = _save_xrd_result_to_session(
+                                record,
+                                dataset_key=selected_key,
+                                dataset=dataset,
+                                state=current_saved_state,
+                                lang=lang,
+                            )
+                        except Exception as exc:
+                            error_id = record_exception(
+                                st.session_state,
+                                area="xrd_analysis",
+                                action="save_figure",
+                                message="Saving XRD figure for report generation failed.",
+                                context={"dataset_key": selected_key, "result_id": record.get("id")},
+                                exception=exc,
+                            )
+                            st.warning(
+                                tx(
+                                    "XRD sonucu kaydedildi ancak rapor grafiği hazırlanamadı: {error}",
+                                    "XRD result was saved, but the report figure could not be prepared: {error}",
+                                    error=f"{exc} (Error ID: {error_id})",
+                                )
+                            )
                         st.success(
                             tx(
                                 "XRD sonucu kaydedildi: {result_id}",
@@ -565,12 +683,37 @@ def render():
 
     with tab_matches:
         current_state = st.session_state.get(state_key, {})
-        matches = current_state.get("matches") or []
+        record = _find_xrd_record(st.session_state.get("results"), selected_key)
+        matches = _resolve_xrd_matches(current_state, record)
+        summary = (record or {}).get("summary") or {}
+        method_context = ((current_state.get("processing") or {}).get("method_context") or {})
+
+        reference_count_raw = summary.get("reference_candidate_count", method_context.get("xrd_reference_candidate_count", 0))
+        try:
+            reference_count = int(reference_count_raw or 0)
+        except (TypeError, ValueError):
+            reference_count = 0
+
         top = matches[0] if matches else None
+        peak_count = len(current_state.get("peaks") or [])
+        if peak_count == 0:
+            try:
+                peak_count = int(summary.get("peak_count") or 0)
+            except (TypeError, ValueError):
+                peak_count = 0
+
         m1, m2, m3 = st.columns(3)
-        m1.metric(tx("Pik Sayısı", "Peak Count"), str(len(current_state.get("peaks") or [])))
+        m1.metric(tx("Pik Sayısı", "Peak Count"), str(peak_count))
         m2.metric(tx("En İyi Aday", "Top Candidate"), str(top.get("candidate_name")) if top else tx("Yok", "None"))
         m3.metric(tx("Skor", "Score"), f"{float(top.get('normalized_score', 0.0)):.3f}" if top else "0.000")
+
+        if reference_count == 0:
+            st.warning(
+                tx(
+                    "Referans faz kütüphanesi olmadığı için aday eşleşmesi üretilemez. Veri seti metadata içine `xrd_reference_library` ekleyin.",
+                    "No reference phase library is available, so candidate matching cannot be produced. Add `xrd_reference_library` to dataset metadata.",
+                )
+            )
 
         if matches:
             rows = []
@@ -591,15 +734,34 @@ def render():
             st.info(tx("Henüz faz adayı yok.", "No phase candidates yet."))
 
     with tab_results:
-        result_id = f"xrd_{selected_key}"
-        record = (st.session_state.get("results") or {}).get(result_id)
+        current_state = st.session_state.get(state_key, {})
+        record = _find_xrd_record(st.session_state.get("results"), selected_key)
         if not record:
-            st.info(
-                tx(
-                    "Kaydedilmiş XRD sonucu bulunamadı. Parametreleri ayarlayıp analizi çalıştırın.",
-                    "No saved XRD result found. Configure parameters and run analysis first.",
+            derived_matches = _resolve_xrd_matches(current_state, None)
+            derived_top = derived_matches[0] if derived_matches else None
+            derived_summary = {
+                "peak_count": len(current_state.get("peaks") or []),
+                "candidate_count": len(derived_matches),
+                "match_status": "matched" if derived_matches else "no_match",
+                "top_phase": derived_top.get("candidate_name") if derived_top else None,
+                "top_phase_score": float(derived_top.get("normalized_score", 0.0)) if derived_top else 0.0,
+            }
+            if derived_summary["peak_count"] > 0:
+                st.warning(
+                    tx(
+                        "Kalıcı kayıt bulunamadı; aşağıdaki özet yalnızca mevcut oturum state'inden türetildi.",
+                        "No persisted result record was found; the summary below is derived from in-session state only.",
+                    )
                 )
-            )
+                summary_rows = [{"key": key, "value": value} for key, value in derived_summary.items()]
+                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+            else:
+                st.info(
+                    tx(
+                        "Kaydedilmiş XRD sonucu bulunamadı. Parametreleri ayarlayıp analizi çalıştırın.",
+                        "No saved XRD result found. Configure parameters and run analysis first.",
+                    )
+                )
             return
 
         summary = record.get("summary") or {}
@@ -615,3 +777,55 @@ def render():
             )
         summary_rows = [{"key": key, "value": value} for key, value in summary.items()]
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+        attached_figures = [str(item) for item in ((record.get("artifacts") or {}).get("figure_keys") or []) if item not in (None, "")]
+        if _xrd_figure_key(selected_key) in attached_figures:
+            st.caption(
+                tx(
+                    "Bu sonuç rapor merkezine grafik ile birlikte hazır.",
+                    "This result is ready for the Report Center together with its figure.",
+                )
+            )
+
+        st.divider()
+
+        if st.button(tx("Sonuç ve Grafiği Oturuma Kaydet", "Save Result and Figure to Session"), key=f"xrd_save_results_{selected_key}"):
+            try:
+                record, _ = _save_xrd_result_to_session(
+                    record,
+                    dataset_key=selected_key,
+                    dataset=dataset,
+                    state=current_state,
+                    lang=lang,
+                )
+                _log_event(
+                    tx("Sonuçlar Kaydedildi", "Results Saved"),
+                    tx(
+                        "XRD sonucu ve grafik rapor merkezi için kaydedildi.",
+                        "XRD result and figure were saved for the Report Center.",
+                    ),
+                    t("xrd.title"),
+                    dataset_key=selected_key,
+                    result_id=record["id"],
+                )
+                st.success(
+                    tx(
+                        "XRD sonucu ve grafiği kaydedildi. İndirmek için Rapor Merkezi'ne gidin.",
+                        "XRD result and figure were saved. Go to Report Center to download.",
+                    )
+                )
+            except Exception as exc:
+                error_id = record_exception(
+                    st.session_state,
+                    area="xrd_analysis",
+                    action="save_results",
+                    message="Saving XRD results failed.",
+                    context={"dataset_key": selected_key, "result_id": record.get("id")},
+                    exception=exc,
+                )
+                st.error(
+                    tx(
+                        "XRD sonuçları kaydedilemedi: {error}",
+                        "Saving XRD results failed: {error}",
+                        error=f"{exc} (Error ID: {error_id})",
+                    )
+                )

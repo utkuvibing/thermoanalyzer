@@ -20,6 +20,7 @@ from core.processing_schema import (
 from core.validation import validate_thermal_dataset
 from ui.components.chrome import render_page_header
 from ui.components.history_tracker import _log_event
+from ui.components.preset_manager import render_processing_preset_panel
 from ui.components.plot_builder import PLOTLY_CONFIG, create_thermal_plot
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
@@ -246,6 +247,12 @@ def render_spectral_page(
         workflow_template_id,
         analysis_type=token,
         workflow_template_label=template_labels.get(workflow_template_id),
+    )
+    render_processing_preset_panel(
+        analysis_type=token,
+        state=state,
+        key_prefix=f"{page_slug}_presets_{selected_key}",
+        workflow_select_key=f"{page_slug}_template_{selected_key}",
     )
     state["processing"] = _seed_spectral_processing_defaults(token, state.get("processing"), workflow_template_id, dataset)
 

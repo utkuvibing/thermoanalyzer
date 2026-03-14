@@ -222,6 +222,32 @@ class TestGuessColumns:
         assert result["signal"] == "Raman Intensity (counts)"
         assert result["data_type"] == "RAMAN"
 
+    def test_guess_columns_xrd_from_axis_and_intensity_headers(self):
+        df = pd.DataFrame(
+            {
+                "2theta (deg)": [10.0, 10.5, 11.0],
+                "Intensity (counts)": [120.0, 210.0, 160.0],
+            }
+        )
+
+        result = guess_columns(df)
+
+        assert result["temperature"] == "2theta (deg)"
+        assert result["signal"] == "Intensity (counts)"
+        assert result["data_type"] == "XRD"
+
+    def test_guess_columns_xrd_source_name_bias_for_generic_headers(self):
+        df = pd.DataFrame(
+            {
+                "temperature": [5.0, 5.2, 5.4],
+                "signal": [1000.0, 1500.0, 1100.0],
+            }
+        )
+
+        result = guess_columns(df, source_name="xrd_2024_0303_zenodo.csv")
+
+        assert result["data_type"] == "XRD"
+
 
 # ---------------------------------------------------------------------------
 # read_thermal_data with a temporary CSV file
@@ -499,6 +525,40 @@ class TestReadCSV:
         assert len(ds.data) == 3
         assert ds.metadata["import_format"] == "xrd_xy_dat"
         assert ds.metadata["xrd_axis_role"] == "two_theta"
+
+    def test_read_xrd_csv_infers_type_from_source_name_and_normalizes_units(self):
+        buf = io.StringIO(
+            "temperature,signal\n"
+            "5.01,10100\n"
+            "5.02,10210\n"
+            "5.03,10080\n"
+        )
+        buf.name = "xrd_2024_0303_zenodo.csv"
+
+        ds = read_thermal_data(buf)
+
+        assert ds.data_type == "XRD"
+        assert ds.units["temperature"] == "degree_2theta"
+        assert ds.units["signal"] == "counts"
+
+    def test_read_xrd_manual_mapping_rewrites_non_xrd_units_to_xrd_defaults(self):
+        buf = io.StringIO(
+            "Temperature (°C),Heat Flow (mW)\n"
+            "5.01,10100\n"
+            "5.02,10210\n"
+            "5.03,10080\n"
+        )
+        buf.name = "generic.csv"
+
+        ds = read_thermal_data(
+            buf,
+            column_mapping={"temperature": "Temperature (°C)", "signal": "Heat Flow (mW)"},
+            data_type="XRD",
+        )
+
+        assert ds.data_type == "XRD"
+        assert ds.units["temperature"] == "degree_2theta"
+        assert ds.units["signal"] == "counts"
 
     def test_read_xrd_cif_supports_bounded_powder_pattern_loop(self):
         buf = io.StringIO(

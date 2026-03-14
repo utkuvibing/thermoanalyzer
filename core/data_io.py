@@ -58,6 +58,10 @@ _PATTERNS: Dict[str, List[str]] = {
         r"[Kk]elvin",
         r"[Ww]avenumber",
         r"[Rr]aman\s*[Ss]hift",
+        r"2\s*theta",
+        r"2\u03b8",
+        r"[Tt]wo\s*theta",
+        r"[Aa]ngle",
         r"\bcm[-\^]?\s*1\b",
         r"\b1/cm\b",
         r"^T\b",
@@ -110,18 +114,27 @@ _PATTERNS: Dict[str, List[str]] = {
         r"[Cc]ounts?",
         r"[Rr]aman",
     ],
+    "signal_xrd": [
+        r"\bXRD\b",
+        r"[Dd]iffract",
+        r"2\s*theta",
+        r"2\u03b8",
+        r"[Aa]ngle",
+    ],
 }
 
 _IMPORT_CONFIDENCE_ORDER = {"high": 3, "medium": 2, "review": 1}
-_ANALYSIS_TYPE_KEYS = ("DSC", "TGA", "DTA", "FTIR", "RAMAN")
+_ANALYSIS_TYPE_KEYS = ("DSC", "TGA", "DTA", "FTIR", "RAMAN", "XRD")
 _TYPE_PATTERN_KEYS = {
     "DSC": "signal_dsc",
     "TGA": "signal_tga",
     "DTA": "signal_dta",
     "FTIR": "signal_ftir",
     "RAMAN": "signal_raman",
+    "XRD": "signal_xrd",
 }
 _SPECTRAL_ANALYSIS_TYPES = {"FTIR", "RAMAN"}
+_XRD_SOURCE_HINTS = ("xrd", "diffract", "2theta", "2_theta", "zenodo_xrd")
 _VENDOR_TOKEN_SETS = {
     "NETZSCH": (
         "netzsch",
@@ -378,6 +391,40 @@ def _is_spectral_axis_hint(column_name: str | None) -> bool:
             "1/cm",
         )
     )
+
+
+def _is_xrd_axis_hint(column_name: str | None) -> bool:
+    token = str(column_name or "").strip().lower()
+    if not token:
+        return False
+    return any(
+        hint in token
+        for hint in (
+            "2theta",
+            "2 theta",
+            "2θ",
+            "theta",
+            "two theta",
+            "angle",
+            "diffract",
+            "xrd",
+        )
+    )
+
+
+def _xrd_source_hint_score(source_name: str | None) -> int:
+    token = str(source_name or "").strip().lower()
+    if not token:
+        return 0
+    score = 0
+    if "xrd" in token:
+        score += 10
+    for hint in _XRD_SOURCE_HINTS:
+        if hint in token and hint != "xrd":
+            score += 4
+    if token.endswith((".xy", ".dat", ".cif")):
+        score += 4
+    return score
 
 
 def _looks_like_jcamp(source_name: str, text: str) -> bool:
@@ -737,7 +784,7 @@ def _find_header_and_data_rows(
 # ---------------------------------------------------------------------------
 
 
-def guess_columns(df: pd.DataFrame) -> dict:
+def guess_columns(df: pd.DataFrame, source_name: str | None = None) -> dict:
     """Guess the role of each column using regex pattern matching.
 
     Parameters
@@ -751,7 +798,7 @@ def guess_columns(df: pd.DataFrame) -> dict:
         'temperature'  str or None  - column name
         'time'         str or None  - column name
         'signal'       str or None  - column name
-        'data_type'    str          - 'DSC', 'TGA', 'DTA', or 'unknown'
+        'data_type'    str          - 'DSC', 'TGA', 'DTA', 'FTIR', 'RAMAN', 'XRD', or 'unknown'
     """
     cols = list(df.columns)
     numeric_cols = {col for col in cols if _is_mostly_numeric(df[col])}
@@ -789,6 +836,8 @@ def guess_columns(df: pd.DataFrame) -> dict:
         ranked.sort(key=lambda item: (int(item["score"]), str(item["column"])), reverse=True)
         return ranked
 
+    xrd_source_bonus = _xrd_source_hint_score(source_name)
+
     temp_ranked = _rank_role("temperature", prefer_monotonic=True)
     time_ranked = _rank_role("time", prefer_monotonic=True)
     result["candidates"]["temperature"] = temp_ranked[:3]
@@ -806,11 +855,11 @@ def guess_columns(df: pd.DataFrame) -> dict:
         for col in cols:
             signal_like = any(
                 _count_pattern_hits(col, _PATTERNS[key]) > 0
-                for key in ("signal_dsc", "signal_tga", "signal_dta", "signal_ftir", "signal_raman")
+                for key in ("signal_dsc", "signal_tga", "signal_dta", "signal_ftir", "signal_raman", "signal_xrd")
             )
             signal_like = signal_like or bool(
                 re.search(
-                    r"signal|heat|weight|mass|dsc|tga|dta|ftir|raman|intensity|absorb|transmitt",
+                    r"signal|heat|weight|mass|dsc|tga|dta|ftir|raman|xrd|diffract|intensity|absorb|transmitt",
                     str(col),
                     flags=re.IGNORECASE,
                 )
@@ -855,11 +904,27 @@ def guess_columns(df: pd.DataFrame) -> dict:
                 score += 4
             if analysis_type == "RAMAN" and signal_unit in {"counts", "cps", "a.u."}:
                 score += 4
+            if analysis_type == "XRD":
+                if signal_unit in {"counts", "cps", "intensity"}:
+                    score += 2
+                elif signal_unit == "a.u.":
+                    score += 1
             col_token = str(col).lower()
             if analysis_type == "FTIR" and any(token in col_token for token in ("ftir", "absorb", "transmitt", "reflect")):
                 score += 3
             if analysis_type == "RAMAN" and any(token in col_token for token in ("raman", "intensity", "counts", "cps")):
                 score += 3
+            if analysis_type == "RAMAN" and _is_xrd_axis_hint(str(result.get("temperature") or "")):
+                score -= 6
+            if analysis_type == "XRD":
+                if any(token in col_token for token in ("xrd", "diffract", "2theta", "2θ", "angle")):
+                    score += 4
+                if any(token in col_token for token in ("intensity", "counts", "cps")):
+                    score += 1
+                if "raman" in col_token:
+                    score -= 4
+                if _is_xrd_axis_hint(str(result.get("temperature") or "")):
+                    score += 2
             if col in numeric_cols and score > 0:
                 score += 2
             signal_candidates[analysis_type].append(
@@ -880,13 +945,23 @@ def guess_columns(df: pd.DataFrame) -> dict:
     for analysis_type, ranked in signal_candidates.items():
         if ranked:
             top = ranked[0]
-            type_scores.append((analysis_type, int(top["score"]), str(top["column"]), str(top["signal_unit"])))
+            score = int(top["score"])
+            if analysis_type == "XRD":
+                score += xrd_source_bonus
+                if _is_xrd_axis_hint(str(result.get("temperature") or "")):
+                    score += 12
+            type_scores.append((analysis_type, score, str(top["column"]), str(top["signal_unit"])))
     type_scores.sort(key=lambda item: (item[1], item[0]), reverse=True)
 
     if type_scores and type_scores[0][1] > 0:
         best_type, best_score, best_col, best_unit = type_scores[0]
         ambiguous_type = False
-        if len(type_scores) > 1 and (type_scores[1][1] >= best_score - 4 and type_scores[1][1] > 0):
+        ambiguity_margin = 4
+        if best_type == "XRD" and (
+            _is_xrd_axis_hint(str(result.get("temperature") or "")) or xrd_source_bonus >= 8
+        ):
+            ambiguity_margin = 1
+        if len(type_scores) > 1 and (type_scores[1][1] >= best_score - ambiguity_margin and type_scores[1][1] > 0):
             ambiguous_type = True
             warnings_list.append(
                 f"Analysis-type inference is ambiguous between {best_type} and {type_scores[1][0]}; review the selected signal column."
@@ -944,6 +1019,11 @@ def guess_columns(df: pd.DataFrame) -> dict:
                 f"Raman signal unit could not be confirmed from column '{result['signal']}'; review whether the signal represents counts/intensity."
             )
             confidence["signal"] = "review"
+        elif inferred_type == "XRD" and signal_unit not in {"counts", "cps", "a.u.", "intensity"}:
+            warnings_list.append(
+                f"XRD signal unit could not be confirmed from column '{result['signal']}'; review whether the signal represents counts/intensity."
+            )
+            confidence["signal"] = "review"
         elif inferred_type == "unknown":
             warnings_list.append("Analysis type remains unresolved after import heuristics; review the file before stable analysis.")
 
@@ -951,6 +1031,11 @@ def guess_columns(df: pd.DataFrame) -> dict:
     if inferred_type in _SPECTRAL_ANALYSIS_TYPES and not _is_spectral_axis_hint(str(result.get("temperature") or "")):
         warnings_list.append(
             f"Spectral axis column '{result.get('temperature')}' is not explicitly labeled as wavenumber/shift; default to wavenumber-first and review mapping."
+        )
+        confidence["temperature"] = "review"
+    if inferred_type == "XRD" and not _is_xrd_axis_hint(str(result.get("temperature") or "")):
+        warnings_list.append(
+            f"XRD axis column '{result.get('temperature')}' is not explicitly labeled as 2theta/angle; review mapping before stable analysis."
         )
         confidence["temperature"] = "review"
 
@@ -1102,7 +1187,8 @@ def read_thermal_data(
         names in the source file.
         Example: {'temperature': 'Temp/°C', 'signal': 'DSC/(mW/mg)'}
     data_type : str, optional
-        Override automatic data-type detection.  One of 'DSC', 'TGA', 'DTA'.
+        Override automatic data-type detection. One of
+        'DSC', 'TGA', 'DTA', 'FTIR', 'RAMAN', 'XRD'.
     metadata : dict, optional
         Extra metadata to merge into the dataset's metadata dict.
 
@@ -1182,7 +1268,7 @@ def read_thermal_data(
     import_confidence = "high"
     inferred_analysis_type = "unknown"
     if column_mapping is None:
-        guessed = guess_columns(raw_df)
+        guessed = guess_columns(raw_df, source_name=source_name)
         col_map = {
             k: v
             for k, v in guessed.items()
@@ -1320,9 +1406,15 @@ def read_thermal_data(
 
     if resolved_type == "XRD":
         axis_column = str(col_map.get("temperature") or "")
-        if units.get("temperature") in {"°C", "K", "°F"}:
+        if not _is_xrd_axis_hint(axis_column):
+            import_warnings.append(
+                f"XRD axis column '{axis_column}' is not explicitly labeled as 2theta/angle; review mapping before stable analysis."
+            )
+            import_confidence = _classify_import_confidence(import_confidence, "review")
+        if units.get("temperature") in {"°C", "K", "°F", "", "unknown"}:
             units["temperature"] = "degree_2theta"
-        if units.get("signal") in {"", "a.u."}:
+        signal_unit_token = str(units.get("signal") or "").strip().lower()
+        if signal_unit_token not in {"counts", "cps", "intensity"}:
             units["signal"] = "counts"
         if metadata.get("xrd_wavelength_angstrom") in (None, ""):
             import_warnings.append(

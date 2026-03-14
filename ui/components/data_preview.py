@@ -23,10 +23,16 @@ def render_data_preview(dataset, key_prefix="preview"):
     if "temperature" in dataset.data.columns:
         temps = dataset.data["temperature"]
         t_unit = dataset.units.get("temperature", "\u00b0C")
+        if str(getattr(dataset, "data_type", "")).upper() == "XRD":
+            min_label = tx("2\u03b8<sub>min</sub>", "2\u03b8<sub>min</sub>")
+            max_label = tx("2\u03b8<sub>max</sub>", "2\u03b8<sub>max</sub>")
+        else:
+            min_label = "T<sub>min</sub>"
+            max_label = "T<sub>max</sub>"
         st.markdown(
             f'<div class="status-bar">'
-            f'T<sub>min</sub> {temps.min():.2f} {t_unit} &nbsp;\u2502&nbsp; '
-            f'T<sub>max</sub> {temps.max():.2f} {t_unit} &nbsp;\u2502&nbsp; '
+            f'{min_label} {temps.min():.2f} {t_unit} &nbsp;\u2502&nbsp; '
+            f'{max_label} {temps.max():.2f} {t_unit} &nbsp;\u2502&nbsp; '
             f'N = {len(temps):,} {tx("nokta", "points")}'
             f'</div>',
             unsafe_allow_html=True,
