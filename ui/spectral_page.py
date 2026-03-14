@@ -565,6 +565,23 @@ def render_spectral_page(
         summary = record.get("summary") or {}
         st.markdown(f"**Result ID:** `{record.get('id')}`")
         st.markdown(f"**{tx('Durum', 'Status')}:** {record.get('status')}")
+        if summary.get("library_result_source"):
+            st.caption(
+                tx(
+                    "Library sonuç kaynağı: {source}",
+                    "Library result source: {source}",
+                    source=summary.get("library_result_source"),
+                )
+            )
+        if summary.get("library_request_id"):
+            st.caption(f"Cloud Request ID: `{summary.get('library_request_id')}`")
+        if summary.get("library_offline_limited_mode"):
+            st.warning(
+                tx(
+                    "Sınırlı offline fallback modu aktif. Sonuçlar tam cloud kapsamını temsil etmeyebilir.",
+                    "Limited offline fallback mode is active. Results may not represent full cloud coverage.",
+                )
+            )
         if summary.get("caution_code"):
             st.warning(
                 tx(

@@ -14,10 +14,10 @@ def render() -> None:
     render_page_header(
         tx("Referans Kütüphanesi", "Reference Library"),
         tx(
-            "Global FTIR, Raman ve XRD referans paketlerini senkronize et, cache durumunu izle ve aktif provider kapsamını denetle.",
-            "Sync global FTIR, Raman, and XRD reference packages, monitor cache state, and inspect active provider coverage.",
+            "Managed cloud library erişimini, limited fallback cache durumunu ve provider kapsamını yönet.",
+            "Manage managed-cloud library access, limited fallback cache status, and provider coverage.",
         ),
-        badge=tx("M003 Library Compatibility", "M003 Library Compatibility"),
+        badge=tx("M005 Managed Cloud Library", "M005 Managed Cloud Library"),
     )
     lang = st.session_state.get("ui_language", "tr")
     license_state = st.session_state.get("license_state") or {}
@@ -53,15 +53,39 @@ def render() -> None:
     )
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(tx("Sync Modu", "Sync Mode"), _label(status.get("sync_mode"), lang))
-    m2.metric(tx("Cache", "Cache"), _label(status.get("cache_status"), lang))
-    m3.metric(tx("Kurulu Paket", "Installed Packages"), str(status.get("installed_package_count", 0)))
-    m4.metric(tx("Kurulu Referans", "Installed References"), str(status.get("installed_entry_count", 0)))
+    m1.metric(tx("Library Modu", "Library Mode"), _label(status.get("library_mode"), lang))
+    m2.metric(
+        tx("Cloud Erişimi", "Cloud Access"),
+        tx("Açık", "Enabled") if status.get("cloud_access_enabled") else tx("Kapalı", "Disabled"),
+    )
+    m3.metric(tx("Fallback Paket", "Fallback Packages"), str(status.get("fallback_package_count", 0)))
+    m4.metric(tx("Fallback Referans", "Fallback References"), str(status.get("fallback_entry_count", 0)))
+
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric(tx("Sync Modu", "Sync Mode"), _label(status.get("sync_mode"), lang))
+    p2.metric(tx("Cache", "Cache"), _label(status.get("cache_status"), lang))
+    p3.metric(tx("Kurulu Paket", "Installed Packages"), str(status.get("installed_package_count", 0)))
+    p4.metric(tx("Kurulu Referans", "Installed References"), str(status.get("installed_entry_count", 0)))
 
     n1, n2, n3 = st.columns(3)
     n1.metric(tx("Katalog Paketleri", "Catalog Packages"), str(status.get("available_package_count", 0)))
     n2.metric(tx("Provider", "Providers"), str(status.get("available_provider_count", 0)))
     n3.metric(tx("Update Bekleyen", "Updates Available"), str(status.get("update_available_count", 0)))
+
+    if str(status.get("library_mode") or "") == "not_configured":
+        st.warning(
+            tx(
+                "Cloud library yapılandırılmamış ve kullanılabilir fallback cache yok. Sonuçlar için cloud endpoint veya limited fallback sync yapılandırın.",
+                "Cloud library is not configured and no fallback cache is available. Configure cloud endpoints or sync limited fallback packages.",
+            )
+        )
+    elif str(status.get("library_mode") or "") == "limited_cached_fallback":
+        st.warning(
+            tx(
+                "Limited cached fallback modu aktif. Bu mod tam provider kapsamı vermez; sonuçları tarama amaçlı yorumlayın.",
+                "Limited cached fallback mode is active. This mode does not provide full provider coverage; treat results as screening output.",
+            )
+        )
 
     if not status.get("feed_configured"):
         st.warning(
@@ -87,12 +111,15 @@ def render() -> None:
 
     if status.get("last_error"):
         st.error(f"{tx('Son hata', 'Last error')}: {status['last_error']}")
+    if status.get("last_cloud_error"):
+        st.warning(f"{tx('Cloud hata', 'Cloud error')}: {status['last_cloud_error']}")
 
     st.caption(
         f"{tx('Feed', 'Feed')}: `{status.get('feed_source') or 'N/A'}`  |  "
         f"{tx('Manifest üretildi', 'Manifest generated')}: `{status.get('manifest_generated_at') or 'N/A'}`  |  "
         f"{tx('Son manifest kontrolü', 'Last manifest check')}: `{status.get('manifest_checked_at') or 'N/A'}`  |  "
-        f"{tx('Son sync', 'Last sync')}: `{status.get('last_sync_at') or 'N/A'}`"
+        f"{tx('Son sync', 'Last sync')}: `{status.get('last_sync_at') or 'N/A'}`  |  "
+        f"{tx('Son cloud sorgu', 'Last cloud lookup')}: `{status.get('last_cloud_lookup_at') or 'N/A'}`"
     )
 
     installed_tab, catalog_tab = st.tabs(
@@ -145,6 +172,7 @@ def render() -> None:
                             tx("Referans", "Entries"): item.get("entry_count"),
                             tx("Kurulu", "Installed"): tx("Evet", "Yes") if item.get("installed") else tx("Hayır", "No"),
                             tx("Update", "Update"): tx("Var", "Yes") if item.get("update_available") else tx("Yok", "No"),
+                            tx("Teslim Katmanı", "Delivery Tier"): item.get("delivery_tier") or "limited_fallback",
                             tx("Lisans", "License"): item.get("license_name") or "N/A",
                             tx("Attribution", "Attribution"): item.get("attribution") or "N/A",
                         }
@@ -170,6 +198,9 @@ def _label(value: object, lang: str) -> str:
         "cached_read_only": "Cache Salt Okunur" if lang == "tr" else "Cached Read-Only",
         "cold": "Soğuk" if lang == "tr" else "Cold",
         "warm": "Hazır" if lang == "tr" else "Warm",
+        "cloud_full_access": "Cloud Tam Erişim" if lang == "tr" else "Cloud Full Access",
+        "limited_cached_fallback": "Sınırlı Fallback" if lang == "tr" else "Limited Cached Fallback",
+        "not_configured": "Yapılandırılmadı" if lang == "tr" else "Not Configured",
     }
     token = str(value or "")
     return mapping.get(token, token or "N/A")

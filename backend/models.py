@@ -36,6 +36,13 @@ class LibraryStatusResponse(BaseModel):
     last_error: str = ""
     sync_due: bool = False
     license_status: str | None = None
+    library_mode: str = "not_configured"
+    cloud_access_enabled: bool = False
+    cloud_provider_count: int = 0
+    fallback_package_count: int = 0
+    fallback_entry_count: int = 0
+    last_cloud_lookup_at: str | None = None
+    last_cloud_error: str = ""
 
 
 class LibraryCatalogItem(BaseModel):
@@ -56,6 +63,7 @@ class LibraryCatalogItem(BaseModel):
     installed: bool = False
     installed_version: str | None = None
     update_available: bool = False
+    delivery_tier: str = "limited_fallback"
 
 
 class LibraryCatalogResponse(BaseModel):
@@ -72,6 +80,93 @@ class LibrarySyncResponse(BaseModel):
     status: LibraryStatusResponse
     libraries: list[LibraryCatalogItem] = Field(default_factory=list)
     synced_package_ids: list[str] = Field(default_factory=list)
+
+
+class LibraryCloudAuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: str
+    scope: list[str] = Field(default_factory=list)
+    request_id: str
+
+
+class LibrarySearchRow(BaseModel):
+    rank: int
+    candidate_id: str
+    candidate_name: str
+    normalized_score: float
+    confidence_band: str
+    library_provider: str = ""
+    library_package: str = ""
+    library_version: str = ""
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class SpectralLibrarySearchRequest(BaseModel):
+    axis: list[float] = Field(default_factory=list)
+    signal: list[float] = Field(default_factory=list)
+    preprocessing_metadata: dict[str, Any] = Field(default_factory=dict)
+    sample_metadata: dict[str, Any] = Field(default_factory=dict)
+    import_metadata: dict[str, Any] = Field(default_factory=dict)
+    top_n: int | None = None
+    minimum_score: float | None = None
+
+
+class XRDLibrarySearchRequest(BaseModel):
+    observed_peaks: list[dict[str, float]] = Field(default_factory=list)
+    axis: list[float] = Field(default_factory=list)
+    signal: list[float] = Field(default_factory=list)
+    xrd_axis_role: str | None = None
+    xrd_axis_unit: str | None = None
+    xrd_wavelength_angstrom: float | None = None
+    preprocessing_metadata: dict[str, Any] = Field(default_factory=dict)
+    sample_metadata: dict[str, Any] = Field(default_factory=dict)
+    import_metadata: dict[str, Any] = Field(default_factory=dict)
+    top_n: int | None = None
+    minimum_score: float | None = None
+
+
+class LibrarySearchResponse(BaseModel):
+    request_id: str
+    analysis_type: str
+    match_status: str
+    candidate_count: int = 0
+    rows: list[LibrarySearchRow] = Field(default_factory=list)
+    caution_code: str = ""
+    caution_message: str = ""
+    library_provider: str = ""
+    library_package: str = ""
+    library_version: str = ""
+    library_access_mode: str = "not_configured"
+    library_result_source: str = "cloud_search"
+    library_provider_scope: list[str] = Field(default_factory=list)
+    library_offline_limited_mode: bool = False
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class LibraryProvidersResponse(BaseModel):
+    request_id: str
+    providers: list[dict[str, Any]] = Field(default_factory=list)
+    library_access_mode: str = "cloud_full_access"
+
+
+class LibraryCoverageResponse(BaseModel):
+    request_id: str
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    library_access_mode: str = "cloud_full_access"
+
+
+class LibraryPrefetchRequest(BaseModel):
+    package_ids: list[str] | None = None
+    force: bool = False
+
+
+class LibraryPrefetchResponse(BaseModel):
+    request_id: str
+    status: str
+    synced_package_ids: list[str] = Field(default_factory=list)
+    fallback_package_count: int = 0
+    fallback_entry_count: int = 0
 
 
 class ProjectSummary(BaseModel):

@@ -93,6 +93,10 @@ def isolated_thermoanalyzer_home(monkeypatch, tmp_path):
     storage_root = tmp_path / "thermoanalyzer-home"
     storage_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("THERMOANALYZER_HOME", str(storage_root))
+    monkeypatch.setenv("THERMOANALYZER_ONLINE_SEARCH", "false")
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_CLOUD_URL", raising=False)
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", raising=False)
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", raising=False)
     yield
 
 

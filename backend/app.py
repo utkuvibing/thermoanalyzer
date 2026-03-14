@@ -6,6 +6,7 @@ import base64
 import binascii
 import io
 from datetime import datetime
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -23,6 +24,7 @@ from backend.exports import (
     generate_report_docx_artifact,
     generate_results_csv_artifact,
 )
+from backend.library_cloud_service import ManagedLibraryCloudService
 from backend.models import (
     ActiveDatasetResponse,
     ActiveDatasetUpdateRequest,
@@ -43,6 +45,12 @@ from backend.models import (
     ExportPreparationResponse,
     HealthResponse,
     LibraryCatalogResponse,
+    LibraryCloudAuthTokenResponse,
+    LibraryCoverageResponse,
+    LibraryPrefetchRequest,
+    LibraryPrefetchResponse,
+    LibraryProvidersResponse,
+    LibrarySearchResponse,
     LibraryStatusResponse,
     LibrarySyncRequest,
     LibrarySyncResponse,
@@ -53,11 +61,13 @@ from backend.models import (
     ProjectSummary,
     ResultDetailResponse,
     ResultsListResponse,
+    SpectralLibrarySearchRequest,
     ValidationSummary,
     VersionResponse,
     WorkspaceContextResponse,
     WorkspaceCreateResponse,
     WorkspaceSummaryResponse,
+    XRDLibrarySearchRequest,
 )
 from backend.store import ProjectStore
 from backend.workspace import (
@@ -90,6 +100,14 @@ def _decode_base64_field(payload: str, *, field_name: str) -> bytes:
         return base64.b64decode(payload.encode("ascii"), validate=True)
     except (ValueError, binascii.Error) as exc:
         raise HTTPException(status_code=400, detail=f"{field_name} is not valid base64: {exc}") from exc
+
+
+def _model_payload(model: Any) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return dict(model.model_dump())
+    if hasattr(model, "dict"):
+        return dict(model.dict())
+    return dict(model or {})
 
 
 def _project_summary(project_state: dict) -> ProjectSummary:
@@ -149,6 +167,7 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
     app = FastAPI(title="ThermoAnalyzer Backend", version=BACKEND_API_VERSION)
     project_store = store or ProjectStore()
     global_library_manager = library_manager or get_reference_library_manager()
+    cloud_library_service = ManagedLibraryCloudService(global_library_manager)
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -199,6 +218,70 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             libraries=global_library_manager.catalog(),
             synced_package_ids=[item.package_id for item in global_library_manager.installed_packages()],
         )
+
+    @app.post("/v1/library/auth/token", response_model=LibraryCloudAuthTokenResponse)
+    def library_auth_token(
+        x_ta_license: str | None = Header(default=None, alias="X-TA-License"),
+    ) -> LibraryCloudAuthTokenResponse:
+        return LibraryCloudAuthTokenResponse(**cloud_library_service.issue_token(x_ta_license=x_ta_license))
+
+    @app.post("/v1/library/search/ftir", response_model=LibrarySearchResponse)
+    def library_search_ftir(
+        request: SpectralLibrarySearchRequest,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> LibrarySearchResponse:
+        payload = cloud_library_service.search_spectral(
+            analysis_type="FTIR",
+            request_payload=_model_payload(request),
+            authorization=authorization,
+        )
+        return LibrarySearchResponse(**payload)
+
+    @app.post("/v1/library/search/raman", response_model=LibrarySearchResponse)
+    def library_search_raman(
+        request: SpectralLibrarySearchRequest,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> LibrarySearchResponse:
+        payload = cloud_library_service.search_spectral(
+            analysis_type="RAMAN",
+            request_payload=_model_payload(request),
+            authorization=authorization,
+        )
+        return LibrarySearchResponse(**payload)
+
+    @app.post("/v1/library/search/xrd", response_model=LibrarySearchResponse)
+    def library_search_xrd(
+        request: XRDLibrarySearchRequest,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> LibrarySearchResponse:
+        payload = cloud_library_service.search_xrd(
+            request_payload=_model_payload(request),
+            authorization=authorization,
+        )
+        return LibrarySearchResponse(**payload)
+
+    @app.get("/v1/library/providers", response_model=LibraryProvidersResponse)
+    def library_providers(
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> LibraryProvidersResponse:
+        return LibraryProvidersResponse(**cloud_library_service.providers(authorization=authorization))
+
+    @app.get("/v1/library/coverage", response_model=LibraryCoverageResponse)
+    def library_coverage(
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> LibraryCoverageResponse:
+        return LibraryCoverageResponse(**cloud_library_service.coverage(authorization=authorization))
+
+    @app.post("/v1/library/prefetch", response_model=LibraryPrefetchResponse)
+    def library_prefetch(
+        request: LibraryPrefetchRequest,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> LibraryPrefetchResponse:
+        payload = cloud_library_service.prefetch(
+            request_payload=_model_payload(request),
+            authorization=authorization,
+        )
+        return LibraryPrefetchResponse(**payload)
 
     @app.post("/project/load", response_model=ProjectLoadResponse)
     def project_load(

@@ -351,6 +351,11 @@ def _record_key_results(record: dict) -> dict[str, str]:
             "library_version",
             "library_sync_mode",
             "library_cache_status",
+            "library_access_mode",
+            "library_request_id",
+            "library_result_source",
+            "library_provider_scope",
+            "library_offline_limited_mode",
             "caution_code",
             "caution_message",
             "sample_name",
@@ -383,6 +388,11 @@ def _record_key_results(record: dict) -> dict[str, str]:
                 "Library Version": summary.get("library_version"),
                 "Library Sync Mode": summary.get("library_sync_mode"),
                 "Library Cache Status": summary.get("library_cache_status"),
+                "Library Access Mode": summary.get("library_access_mode"),
+                "Library Request ID": summary.get("library_request_id"),
+                "Library Result Source": summary.get("library_result_source"),
+                "Library Provider Scope": summary.get("library_provider_scope"),
+                "Library Offline Limited Mode": summary.get("library_offline_limited_mode"),
                 "Caution Code": summary.get("caution_code"),
                 "Caution Message": summary.get("caution_message"),
                 "Sample Name": summary.get("sample_name"),
@@ -417,6 +427,7 @@ def _record_metric_snapshot(record: dict) -> str:
         top_score = _format_number(summary.get("top_match_score"), digits=3)
         top_match = summary.get("top_match_name") or summary.get("top_match_id") or "N/A"
         library_label = summary.get("library_package") or summary.get("library_provider") or "embedded"
+        result_source = summary.get("library_result_source") or "unknown_source"
         if match_status.lower() == "matched":
             return ", ".join(
                 [
@@ -424,6 +435,7 @@ def _record_metric_snapshot(record: dict) -> str:
                     f"score {top_score}",
                     f"confidence {confidence_band}",
                     f"library {library_label}",
+                    f"source {result_source}",
                 ]
             )
         caution = summary.get("caution_code") or "spectral_no_match"
@@ -433,6 +445,7 @@ def _record_metric_snapshot(record: dict) -> str:
                 f"top score {top_score}",
                 f"library {library_label}",
                 f"caution {caution}",
+                f"source {result_source}",
             ]
         )
     if analysis_type == "XRD":
@@ -442,6 +455,7 @@ def _record_metric_snapshot(record: dict) -> str:
         top_phase = summary.get("top_phase") or summary.get("top_phase_id") or "N/A"
         best_candidate = _xrd_best_candidate_name(summary)
         library_label = summary.get("library_package") or summary.get("library_provider") or "embedded"
+        result_source = summary.get("library_result_source") or "unknown_source"
         if match_status.lower() == "matched":
             return ", ".join(
                 [
@@ -449,6 +463,7 @@ def _record_metric_snapshot(record: dict) -> str:
                     f"score {top_score}",
                     f"confidence {confidence_band}",
                     f"library {library_label}",
+                    f"source {result_source}",
                 ]
             )
         if _xrd_has_best_candidate(summary):
@@ -463,6 +478,7 @@ def _record_metric_snapshot(record: dict) -> str:
                     f"accepted match status {match_status}",
                     f"caution {caution}",
                     f"reason {reason}",
+                    f"source {result_source}",
                 ]
             )
         caution = summary.get("caution_code") or "xrd_no_match"
@@ -472,6 +488,7 @@ def _record_metric_snapshot(record: dict) -> str:
                 f"top phase score {top_score}",
                 f"library {library_label}",
                 f"caution {caution}",
+                f"source {result_source}",
             ]
         )
 

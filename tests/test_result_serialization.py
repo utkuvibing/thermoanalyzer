@@ -218,6 +218,11 @@ def test_serialize_ftir_result_persists_no_match_caution_and_evidence():
             "library_version": "2026.03-core",
             "library_sync_mode": "online_sync",
             "library_cache_status": "warm",
+            "library_access_mode": "cloud_full_access",
+            "library_request_id": "libreq_ftir_001",
+            "library_result_source": "cloud_search",
+            "library_provider_scope": ["openspecy"],
+            "library_offline_limited_mode": False,
         },
         rows=[
             {
@@ -241,10 +246,14 @@ def test_serialize_ftir_result_persists_no_match_caution_and_evidence():
     assert record["summary"]["match_status"] == "no_match"
     assert record["summary"]["caution_code"] == "spectral_no_match"
     assert record["summary"]["library_package"] == "openspecy_ftir_core"
+    assert record["summary"]["library_access_mode"] == "cloud_full_access"
+    assert record["summary"]["library_request_id"] == "libreq_ftir_001"
+    assert record["summary"]["library_result_source"] == "cloud_search"
     assert record["review"]["caution"]["code"] == "spectral_no_match"
     assert record["rows"][0]["library_provider"] == "OpenSpecy"
     assert record["rows"][0]["evidence"]["shared_peak_count"] == 0
     assert record["scientific_context"]["methodology"]["library_context"]["package"] == "openspecy_ftir_core"
+    assert record["scientific_context"]["methodology"]["library_context"]["request_id"] == "libreq_ftir_001"
     assert record["scientific_context"]["fit_quality"]["confidence_band"] == "no_match"
     assert any("no-match outcomes are valid cautionary results" in item.lower() for item in record["scientific_context"]["limitations"])
 
@@ -316,6 +325,11 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
             "library_provider": "COD",
             "library_package": "cod_xrd_core",
             "library_version": "2026.03-core",
+            "library_access_mode": "cloud_full_access",
+            "library_request_id": "libreq_xrd_001",
+            "library_result_source": "cloud_search",
+            "library_provider_scope": ["cod", "materials_project"],
+            "library_offline_limited_mode": False,
         },
         rows=[
             {
@@ -349,10 +363,14 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
     assert record["summary"]["top_candidate_score"] == 0.79
     assert record["summary"]["confidence_band"] == "medium"
     assert record["summary"]["library_provider"] == "COD"
+    assert record["summary"]["library_access_mode"] == "cloud_full_access"
+    assert record["summary"]["library_request_id"] == "libreq_xrd_001"
+    assert record["summary"]["library_result_source"] == "cloud_search"
     assert record["rows"][0]["library_package"] == "cod_xrd_core"
     assert record["rows"][0]["evidence"]["weighted_overlap_score"] == 0.83
     assert record["review"]["caution"] == {}
     assert record["scientific_context"]["methodology"]["library_context"]["provider"] == "COD"
+    assert record["scientific_context"]["methodology"]["library_context"]["request_id"] == "libreq_xrd_001"
     assert record["scientific_context"]["fit_quality"]["confidence_band"] == "medium"
 
 

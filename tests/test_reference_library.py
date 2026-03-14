@@ -18,7 +18,7 @@ def _manifest_etag(payload: dict) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
-def _write_mirror(root: Path, *, bad_hash: bool = False) -> dict:
+def _write_mirror(root: Path, *, bad_hash: bool = False, delivery_tier: str = "limited_fallback") -> dict:
     packages_root = root / "packages"
     packages_root.mkdir(parents=True, exist_ok=True)
 
@@ -41,6 +41,7 @@ def _write_mirror(root: Path, *, bad_hash: bool = False) -> dict:
             "provider_dataset_version": "2026.03.14",
             "builder_version": "b1",
             "normalized_schema_version": 1,
+            "delivery_tier": delivery_tier,
         },
         entries=[
             {
@@ -91,6 +92,7 @@ def _write_mirror(root: Path, *, bad_hash: bool = False) -> dict:
                 "provider_dataset_version": "2026.03.14",
                 "builder_version": "b1",
                 "normalized_schema_version": 1,
+                "delivery_tier": delivery_tier,
             }
         ],
     }
@@ -274,6 +276,7 @@ def test_reference_library_manager_requires_explicit_feed_configuration(tmp_path
 
     assert status["feed_configured"] is False
     assert status["sync_mode"] == "not_synced"
+    assert status["library_mode"] == "not_configured"
     assert "not configured" in status["last_error"].lower() or status["last_error"] == ""
 
 
@@ -313,6 +316,36 @@ def test_reference_library_manager_rejects_sha256_mismatch(tmp_path, monkeypatch
         assert "hash mismatch" in str(exc)
     else:
         raise AssertionError("Expected sync() to reject a bad sha256 hash.")
+
+
+def test_reference_library_manager_blocks_full_provider_packages_by_default(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = tmp_path / "mirror"
+    _write_mirror(mirror_root, delivery_tier="full_provider")
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", raising=False)
+
+    manager = ReferenceLibraryManager(feed_source=mirror_root.as_uri())
+    status = manager.sync(force=True)
+
+    assert status["installed_package_count"] == 0
+    assert "delivery-tier policy" in str(status["last_error"]).lower()
+    catalog = manager.catalog()
+    assert catalog[0]["delivery_tier"] == "full_provider"
+
+
+def test_reference_library_manager_allows_full_provider_packages_with_dev_override(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = tmp_path / "mirror"
+    _write_mirror(mirror_root, delivery_tier="full_provider")
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", "1")
+
+    manager = ReferenceLibraryManager(feed_source=mirror_root.as_uri())
+    status = manager.sync(force=True)
+
+    assert status["installed_package_count"] == 1
+    assert status["cache_status"] == "warm"
 
 
 def test_library_feed_enforces_license_statuses(tmp_path):

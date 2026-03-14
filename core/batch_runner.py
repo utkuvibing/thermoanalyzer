@@ -10,6 +10,7 @@ from scipy.signal import find_peaks, savgol_filter
 
 from core.dta_processor import DTAProcessor
 from core.dsc_processor import DSCProcessor
+from core.library_cloud_client import get_library_cloud_client
 from core.peak_analysis import characterize_peaks
 from core.processing_schema import (
     ensure_processing_payload,
@@ -837,6 +838,46 @@ def _reference_row(
     return payload
 
 
+def _normalize_cloud_ranked_rows(rows: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    if not isinstance(rows, list):
+        return normalized
+    for index, item in enumerate(rows, start=1):
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            score = float(item.get("normalized_score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        payload = {
+            "rank": int(item.get("rank") or index),
+            "candidate_id": str(item.get("candidate_id") or ""),
+            "candidate_name": str(item.get("candidate_name") or item.get("candidate_id") or ""),
+            "normalized_score": round(max(0.0, min(1.0, score)), 4),
+            "confidence_band": str(item.get("confidence_band") or "no_match"),
+            "library_provider": str(item.get("library_provider") or ""),
+            "library_package": str(item.get("library_package") or ""),
+            "library_version": str(item.get("library_version") or ""),
+            "evidence": dict(item.get("evidence") or {}),
+        }
+        normalized.append(payload)
+    normalized.sort(key=lambda item: int(item.get("rank") or 0))
+    if not normalized:
+        return normalized
+    for index, item in enumerate(normalized, start=1):
+        item["rank"] = index
+    return normalized
+
+
+def _provider_scope_from_ranked_rows(rows: list[dict[str, Any]]) -> list[str]:
+    scope: set[str] = set()
+    for row in rows:
+        token = str(row.get("library_provider") or "").strip()
+        if token:
+            scope.add(token)
+    return sorted(scope)
+
+
 def _resolve_spectral_references(
     *,
     dataset,
@@ -852,7 +893,26 @@ def _resolve_spectral_references(
         or []
     )
     normalized: list[dict[str, Any]] = []
-    if isinstance(raw_references, list):
+    manager = get_reference_library_manager()
+    for entry in manager.load_entries(analysis_type):
+        axis, signal = _extract_reference_signal(entry)
+        if axis is None or signal is None:
+            continue
+        normalized.append(
+            _reference_row(
+                candidate_id=str(entry.get("candidate_id") or ""),
+                candidate_name=str(entry.get("candidate_name") or ""),
+                priority=int(entry.get("priority") or 0),
+                provider=str(entry.get("provider") or ""),
+                package_id=str(entry.get("package_id") or ""),
+                package_version=str(entry.get("package_version") or ""),
+                attribution=str(entry.get("attribution") or ""),
+                source_url=str(entry.get("source_url") or ""),
+                axis=axis,
+                signal=signal,
+            )
+        )
+    if not normalized and isinstance(raw_references, list):
         for index, item in enumerate(raw_references, start=1):
             if not isinstance(item, Mapping):
                 continue
@@ -875,25 +935,6 @@ def _resolve_spectral_references(
                     signal=signal,
                 )
             )
-    manager = get_reference_library_manager()
-    for entry in manager.load_entries(analysis_type):
-        axis, signal = _extract_reference_signal(entry)
-        if axis is None or signal is None:
-            continue
-        normalized.append(
-            _reference_row(
-                candidate_id=str(entry.get("candidate_id") or ""),
-                candidate_name=str(entry.get("candidate_name") or ""),
-                priority=int(entry.get("priority") or 0),
-                provider=str(entry.get("provider") or ""),
-                package_id=str(entry.get("package_id") or ""),
-                package_version=str(entry.get("package_version") or ""),
-                attribution=str(entry.get("attribution") or ""),
-                source_url=str(entry.get("source_url") or ""),
-                axis=axis,
-                signal=signal,
-            )
-        )
     normalized.sort(
         key=lambda item: (
             -int(item.get("priority") or 0),
@@ -1069,15 +1110,89 @@ def _execute_spectral_batch(
 
     manager = get_reference_library_manager()
     library_context = manager.library_context(analysis_type)
-    references = _resolve_spectral_references(dataset=dataset, analysis_type=analysis_type, processing=processing)
-    ranked_matches = _rank_spectral_matches(
-        axis=axis,
-        normalized_signal=normalized_signal,
-        observed_peaks=observed_peaks,
-        references=references,
-        matching_config=similarity_matching,
-        peak_config=peak_detection,
-    )
+    cloud_client = get_library_cloud_client()
+    cloud_payload: Mapping[str, Any] | None = None
+    ranked_matches: list[dict[str, Any]] = []
+    references: list[dict[str, Any]] = []
+    library_access_mode = str(library_context.get("library_mode") or "not_configured")
+    library_result_source = ""
+    library_request_id = ""
+    library_provider_scope: list[str] = []
+    library_offline_limited_mode = True
+
+    if cloud_client.configured:
+        cloud_candidate_payload = cloud_client.search(
+            analysis_type=analysis_type,
+            payload={
+                "axis": axis.tolist(),
+                "signal": normalized_signal.tolist(),
+                "preprocessing_metadata": {
+                    "peak_detection": peak_detection,
+                    "smoothing": smoothing,
+                    "baseline": baseline,
+                    "normalization": normalization,
+                },
+                "sample_metadata": {
+                    "sample_name": (dataset.metadata or {}).get("sample_name"),
+                    "instrument": (dataset.metadata or {}).get("instrument"),
+                    "vendor": (dataset.metadata or {}).get("vendor"),
+                },
+                "import_metadata": {
+                    "import_review_required": bool((dataset.metadata or {}).get("import_review_required")),
+                },
+                "top_n": int(similarity_matching.get("top_n") or 3),
+                "minimum_score": float(similarity_matching.get("minimum_score") or 0.45),
+            },
+        )
+        if isinstance(cloud_candidate_payload, Mapping):
+            cloud_payload = cloud_candidate_payload
+            ranked_matches = _normalize_cloud_ranked_rows(cloud_payload.get("rows"))
+            library_request_id = str(cloud_payload.get("request_id") or "")
+            library_access_mode = str(cloud_payload.get("library_access_mode") or "cloud_full_access")
+            library_result_source = str(cloud_payload.get("library_result_source") or "cloud_search")
+            library_provider_scope = [
+                str(item)
+                for item in (cloud_payload.get("library_provider_scope") or [])
+                if str(item or "").strip()
+            ]
+            if not library_provider_scope:
+                library_provider_scope = _provider_scope_from_ranked_rows(ranked_matches)
+            library_offline_limited_mode = bool(cloud_payload.get("library_offline_limited_mode"))
+            manager.record_cloud_lookup(success=True, provider_count=len(library_provider_scope))
+        elif cloud_client.last_error:
+            manager.record_cloud_lookup(success=False, error=cloud_client.last_error)
+
+    if cloud_payload is None:
+        references = _resolve_spectral_references(dataset=dataset, analysis_type=analysis_type, processing=processing)
+        ranked_matches = _rank_spectral_matches(
+            axis=axis,
+            normalized_signal=normalized_signal,
+            observed_peaks=observed_peaks,
+            references=references,
+            matching_config=similarity_matching,
+            peak_config=peak_detection,
+        )
+        if manager.count_installed_candidates(analysis_type) > 0:
+            library_result_source = "limited_fallback_cache"
+            library_access_mode = "limited_cached_fallback"
+        elif (
+            (dataset.metadata or {}).get("spectral_reference_library")
+            or (dataset.metadata or {}).get("reference_library")
+        ):
+            library_result_source = "dataset_embedded"
+            if library_access_mode == "cloud_full_access":
+                library_access_mode = "not_configured"
+        else:
+            library_result_source = "limited_fallback_cache" if references else "unavailable"
+            if library_access_mode == "cloud_full_access":
+                library_access_mode = "not_configured"
+        library_provider_scope = _provider_scope_from_ranked_rows(ranked_matches)
+        library_offline_limited_mode = library_result_source != "cloud_search"
+    else:
+        cloud_candidate_count = int(cloud_payload.get("candidate_count") or len(ranked_matches))
+        references = [{}] * max(cloud_candidate_count, len(ranked_matches))
+        if not library_result_source:
+            library_result_source = "cloud_search"
 
     minimum_score = float(similarity_matching.get("minimum_score") or 0.45)
     top_match = ranked_matches[0] if ranked_matches else None
@@ -1088,12 +1203,14 @@ def _execute_spectral_batch(
     top_provider = str(top_match.get("library_provider") or "") if top_match else ""
     top_package = str(top_match.get("library_package") or "") if top_match else ""
     top_version = str(top_match.get("library_version") or "") if top_match else ""
+    cloud_caution_code = str((cloud_payload or {}).get("caution_code") or "")
+    cloud_caution_message = str((cloud_payload or {}).get("caution_message") or "")
     caution_payload = (
         {}
         if matched
         else {
-            "code": "spectral_no_match",
-            "message": "No reference candidate met the minimum similarity threshold.",
+            "code": cloud_caution_code or "spectral_no_match",
+            "message": cloud_caution_message or "No reference candidate met the minimum similarity threshold.",
             "minimum_score": minimum_score,
             "top_candidate_score": round(top_score, 4),
         }
@@ -1112,6 +1229,11 @@ def _execute_spectral_batch(
             "library_cache_status": library_context["library_cache_status"],
             "library_reference_package_count": library_context["reference_package_count"],
             "library_reference_candidate_count": library_context["reference_candidate_count"],
+            "library_access_mode": library_access_mode,
+            "library_request_id": library_request_id,
+            "library_result_source": library_result_source,
+            "library_provider_scope": library_provider_scope,
+            "library_offline_limited_mode": bool(library_offline_limited_mode),
         },
         analysis_type=analysis_type,
     )
@@ -1133,6 +1255,11 @@ def _execute_spectral_batch(
             "library_version": top_version,
             "library_sync_mode": library_context["library_sync_mode"],
             "library_cache_status": library_context["library_cache_status"],
+            "library_access_mode": library_access_mode,
+            "library_request_id": library_request_id,
+            "library_result_source": library_result_source,
+            "library_provider_scope": library_provider_scope,
+            "library_offline_limited_mode": bool(library_offline_limited_mode),
         },
     )
 
@@ -1153,6 +1280,11 @@ def _execute_spectral_batch(
         "library_cache_status": library_context["library_cache_status"],
         "library_reference_package_count": library_context["reference_package_count"],
         "library_reference_candidate_count": library_context["reference_candidate_count"],
+        "library_access_mode": library_access_mode,
+        "library_request_id": library_request_id,
+        "library_result_source": library_result_source,
+        "library_provider_scope": library_provider_scope,
+        "library_offline_limited_mode": bool(library_offline_limited_mode),
     }
     rows = [
         {
@@ -1602,7 +1734,25 @@ def _resolve_xrd_references(
         or []
     )
     normalized: list[dict[str, Any]] = []
-    if isinstance(raw_references, list):
+    manager = get_reference_library_manager()
+    for entry in manager.load_entries("XRD"):
+        peaks = _extract_xrd_reference_peaks(entry)
+        if not peaks:
+            continue
+        normalized.append(
+            _reference_row(
+                candidate_id=str(entry.get("candidate_id") or ""),
+                candidate_name=str(entry.get("candidate_name") or ""),
+                priority=int(entry.get("priority") or 0),
+                provider=str(entry.get("provider") or ""),
+                package_id=str(entry.get("package_id") or ""),
+                package_version=str(entry.get("package_version") or ""),
+                attribution=str(entry.get("attribution") or ""),
+                source_url=str(entry.get("source_url") or ""),
+                peaks=peaks,
+            )
+        )
+    if not normalized and isinstance(raw_references, list):
         for index, entry in enumerate(raw_references, start=1):
             if not isinstance(entry, Mapping):
                 continue
@@ -1624,24 +1774,6 @@ def _resolve_xrd_references(
                     peaks=peaks,
                 )
             )
-    manager = get_reference_library_manager()
-    for entry in manager.load_entries("XRD"):
-        peaks = _extract_xrd_reference_peaks(entry)
-        if not peaks:
-            continue
-        normalized.append(
-            _reference_row(
-                candidate_id=str(entry.get("candidate_id") or ""),
-                candidate_name=str(entry.get("candidate_name") or ""),
-                priority=int(entry.get("priority") or 0),
-                provider=str(entry.get("provider") or ""),
-                package_id=str(entry.get("package_id") or ""),
-                package_version=str(entry.get("package_version") or ""),
-                attribution=str(entry.get("attribution") or ""),
-                source_url=str(entry.get("source_url") or ""),
-                peaks=peaks,
-            )
-        )
     normalized.sort(
         key=lambda item: (
             -int(item.get("priority") or 0),
@@ -2027,23 +2159,117 @@ def _execute_xrd_batch(
     peaks, resolved_peak_detection = _detect_xrd_peaks(axis, corrected, peak_detection)
     manager = get_reference_library_manager()
     library_context = manager.library_context("XRD")
-    references = _resolve_xrd_references(dataset=dataset, processing=processing)
     matching_config = _resolve_xrd_matching_config(processing)
     observed_space = _resolve_xrd_observed_space(dataset)
     wavelength_angstrom = _coerce_optional_float(dataset.metadata.get("xrd_wavelength_angstrom"))
-    matching_peaks = [dict(item) for item in peaks]
-    if observed_space == "d_spacing":
-        for peak in matching_peaks:
-            peak["d_spacing"] = float(peak.get("position", 0.0))
-            if wavelength_angstrom is not None:
-                peak["wavelength_angstrom"] = float(wavelength_angstrom)
-    ranked_matches = _rank_xrd_phase_candidates(
-        observed_peaks=matching_peaks,
-        references=references,
-        matching_config=matching_config,
-        comparison_space=observed_space,
-        wavelength_angstrom=wavelength_angstrom,
-    )
+    cloud_client = get_library_cloud_client()
+    cloud_payload: Mapping[str, Any] | None = None
+    references: list[dict[str, Any]] = []
+    ranked_matches: list[dict[str, Any]] = []
+    library_access_mode = str(library_context.get("library_mode") or "not_configured")
+    library_request_id = ""
+    library_result_source = ""
+    library_provider_scope: list[str] = []
+    library_offline_limited_mode = True
+
+    if cloud_client.configured:
+        cloud_candidate_payload = cloud_client.search(
+            analysis_type="XRD",
+            payload={
+                "observed_peaks": [
+                    {
+                        "position": float(item.get("position", 0.0)),
+                        "intensity": float(item.get("intensity", 0.0)),
+                        **(
+                            {"d_spacing": float(item.get("d_spacing"))}
+                            if item.get("d_spacing") not in (None, "")
+                            else {}
+                        ),
+                    }
+                    for item in peaks
+                ],
+                "axis": axis.tolist(),
+                "signal": corrected.tolist(),
+                "xrd_axis_role": dataset.metadata.get("xrd_axis_role"),
+                "xrd_axis_unit": dataset.metadata.get("xrd_axis_unit") or (dataset.units or {}).get("temperature"),
+                "xrd_wavelength_angstrom": dataset.metadata.get("xrd_wavelength_angstrom"),
+                "preprocessing_metadata": {
+                    "axis_normalization": axis_normalization,
+                    "smoothing": smoothing,
+                    "baseline": baseline,
+                    "peak_detection": resolved_peak_detection,
+                    "matching": matching_config,
+                },
+                "sample_metadata": {
+                    "sample_name": (dataset.metadata or {}).get("sample_name"),
+                    "instrument": (dataset.metadata or {}).get("instrument"),
+                    "vendor": (dataset.metadata or {}).get("vendor"),
+                },
+                "import_metadata": {
+                    "import_review_required": bool((dataset.metadata or {}).get("import_review_required")),
+                },
+                "top_n": int(matching_config.get("top_n") or 5),
+                "minimum_score": float(matching_config.get("minimum_score") or 0.42),
+            },
+        )
+        if isinstance(cloud_candidate_payload, Mapping):
+            cloud_payload = cloud_candidate_payload
+            ranked_matches = _normalize_cloud_ranked_rows(cloud_payload.get("rows"))
+            library_request_id = str(cloud_payload.get("request_id") or "")
+            library_access_mode = str(cloud_payload.get("library_access_mode") or "cloud_full_access")
+            library_result_source = str(cloud_payload.get("library_result_source") or "cloud_search")
+            library_provider_scope = [
+                str(item)
+                for item in (cloud_payload.get("library_provider_scope") or [])
+                if str(item or "").strip()
+            ]
+            if not library_provider_scope:
+                library_provider_scope = _provider_scope_from_ranked_rows(ranked_matches)
+            library_offline_limited_mode = bool(cloud_payload.get("library_offline_limited_mode"))
+            manager.record_cloud_lookup(success=True, provider_count=len(library_provider_scope))
+        elif cloud_client.last_error:
+            manager.record_cloud_lookup(success=False, error=cloud_client.last_error)
+
+    if cloud_payload is None:
+        references = _resolve_xrd_references(dataset=dataset, processing=processing)
+        matching_peaks = [dict(item) for item in peaks]
+        if observed_space == "d_spacing":
+            for peak in matching_peaks:
+                peak["d_spacing"] = float(peak.get("position", 0.0))
+                if wavelength_angstrom is not None:
+                    peak["wavelength_angstrom"] = float(wavelength_angstrom)
+        ranked_matches = _rank_xrd_phase_candidates(
+            observed_peaks=matching_peaks,
+            references=references,
+            matching_config=matching_config,
+            comparison_space=observed_space,
+            wavelength_angstrom=wavelength_angstrom,
+        )
+        if manager.count_installed_candidates("XRD") > 0:
+            library_result_source = "limited_fallback_cache"
+            library_access_mode = "limited_cached_fallback"
+        elif (
+            (dataset.metadata or {}).get("xrd_reference_library")
+            or (dataset.metadata or {}).get("reference_library")
+        ):
+            library_result_source = "dataset_embedded"
+            if library_access_mode == "cloud_full_access":
+                library_access_mode = "not_configured"
+        else:
+            library_result_source = "limited_fallback_cache" if references else "unavailable"
+            if library_access_mode == "cloud_full_access":
+                library_access_mode = "not_configured"
+        library_provider_scope = _provider_scope_from_ranked_rows(ranked_matches)
+        library_offline_limited_mode = library_result_source != "cloud_search"
+    else:
+        cloud_match_status = str(cloud_payload.get("match_status") or "").strip().lower()
+        cloud_candidate_count = int(cloud_payload.get("candidate_count") or len(ranked_matches))
+        if cloud_match_status == "not_run":
+            references = []
+        else:
+            references = [{}] * max(cloud_candidate_count, len(ranked_matches), 1)
+        if not library_result_source:
+            library_result_source = "cloud_search"
 
     minimum_score = float(matching_config["minimum_score"])
     top_match = ranked_matches[0] if ranked_matches else None
@@ -2052,6 +2278,8 @@ def _execute_xrd_batch(
     top_provider = str(top_match.get("library_provider") or "") if top_match else ""
     top_package = str(top_match.get("library_package") or "") if top_match else ""
     top_version = str(top_match.get("library_version") or "") if top_match else ""
+    cloud_caution_code = str((cloud_payload or {}).get("caution_code") or "").strip()
+    cloud_caution_message = str((cloud_payload or {}).get("caution_message") or "").strip()
     top_candidate_summary = _build_xrd_top_candidate_summary(
         top_match=top_match,
         matched=matched,
@@ -2059,13 +2287,36 @@ def _execute_xrd_batch(
         dataset=dataset,
         observed_space=observed_space,
     )
+    cloud_summary = dict((cloud_payload or {}).get("summary") or {})
+    for key in (
+        "top_candidate_id",
+        "top_candidate_name",
+        "top_candidate_score",
+        "top_candidate_confidence_band",
+        "top_candidate_provider",
+        "top_candidate_package",
+        "top_candidate_version",
+        "top_candidate_shared_peak_count",
+        "top_candidate_weighted_overlap_score",
+        "top_candidate_coverage_ratio",
+        "top_candidate_mean_delta_position",
+        "top_candidate_unmatched_major_peak_count",
+        "top_candidate_reason_below_threshold",
+    ):
+        value = cloud_summary.get(key)
+        if value in (None, "", []):
+            continue
+        if top_candidate_summary.get(key) in (None, "", []):
+            top_candidate_summary[key] = value
+
     caution_payload = {}
     if not references:
         match_status = "not_run"
         confidence_band = "not_run"
         caution_payload = {
-            "code": "xrd_reference_library_unavailable",
-            "message": "No XRD reference candidates are installed or embedded; qualitative phase matching was not run.",
+            "code": cloud_caution_code or "xrd_reference_library_unavailable",
+            "message": cloud_caution_message
+            or "No XRD reference candidates are installed or embedded; qualitative phase matching was not run.",
             "minimum_score": minimum_score,
             "top_phase_score": round(top_score, 4),
         }
@@ -2089,10 +2340,9 @@ def _execute_xrd_batch(
             if reason_sentence:
                 reason_sentence = f" Primary limiting factors: {reason_sentence}."
             caution_payload = {
-                "code": "xrd_no_match",
-                "message": (
-                    f"{lead_sentence}{detail_sentence}{reason_sentence} Interpret as a screening result rather than a confirmed identification."
-                ),
+                "code": cloud_caution_code or "xrd_no_match",
+                "message": cloud_caution_message
+                or f"{lead_sentence}{detail_sentence}{reason_sentence} Interpret as a screening result rather than a confirmed identification.",
                 "minimum_score": minimum_score,
                 "top_phase_score": round(top_score, 4),
                 "top_candidate_name": top_candidate_summary.get("top_candidate_name"),
@@ -2101,14 +2351,15 @@ def _execute_xrd_batch(
             }
         elif confidence_band == "low":
             caution_payload = {
-                "code": "xrd_low_confidence",
-                "message": "An accepted XRD candidate was retained, but confidence remains low. Review shared peaks, coverage, and unmatched major peaks before interpretation.",
+                "code": cloud_caution_code or "xrd_low_confidence",
+                "message": cloud_caution_message
+                or "An accepted XRD candidate was retained, but confidence remains low. Review shared peaks, coverage, and unmatched major peaks before interpretation.",
                 "minimum_score": minimum_score,
                 "top_phase_score": round(top_score, 4),
                 "top_candidate_name": top_candidate_summary.get("top_candidate_name"),
                 "top_candidate_score": top_candidate_summary.get("top_candidate_score"),
             }
-        if library_context["reference_candidate_count"] <= 0 and not caution_payload:
+        if len(references) <= 0 and not caution_payload:
             caution_payload = {
                 "code": "xrd_reference_coverage_limited",
                 "message": "Installed XRD library coverage is limited. Candidate ranking can support screening, but do not treat the top-ranked phase as confirmed without review.",
@@ -2158,6 +2409,11 @@ def _execute_xrd_batch(
             "library_cache_status": library_context["library_cache_status"],
             "library_reference_package_count": library_context["reference_package_count"],
             "library_reference_candidate_count": library_context["reference_candidate_count"],
+            "library_access_mode": library_access_mode,
+            "library_request_id": library_request_id,
+            "library_result_source": library_result_source,
+            "library_provider_scope": library_provider_scope,
+            "library_offline_limited_mode": bool(library_offline_limited_mode),
         },
         analysis_type="XRD",
     )
@@ -2180,6 +2436,11 @@ def _execute_xrd_batch(
             "library_version": top_version,
             "library_sync_mode": library_context["library_sync_mode"],
             "library_cache_status": library_context["library_cache_status"],
+            "library_access_mode": library_access_mode,
+            "library_request_id": library_request_id,
+            "library_result_source": library_result_source,
+            "library_provider_scope": library_provider_scope,
+            "library_offline_limited_mode": bool(library_offline_limited_mode),
         },
     )
 
@@ -2207,6 +2468,11 @@ def _execute_xrd_batch(
         "library_cache_status": library_context["library_cache_status"],
         "library_reference_package_count": library_context["reference_package_count"],
         "library_reference_candidate_count": library_context["reference_candidate_count"],
+        "library_access_mode": library_access_mode,
+        "library_request_id": library_request_id,
+        "library_result_source": library_result_source,
+        "library_provider_scope": library_provider_scope,
+        "library_offline_limited_mode": bool(library_offline_limited_mode),
     }
     summary.update(top_candidate_summary)
     rows = [

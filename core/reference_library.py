@@ -27,8 +27,16 @@ MANIFEST_FILE = "manifest.json"
 SYNC_STATE_FILE = "sync_state.json"
 LIBRARY_ENV_FEED_URL = "THERMOANALYZER_LIBRARY_FEED_URL"
 LIBRARY_ENV_MIRROR_ROOT = "THERMOANALYZER_LIBRARY_MIRROR_ROOT"
+LIBRARY_ENV_CLOUD_URL = "THERMOANALYZER_LIBRARY_CLOUD_URL"
+LIBRARY_ENV_CLOUD_ENABLED = "THERMOANALYZER_LIBRARY_CLOUD_ENABLED"
+LIBRARY_ENV_ALLOW_FULL_PROVIDER_SYNC = "THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC"
 LIBRARY_HEADER = "X-TA-License"
 LIBRARY_API_PREFIX = "/v1/library"
+DELIVERY_TIER_LIMITED_FALLBACK = "limited_fallback"
+DELIVERY_TIER_FULL_PROVIDER = "full_provider"
+LIBRARY_MODE_CLOUD_FULL_ACCESS = "cloud_full_access"
+LIBRARY_MODE_LIMITED_CACHED_FALLBACK = "limited_cached_fallback"
+LIBRARY_MODE_NOT_CONFIGURED = "not_configured"
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,7 @@ class LibraryPackage:
     provider_dataset_version: str = ""
     builder_version: str = ""
     normalized_schema_version: int = 1
+    delivery_tier: str = DELIVERY_TIER_LIMITED_FALLBACK
 
 
 @dataclass(frozen=True)
@@ -84,6 +93,7 @@ class InstalledLibrary:
     provider_dataset_version: str = ""
     builder_version: str = ""
     normalized_schema_version: int = 1
+    delivery_tier: str = DELIVERY_TIER_LIMITED_FALLBACK
 
 
 @dataclass(frozen=True)
@@ -105,6 +115,10 @@ class LibrarySyncState:
     last_error: str = ""
     feed_source: str = ""
     installed_packages: dict[str, dict[str, Any]] = field(default_factory=dict)
+    cloud_access_enabled: bool = False
+    cloud_provider_count: int = 0
+    last_cloud_lookup_at: str = ""
+    last_cloud_error: str = ""
 
 
 def utcnow_iso() -> str:
@@ -159,6 +173,11 @@ def _coerce_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _truthy(value: Any) -> bool:
+    token = str(value or "").strip().lower()
+    return token in {"1", "true", "yes", "on"}
 
 
 def _to_serializable(value: Any) -> Any:
@@ -225,6 +244,7 @@ def _package_from_mapping(payload: Mapping[str, Any]) -> LibraryPackage:
         provider_dataset_version=str(payload.get("provider_dataset_version") or "").strip(),
         builder_version=str(payload.get("builder_version") or "").strip(),
         normalized_schema_version=_coerce_int(payload.get("normalized_schema_version"), 1),
+        delivery_tier=str(payload.get("delivery_tier") or DELIVERY_TIER_LIMITED_FALLBACK).strip() or DELIVERY_TIER_LIMITED_FALLBACK,
     )
 
 
@@ -249,6 +269,7 @@ def _installed_from_mapping(payload: Mapping[str, Any]) -> InstalledLibrary:
         provider_dataset_version=str(payload.get("provider_dataset_version") or "").strip(),
         builder_version=str(payload.get("builder_version") or "").strip(),
         normalized_schema_version=_coerce_int(payload.get("normalized_schema_version"), 1),
+        delivery_tier=str(payload.get("delivery_tier") or DELIVERY_TIER_LIMITED_FALLBACK).strip() or DELIVERY_TIER_LIMITED_FALLBACK,
     )
 
 
@@ -411,6 +432,10 @@ class ReferenceLibraryManager:
             state.last_error = str(payload.get("last_error") or "")
             state.feed_source = str(payload.get("feed_source") or self.feed_source)
             state.installed_packages = dict(payload.get("installed_packages") or {})
+            state.cloud_access_enabled = bool(payload.get("cloud_access_enabled"))
+            state.cloud_provider_count = _coerce_int(payload.get("cloud_provider_count"), 0)
+            state.last_cloud_lookup_at = str(payload.get("last_cloud_lookup_at") or "")
+            state.last_cloud_error = str(payload.get("last_cloud_error") or "")
         return state
 
     def save_sync_state(self, state: LibrarySyncState) -> None:
@@ -491,6 +516,19 @@ class ReferenceLibraryManager:
         state = state or self.load_sync_state()
         return "warm" if bool(state.installed_packages) else "cold"
 
+    def _cloud_access_enabled(self, state: LibrarySyncState | None = None) -> bool:
+        state = state or self.load_sync_state()
+        cloud_root = str(os.getenv(LIBRARY_ENV_CLOUD_URL, "")).strip()
+        if not cloud_root:
+            return False
+        enabled_override = os.getenv(LIBRARY_ENV_CLOUD_ENABLED, "")
+        if enabled_override == "":
+            return bool(state.cloud_access_enabled or cloud_root)
+        return _truthy(enabled_override)
+
+    def _allow_full_provider_sync(self) -> bool:
+        return _truthy(os.getenv(LIBRARY_ENV_ALLOW_FULL_PROVIDER_SYNC, ""))
+
     def _installed_mapping(self) -> dict[str, InstalledLibrary]:
         state = self.load_sync_state()
         installed: dict[str, InstalledLibrary] = {}
@@ -543,6 +581,7 @@ class ReferenceLibraryManager:
                     "provider_dataset_version": package.provider_dataset_version,
                     "builder_version": package.builder_version,
                     "normalized_schema_version": package.normalized_schema_version,
+                    "delivery_tier": package.delivery_tier,
                     "installed": active is not None,
                     "installed_version": active.version if active else None,
                     "update_available": active.update_available if active else False,
@@ -554,6 +593,18 @@ class ReferenceLibraryManager:
         state = self.load_sync_state()
         installed = self.installed_packages()
         manifest = self.load_manifest()
+        fallback_packages = [
+            item
+            for item in installed
+            if str(item.delivery_tier or DELIVERY_TIER_LIMITED_FALLBACK) != DELIVERY_TIER_FULL_PROVIDER
+        ]
+        cloud_access_enabled = self._cloud_access_enabled(state)
+        if cloud_access_enabled:
+            library_mode = LIBRARY_MODE_CLOUD_FULL_ACCESS
+        elif fallback_packages:
+            library_mode = LIBRARY_MODE_LIMITED_CACHED_FALLBACK
+        else:
+            library_mode = LIBRARY_MODE_NOT_CONFIGURED
         return {
             "feed_configured": self.client.configured,
             "feed_source": state.feed_source or self.feed_source,
@@ -570,6 +621,13 @@ class ReferenceLibraryManager:
             "manifest_etag": state.manifest_etag,
             "last_error": state.last_error,
             "sync_due": self.needs_manifest_refresh() if self.client.configured else False,
+            "library_mode": library_mode,
+            "cloud_access_enabled": cloud_access_enabled,
+            "cloud_provider_count": max(0, int(state.cloud_provider_count or 0)) if cloud_access_enabled else 0,
+            "fallback_package_count": len(fallback_packages),
+            "fallback_entry_count": sum(item.entry_count for item in fallback_packages),
+            "last_cloud_lookup_at": state.last_cloud_lookup_at or None,
+            "last_cloud_error": state.last_cloud_error,
         }
 
     def sync(
@@ -586,9 +644,19 @@ class ReferenceLibraryManager:
             return self.status()
 
         selected = {str(item) for item in (package_ids or []) if str(item).strip()}
-        target_packages = [
+        all_target_packages = [
             package for package in manifest.packages if not selected or package.package_id in selected
         ]
+        blocked_packages: list[str] = []
+        if self._allow_full_provider_sync():
+            target_packages = list(all_target_packages)
+        else:
+            target_packages = []
+            for package in all_target_packages:
+                if str(package.delivery_tier or DELIVERY_TIER_LIMITED_FALLBACK) == DELIVERY_TIER_FULL_PROVIDER:
+                    blocked_packages.append(package.package_id)
+                    continue
+                target_packages.append(package)
         installed = state.installed_packages
 
         for package in target_packages:
@@ -630,6 +698,7 @@ class ReferenceLibraryManager:
                 "provider_dataset_version": package.provider_dataset_version,
                 "builder_version": package.builder_version,
                 "normalized_schema_version": package.normalized_schema_version,
+                "delivery_tier": package.delivery_tier,
             }
 
         state.installed_packages = installed
@@ -637,9 +706,33 @@ class ReferenceLibraryManager:
         state.sync_mode = "online_sync"
         state.cache_status = self._cache_status(state)
         state.feed_source = self.feed_source
-        state.last_error = ""
+        if blocked_packages:
+            state.last_error = (
+                "Some packages were skipped by delivery-tier policy: "
+                + ", ".join(sorted(blocked_packages))
+            )
+        else:
+            state.last_error = ""
         self.save_sync_state(state)
         return self.status()
+
+    def record_cloud_lookup(
+        self,
+        *,
+        success: bool,
+        provider_count: int | None = None,
+        error: str = "",
+    ) -> None:
+        state = self.load_sync_state()
+        state.cloud_access_enabled = self._cloud_access_enabled(state)
+        state.last_cloud_lookup_at = utcnow_iso()
+        if provider_count is not None:
+            state.cloud_provider_count = max(0, int(provider_count))
+        if success:
+            state.last_cloud_error = ""
+        else:
+            state.last_cloud_error = str(error or "").strip()
+        self.save_sync_state(state)
 
     def _install_package(self, package: LibraryPackage, raw: bytes) -> tuple[Path, Path]:
         archive_path = self._packages_root() / package.archive_name
@@ -666,14 +759,22 @@ class ReferenceLibraryManager:
     def library_context(self, analysis_type: str) -> dict[str, Any]:
         token = _normalize_analysis_type(analysis_type)
         installed = [item for item in self.installed_packages() if item.analysis_type == token]
+        status = self.status()
         return {
             "analysis_type": token,
             "reference_package_count": len(installed),
             "reference_candidate_count": sum(item.entry_count for item in installed),
-            "library_sync_mode": self.status()["sync_mode"],
-            "library_cache_status": self.status()["cache_status"],
+            "library_sync_mode": status["sync_mode"],
+            "library_cache_status": status["cache_status"],
             "library_providers": [item.provider for item in installed],
             "library_packages": [item.package_id for item in installed],
+            "library_mode": status.get("library_mode", LIBRARY_MODE_NOT_CONFIGURED),
+            "cloud_access_enabled": bool(status.get("cloud_access_enabled")),
+            "cloud_provider_count": _coerce_int(status.get("cloud_provider_count"), 0),
+            "fallback_package_count": _coerce_int(status.get("fallback_package_count"), 0),
+            "fallback_entry_count": _coerce_int(status.get("fallback_entry_count"), 0),
+            "last_cloud_lookup_at": status.get("last_cloud_lookup_at"),
+            "last_cloud_error": status.get("last_cloud_error") or "",
         }
 
     def _entry_base(
@@ -737,6 +838,7 @@ class ReferenceLibraryManager:
             or package_payload.get("normalized_schema_version"),
             1,
         )
+        base["delivery_tier"] = str(entry.get("delivery_tier") or package.delivery_tier).strip() or DELIVERY_TIER_LIMITED_FALLBACK
         return base
 
     def load_entries(self, analysis_type: str) -> list[dict[str, Any]]:

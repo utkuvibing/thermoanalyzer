@@ -348,6 +348,18 @@ def _build_spectral_scientific_context(
         "library_context": {
             "sync_mode": ((processing or {}).get("method_context") or {}).get("library_sync_mode"),
             "cache_status": ((processing or {}).get("method_context") or {}).get("library_cache_status"),
+            "access_mode": summary.get("library_access_mode")
+            or ((processing or {}).get("method_context") or {}).get("library_access_mode"),
+            "request_id": summary.get("library_request_id")
+            or ((processing or {}).get("method_context") or {}).get("library_request_id"),
+            "result_source": summary.get("library_result_source")
+            or ((processing or {}).get("method_context") or {}).get("library_result_source"),
+            "provider_scope": summary.get("library_provider_scope")
+            or ((processing or {}).get("method_context") or {}).get("library_provider_scope")
+            or [],
+            "offline_limited_mode": summary.get("library_offline_limited_mode")
+            if summary.get("library_offline_limited_mode") is not None
+            else ((processing or {}).get("method_context") or {}).get("library_offline_limited_mode"),
             "reference_package_count": ((processing or {}).get("method_context") or {}).get(
                 "library_reference_package_count"
             ),
@@ -430,6 +442,18 @@ def _build_xrd_scientific_context(
         "library_context": {
             "sync_mode": ((processing or {}).get("method_context") or {}).get("library_sync_mode"),
             "cache_status": ((processing or {}).get("method_context") or {}).get("library_cache_status"),
+            "access_mode": summary.get("library_access_mode")
+            or ((processing or {}).get("method_context") or {}).get("library_access_mode"),
+            "request_id": summary.get("library_request_id")
+            or ((processing or {}).get("method_context") or {}).get("library_request_id"),
+            "result_source": summary.get("library_result_source")
+            or ((processing or {}).get("method_context") or {}).get("library_result_source"),
+            "provider_scope": summary.get("library_provider_scope")
+            or ((processing or {}).get("method_context") or {}).get("library_provider_scope")
+            or [],
+            "offline_limited_mode": summary.get("library_offline_limited_mode")
+            if summary.get("library_offline_limited_mode") is not None
+            else ((processing or {}).get("method_context") or {}).get("library_offline_limited_mode"),
             "reference_package_count": ((processing or {}).get("method_context") or {}).get(
                 "library_reference_package_count"
             ),
@@ -1070,6 +1094,11 @@ def serialize_spectral_result(
     normalized_summary.setdefault("library_version", None)
     normalized_summary.setdefault("library_sync_mode", None)
     normalized_summary.setdefault("library_cache_status", None)
+    normalized_summary.setdefault("library_access_mode", None)
+    normalized_summary.setdefault("library_request_id", None)
+    normalized_summary.setdefault("library_result_source", None)
+    normalized_summary.setdefault("library_provider_scope", [])
+    normalized_summary.setdefault("library_offline_limited_mode", False)
     normalized_summary.setdefault("sample_name", dataset.metadata.get("sample_name"))
     normalized_summary.setdefault("sample_mass", dataset.metadata.get("sample_mass"))
     normalized_summary.setdefault("heating_rate", dataset.metadata.get("heating_rate"))
@@ -1086,6 +1115,27 @@ def serialize_spectral_result(
     if normalized_summary.get("library_cache_status") in (None, ""):
         normalized_summary["library_cache_status"] = ((processing or {}).get("method_context") or {}).get(
             "library_cache_status"
+        )
+    if normalized_summary.get("library_access_mode") in (None, ""):
+        normalized_summary["library_access_mode"] = ((processing or {}).get("method_context") or {}).get(
+            "library_access_mode"
+        )
+    if normalized_summary.get("library_request_id") in (None, ""):
+        normalized_summary["library_request_id"] = ((processing or {}).get("method_context") or {}).get(
+            "library_request_id"
+        )
+    if normalized_summary.get("library_result_source") in (None, ""):
+        normalized_summary["library_result_source"] = ((processing or {}).get("method_context") or {}).get(
+            "library_result_source"
+        )
+    if not normalized_summary.get("library_provider_scope"):
+        normalized_summary["library_provider_scope"] = list(
+            ((processing or {}).get("method_context") or {}).get("library_provider_scope")
+            or []
+        )
+    if normalized_summary.get("library_offline_limited_mode") in (None, ""):
+        normalized_summary["library_offline_limited_mode"] = bool(
+            ((processing or {}).get("method_context") or {}).get("library_offline_limited_mode")
         )
     normalized_summary["top_match_score"] = _clean_scalar(normalized_summary.get("top_match_score"))
 
@@ -1199,6 +1249,11 @@ def serialize_xrd_result(
     normalized_summary.setdefault("library_version", None)
     normalized_summary.setdefault("library_sync_mode", None)
     normalized_summary.setdefault("library_cache_status", None)
+    normalized_summary.setdefault("library_access_mode", None)
+    normalized_summary.setdefault("library_request_id", None)
+    normalized_summary.setdefault("library_result_source", None)
+    normalized_summary.setdefault("library_provider_scope", [])
+    normalized_summary.setdefault("library_offline_limited_mode", False)
     normalized_summary.setdefault("sample_name", dataset.metadata.get("sample_name"))
     normalized_summary.setdefault("sample_mass", dataset.metadata.get("sample_mass"))
     normalized_summary.setdefault("heating_rate", dataset.metadata.get("heating_rate"))
@@ -1228,6 +1283,27 @@ def serialize_xrd_result(
     if normalized_summary.get("library_cache_status") in (None, ""):
         normalized_summary["library_cache_status"] = ((processing or {}).get("method_context") or {}).get(
             "library_cache_status"
+        )
+    if normalized_summary.get("library_access_mode") in (None, ""):
+        normalized_summary["library_access_mode"] = ((processing or {}).get("method_context") or {}).get(
+            "library_access_mode"
+        )
+    if normalized_summary.get("library_request_id") in (None, ""):
+        normalized_summary["library_request_id"] = ((processing or {}).get("method_context") or {}).get(
+            "library_request_id"
+        )
+    if normalized_summary.get("library_result_source") in (None, ""):
+        normalized_summary["library_result_source"] = ((processing or {}).get("method_context") or {}).get(
+            "library_result_source"
+        )
+    if not normalized_summary.get("library_provider_scope"):
+        normalized_summary["library_provider_scope"] = list(
+            ((processing or {}).get("method_context") or {}).get("library_provider_scope")
+            or []
+        )
+    if normalized_summary.get("library_offline_limited_mode") in (None, ""):
+        normalized_summary["library_offline_limited_mode"] = bool(
+            ((processing or {}).get("method_context") or {}).get("library_offline_limited_mode")
         )
     normalized_summary["top_phase_score"] = _clean_scalar(normalized_summary.get("top_phase_score"))
     normalized_summary["top_match_score"] = _clean_scalar(normalized_summary.get("top_match_score"))

@@ -308,6 +308,11 @@ def _make_ftir_no_match_record():
             "top_match_score": 0.33,
             "confidence_band": "no_match",
             "caution_code": "spectral_no_match",
+            "library_access_mode": "cloud_full_access",
+            "library_request_id": "libreq_report_ftir_001",
+            "library_result_source": "cloud_search",
+            "library_provider_scope": ["openspecy"],
+            "library_offline_limited_mode": False,
         },
         rows=[
             {
@@ -382,6 +387,11 @@ def _make_xrd_no_match_record():
             "confidence_band": "no_match",
             "caution_code": "xrd_no_match",
             "caution_message": "No candidate exceeded threshold; qualitative caution required.",
+            "library_access_mode": "limited_cached_fallback",
+            "library_request_id": "libreq_report_xrd_001",
+            "library_result_source": "limited_fallback_cache",
+            "library_provider_scope": ["cod"],
+            "library_offline_limited_mode": True,
         },
         rows=[
             {
@@ -590,6 +600,8 @@ def test_generate_docx_report_renders_ftir_no_match_caution_fields():
     assert "Caution Code" in xml
     assert "spectral_no_match" in xml
     assert "Confidence Band" in xml
+    assert "Library Result Source" in xml
+    assert "cloud_search" in xml
 
 
 def test_generate_docx_report_renders_xrd_no_match_caution_fields():
@@ -612,6 +624,10 @@ def test_generate_docx_report_renders_xrd_no_match_caution_fields():
     assert "Weighted Overlap Score" in xml
     assert "Caution Code" in xml
     assert "xrd_no_match" in xml
+    assert "Library Result Source" in xml
+    assert "limited_fallback_cache" in xml
+    assert "Library Access Mode" in xml
+    assert "limited_cached_fallback" in xml
     assert "Phase Matching Metric" in xml
     assert "qualitative caution" in xml
 

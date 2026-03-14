@@ -845,6 +845,23 @@ def render():
         m2.metric(tx("En İyi Aday", "Best Candidate"), best_candidate_name or tx("Yok", "None"))
         m3.metric(tx("Aday Skoru", "Candidate Score"), f"{best_candidate_score:.3f}" if best_candidate_score is not None else "N/A")
         m4.metric(tx("Kabul Durumu", "Accepted Match Status"), str(summary.get("match_status") or tx("Yok", "None")))
+        if summary.get("library_result_source"):
+            st.caption(
+                tx(
+                    "Library sonuç kaynağı: {source}",
+                    "Library result source: {source}",
+                    source=summary.get("library_result_source"),
+                )
+            )
+        if summary.get("library_request_id"):
+            st.caption(f"Cloud Request ID: `{summary.get('library_request_id')}`")
+        if summary.get("library_offline_limited_mode"):
+            st.warning(
+                tx(
+                    "Sınırlı offline fallback modu aktif. Sonuçlar tam cloud kapsamını temsil etmeyebilir.",
+                    "Limited offline fallback mode is active. Results may not represent full cloud coverage.",
+                )
+            )
 
         if reference_count == 0:
             st.warning(
@@ -936,6 +953,23 @@ def render():
             f"{best_candidate_score:.3f}" if best_candidate_score is not None else "N/A",
         )
         result_m4.metric(tx("Güven Bandı", "Confidence Band"), str(summary.get("confidence_band") or "N/A"))
+        if summary.get("library_result_source"):
+            st.caption(
+                tx(
+                    "Library sonuç kaynağı: {source}",
+                    "Library result source: {source}",
+                    source=summary.get("library_result_source"),
+                )
+            )
+        if summary.get("library_request_id"):
+            st.caption(f"Cloud Request ID: `{summary.get('library_request_id')}`")
+        if summary.get("library_offline_limited_mode"):
+            st.warning(
+                tx(
+                    "Sınırlı offline fallback modu aktif. Sonuçlar tam cloud kapsamını temsil etmeyebilir.",
+                    "Limited offline fallback mode is active. Results may not represent full cloud coverage.",
+                )
+            )
         if summary.get("caution_code"):
             st.warning(
                 tx(

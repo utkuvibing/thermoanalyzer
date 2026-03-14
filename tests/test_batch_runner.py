@@ -327,6 +327,9 @@ def test_execute_ftir_batch_template_returns_ranked_similarity_matches():
     assert outcome["record"]["summary"]["match_status"] == "matched"
     assert outcome["record"]["summary"]["top_match_id"] == "ftir_polymer_a"
     assert outcome["record"]["summary"]["confidence_band"] in {"high", "medium", "low"}
+    assert outcome["record"]["summary"]["library_result_source"] == "dataset_embedded"
+    assert outcome["record"]["summary"]["library_access_mode"] in {"not_configured", "limited_cached_fallback"}
+    assert outcome["record"]["summary"]["library_offline_limited_mode"] is True
     assert outcome["record"]["rows"][0]["normalized_score"] >= outcome["record"]["rows"][-1]["normalized_score"]
     assert outcome["record"]["rows"][0]["evidence"]["shared_peak_count"] >= 1
     assert outcome["summary_row"]["match_status"] == "matched"
@@ -407,6 +410,8 @@ def test_execute_xrd_batch_template_returns_ranked_candidate_match_with_confiden
     assert outcome["record"]["summary"]["top_candidate_id"] == "xrd_phase_alpha"
     assert outcome["record"]["summary"]["top_candidate_name"] == "Phase Alpha"
     assert outcome["record"]["summary"]["top_candidate_score"] == outcome["record"]["summary"]["top_phase_score"]
+    assert outcome["record"]["summary"]["library_result_source"] == "dataset_embedded"
+    assert outcome["record"]["summary"]["library_offline_limited_mode"] is True
     assert outcome["record"]["summary"]["confidence_band"] in {"high", "medium", "low"}
     assert outcome["summary_row"]["peak_count"] == outcome["record"]["summary"]["peak_count"]
     assert outcome["summary_row"]["execution_status"] == "saved"
@@ -419,6 +424,62 @@ def test_execute_xrd_batch_template_returns_ranked_candidate_match_with_confiden
     assert rows[0]["evidence"]["shared_peak_count"] >= 3
     assert rows[0]["evidence"]["mean_delta_position"] is not None
     assert "unmatched_major_peak_positions" in rows[0]["evidence"]
+
+
+def test_execute_ftir_batch_template_prefers_cloud_search_when_configured(monkeypatch):
+    dataset = _make_spectral_dataset(analysis_type="FTIR")
+
+    class _StubCloudClient:
+        configured = True
+        last_error = ""
+
+        def search(self, *, analysis_type, payload):
+            assert analysis_type == "FTIR"
+            return {
+                "request_id": "cloud_req_123",
+                "analysis_type": "FTIR",
+                "match_status": "matched",
+                "candidate_count": 1,
+                "rows": [
+                    {
+                        "rank": 1,
+                        "candidate_id": "cloud_ref_ftir_1",
+                        "candidate_name": "Cloud FTIR Ref",
+                        "normalized_score": 0.91,
+                        "confidence_band": "high",
+                        "library_provider": "openspecy",
+                        "library_package": "openspecy_ftir_cloud",
+                        "library_version": "2026.03",
+                        "evidence": {"shared_peak_count": 4, "peak_overlap_ratio": 0.66},
+                    }
+                ],
+                "caution_code": "",
+                "caution_message": "",
+                "library_provider": "openspecy",
+                "library_package": "openspecy_ftir_cloud",
+                "library_version": "2026.03",
+                "library_access_mode": "cloud_full_access",
+                "library_result_source": "cloud_search",
+                "library_provider_scope": ["openspecy"],
+                "library_offline_limited_mode": False,
+            }
+
+    monkeypatch.setattr("core.batch_runner.get_library_cloud_client", lambda: _StubCloudClient())
+
+    outcome = execute_batch_template(
+        dataset_key="synthetic_ftir",
+        dataset=dataset,
+        analysis_type="FTIR",
+        workflow_template_id="ftir.general",
+        batch_run_id="batch_ftir_cloud_demo",
+    )
+
+    assert outcome["status"] == "saved"
+    assert outcome["record"]["summary"]["library_result_source"] == "cloud_search"
+    assert outcome["record"]["summary"]["library_access_mode"] == "cloud_full_access"
+    assert outcome["record"]["summary"]["library_request_id"] == "cloud_req_123"
+    assert outcome["record"]["summary"]["top_match_id"] == "cloud_ref_ftir_1"
+    assert outcome["record"]["rows"][0]["library_provider"] == "openspecy"
 
 
 def test_execute_xrd_batch_template_uses_reference_d_spacing_for_non_cu_wavelength():

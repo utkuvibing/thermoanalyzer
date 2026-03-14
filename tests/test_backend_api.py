@@ -2,13 +2,14 @@
 
 import base64
 import io
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
-from utils.license_manager import APP_VERSION
+from utils.license_manager import APP_VERSION, create_signed_license, encode_license_key
 
 
 def _auth_headers() -> dict[str, str]:
@@ -37,6 +38,20 @@ def _project_file(path: str) -> str:
     return (Path(__file__).resolve().parents[1] / path).read_text(encoding="utf-8")
 
 
+def _cloud_license_header() -> dict[str, str]:
+    payload = create_signed_license(
+        customer_name="Cloud Test User",
+        company_name="Cloud QA",
+        sku="TRIAL",
+        seat_count=1,
+        issued_at=datetime.fromisoformat("2026-03-14T00:00:00+00:00"),
+        expires_at=datetime.fromisoformat("2026-04-14T00:00:00+00:00"),
+        allowed_major_version=2,
+        machine_fingerprint="cloud-test-client",
+    )
+    return {"X-TA-License": encode_license_key(payload)}
+
+
 def test_health_and_version_endpoints():
     app = create_app(api_token="test-token")
     client = TestClient(app)
@@ -50,6 +65,75 @@ def test_health_and_version_endpoints():
     body = version_response.json()
     assert body["app_version"] == APP_VERSION
     assert body["project_extension"] == PROJECT_EXTENSION
+
+
+def test_cloud_library_auth_and_search_endpoints():
+    app = create_app(api_token="test-token")
+    client = TestClient(app)
+
+    auth_response = client.post("/v1/library/auth/token", headers=_cloud_license_header())
+    assert auth_response.status_code == 200
+    auth_payload = auth_response.json()
+    token = auth_payload["access_token"]
+    assert auth_payload["token_type"] == "bearer"
+    assert auth_payload["request_id"]
+
+    bearer = {"Authorization": f"Bearer {token}"}
+    providers_response = client.get("/v1/library/providers", headers=bearer)
+    assert providers_response.status_code == 200
+    assert providers_response.json()["library_access_mode"] == "cloud_full_access"
+
+    coverage_response = client.get("/v1/library/coverage", headers=bearer)
+    assert coverage_response.status_code == 200
+    assert coverage_response.json()["library_access_mode"] == "cloud_full_access"
+
+    ftir_response = client.post(
+        "/v1/library/search/ftir",
+        headers=bearer,
+        json={
+            "axis": [600.0, 900.0, 1200.0, 1500.0],
+            "signal": [0.1, 0.4, 0.2, 0.3],
+            "top_n": 3,
+            "minimum_score": 0.45,
+        },
+    )
+    assert ftir_response.status_code == 200
+    ftir_payload = ftir_response.json()
+    assert ftir_payload["analysis_type"] == "FTIR"
+    assert ftir_payload["library_access_mode"] == "cloud_full_access"
+    assert ftir_payload["library_result_source"] == "cloud_search"
+    assert ftir_payload["request_id"]
+
+    xrd_response = client.post(
+        "/v1/library/search/xrd",
+        headers=bearer,
+        json={
+            "observed_peaks": [
+                {"position": 18.4, "intensity": 0.72},
+                {"position": 33.2, "intensity": 1.0},
+                {"position": 47.8, "intensity": 0.85},
+            ],
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+            "xrd_wavelength_angstrom": 1.5406,
+        },
+    )
+    assert xrd_response.status_code == 200
+    xrd_payload = xrd_response.json()
+    assert xrd_payload["analysis_type"] == "XRD"
+    assert "match_status" in xrd_payload
+    assert xrd_payload["library_access_mode"] == "cloud_full_access"
+
+
+def test_cloud_library_search_requires_bearer_token():
+    app = create_app(api_token="test-token")
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/library/search/raman",
+        json={"axis": [500.0, 900.0, 1200.0], "signal": [0.1, 0.3, 0.2]},
+    )
+    assert response.status_code == 401
 
 
 def test_project_load_save_roundtrip_compatibility(thermal_dataset):
