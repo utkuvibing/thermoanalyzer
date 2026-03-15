@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from core.hosted_library import (
     build_hosted_manifest,
     canonical_material_key,
+    discover_local_normalized_root,
     resolve_hosted_root,
     spectral_signal_hash,
     write_hosted_dataset,
@@ -132,18 +133,39 @@ def _active_dataset_key(dataset: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def main(argv: list[str] | None = None) -> None:
-    args = _parse_args(argv)
-    normalized_root = Path(args.normalized_root).resolve()
-    output_root = resolve_hosted_root(args.output_root)
-    if args.clean:
-        shutil.rmtree(output_root, ignore_errors=True)
-    output_root.mkdir(parents=True, exist_ok=True)
+def _resolve_normalized_root(
+    normalized_root: str | Path | None,
+    *,
+    output_root: str | Path | None = None,
+) -> Path:
+    discovered = discover_local_normalized_root(
+        hosted_root=output_root,
+        explicit_root=normalized_root,
+    )
+    if discovered is not None:
+        return discovered
+    return Path(normalized_root or BUILD_ROOT).resolve()
+
+
+def publish_hosted_library(
+    *,
+    normalized_root: str | Path | None,
+    output_root: str | Path | None = None,
+    job_state_root: str | Path | None = None,
+    provider_filters: list[str] | None = None,
+    analysis_type_filters: list[str] | None = None,
+    clean: bool = False,
+) -> dict[str, Any]:
+    normalized_root_path = _resolve_normalized_root(normalized_root, output_root=output_root)
+    output_root_path = resolve_hosted_root(output_root)
+    if clean:
+        shutil.rmtree(output_root_path, ignore_errors=True)
+    output_root_path.mkdir(parents=True, exist_ok=True)
 
     grouped = _group_normalized_packages(
-        normalized_root,
-        provider_filter={safe_slug(item) for item in args.provider if str(item).strip()},
-        modality_filter={str(item).strip().upper() for item in args.analysis_type if str(item).strip()},
+        normalized_root_path,
+        provider_filter={safe_slug(item) for item in (provider_filters or []) if str(item).strip()},
+        modality_filter={str(item).strip().upper() for item in (analysis_type_filters or []) if str(item).strip()},
     )
     datasets: list[dict[str, Any]] = []
     publish_rows: list[dict[str, Any]] = []
@@ -157,11 +179,11 @@ def main(argv: list[str] | None = None) -> None:
         state_path, job_state = load_ingest_job_state(
             provider_id,
             dataset_version,
-            job_state_root=args.job_state_root,
+            job_state_root=job_state_root,
         )
         published_at = max((spec.published_at or spec.generated_at for spec in specs), default="")
         generated_at = max((spec.generated_at for spec in specs), default=published_at)
-        dataset_dir = output_root / "datasets" / modality.lower() / provider_id / dataset_version
+        dataset_dir = output_root_path / "datasets" / modality.lower() / provider_id / dataset_version
         dataset_id = f"{provider_id}_{modality.lower()}_{safe_slug(dataset_version, default='dataset')}"
         dataset_meta = write_hosted_dataset(
             output_dir=dataset_dir,
@@ -190,7 +212,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         dataset_row = {
             **dataset_meta,
-            "path": str(dataset_dir.relative_to(output_root)).replace("\\", "/"),
+            "path": str(dataset_dir.relative_to(output_root_path)).replace("\\", "/"),
             "active": False,
         }
         datasets.append(dataset_row)
@@ -220,21 +242,30 @@ def main(argv: list[str] | None = None) -> None:
         generated_at=max((str(item.get("generated_at") or "") for item in datasets), default=""),
         datasets=datasets,
     )
-    (output_root / "manifest.json").write_text(
+    (output_root_path / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    print(
-        json.dumps(
-            {
-                "output_root": str(output_root),
-                "dataset_count": len(datasets),
-                "active_dataset_count": sum(1 for item in datasets if item.get("active")),
-                "datasets": publish_rows,
-            },
-            indent=2,
-        )
+    return {
+        "normalized_root": str(normalized_root_path),
+        "output_root": str(output_root_path),
+        "dataset_count": len(datasets),
+        "active_dataset_count": sum(1 for item in datasets if item.get("active")),
+        "datasets": publish_rows,
+    }
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
+    result = publish_hosted_library(
+        normalized_root=args.normalized_root,
+        output_root=args.output_root,
+        job_state_root=args.job_state_root,
+        provider_filters=args.provider,
+        analysis_type_filters=args.analysis_type,
+        clean=args.clean,
     )
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

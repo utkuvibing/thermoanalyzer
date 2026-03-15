@@ -46,6 +46,19 @@ def main() -> None:
     @app.on_event("startup")
     async def _log_bound_address() -> None:
         print(f"ThermoAnalyzer backend listening on {bind_url}", flush=True)
+        bootstrap_status = dict(getattr(app.state, "cloud_library_bootstrap_status", {}) or {})
+        state = str(bootstrap_status.get("state") or "").strip()
+        if state == "published":
+            print(
+                "ThermoAnalyzer hosted library bootstrap published "
+                f"{bootstrap_status.get('dataset_count', 0)} datasets from {bootstrap_status.get('source_root')}",
+                flush=True,
+            )
+        elif state == "publish_failed":
+            print(
+                f"ThermoAnalyzer hosted library bootstrap failed: {bootstrap_status.get('message')}",
+                flush=True,
+            )
 
     try:
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")

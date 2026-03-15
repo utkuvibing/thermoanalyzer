@@ -730,11 +730,13 @@ class ReferenceLibraryManager:
         cloud_root = str(os.getenv(LIBRARY_ENV_CLOUD_URL, "")).strip()
         enabled_override = os.getenv(LIBRARY_ENV_CLOUD_ENABLED, "")
         cloud_configured = bool(cloud_root) and (enabled_override == "" or _truthy(enabled_override))
-        state.cloud_access_enabled = bool(success and cloud_configured)
+        effective_provider_count = max(0, int(provider_count)) if provider_count is not None else None
+        cloud_success = bool(success and cloud_configured and (effective_provider_count is None or effective_provider_count > 0))
+        state.cloud_access_enabled = cloud_success
         state.last_cloud_lookup_at = utcnow_iso()
-        if provider_count is not None:
-            state.cloud_provider_count = max(0, int(provider_count))
-        if success:
+        if effective_provider_count is not None:
+            state.cloud_provider_count = effective_provider_count if cloud_success else 0
+        if cloud_success:
             state.last_cloud_error = ""
         else:
             state.cloud_provider_count = 0

@@ -12,11 +12,13 @@ from typing import Any, Mapping
 import numpy as np
 
 LIBRARY_ENV_HOSTED_ROOT = "THERMOANALYZER_LIBRARY_HOSTED_ROOT"
-DEFAULT_HOSTED_ROOT = Path("build") / "reference_library_hosted"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_HOSTED_ROOT = PROJECT_ROOT / "build" / "reference_library_hosted"
 HOSTED_MANIFEST_FILE = "manifest.json"
 HOSTED_SCHEMA_VERSION = 1
 _FRESH_THRESHOLD = timedelta(days=14)
 _AGING_THRESHOLD = timedelta(days=45)
+_LOCAL_NORMALIZED_ROOT_NAMES = ("reference_library_ingest_live", "reference_library_ingest")
 
 
 def utcnow_iso() -> str:
@@ -26,6 +28,10 @@ def utcnow_iso() -> str:
 def resolve_hosted_root(root: str | Path | None = None) -> Path:
     configured = str(root or os.getenv(LIBRARY_ENV_HOSTED_ROOT, "")).strip()
     return Path(configured or DEFAULT_HOSTED_ROOT).resolve()
+
+
+def _normalize_dataset_modality(payload: Mapping[str, Any]) -> str:
+    return _normalize_modality(payload.get("modality") or payload.get("analysis_type"))
 
 
 def _coerce_int(value: Any, default: int = 0) -> int:
@@ -329,7 +335,7 @@ class HostedLibraryCatalog:
             dataset = dict(item)
             if not dataset.get("active", True):
                 continue
-            if token and _normalize_modality(dataset.get("modality")) != token:
+            if token and _normalize_dataset_modality(dataset) != token:
                 continue
             datasets.append(dataset)
         return datasets
@@ -473,30 +479,6 @@ class HostedLibraryCatalog:
             if last_ingest > str(item.get("last_successful_ingest_at") or ""):
                 item["last_successful_ingest_at"] = last_ingest
 
-        for modality, defaults in {
-            "FTIR": ["openspecy"],
-            "RAMAN": ["openspecy", "rod"],
-            "XRD": ["cod", "materials_project"],
-        }.items():
-            for provider_id in defaults:
-                item = rows.setdefault(
-                    provider_id,
-                    {
-                        "provider_id": provider_id,
-                        "name": provider_id,
-                        "analysis_types": [],
-                        "dataset_versions": {},
-                        "dataset_count": 0,
-                        "candidate_count": 0,
-                        "deduped_candidate_count": 0,
-                        "published_at": "",
-                        "last_successful_ingest_at": "",
-                        "failed_ingest_count": 0,
-                    },
-                )
-                if modality not in item["analysis_types"]:
-                    item["analysis_types"].append(modality)
-
         result = []
         for provider_id, item in sorted(rows.items()):
             result.append(
@@ -548,3 +530,126 @@ class HostedLibraryCatalog:
                 "providers": provider_rows,
             }
         return coverage
+
+    def live_provider_ids(self, *, modality: str | None = None) -> set[str]:
+        return {
+            normalize_provider_id(item.get("provider_id") or item.get("provider"))
+            for item in self.active_datasets(modality=modality)
+            if normalize_provider_id(item.get("provider_id") or item.get("provider"))
+        }
+
+    def live_provider_count(self, *, modality: str | None = None) -> int:
+        return len(self.live_provider_ids(modality=modality))
+
+    def missing_modalities(self, required_modalities: tuple[str, ...] = ("FTIR", "RAMAN", "XRD")) -> list[str]:
+        missing: list[str] = []
+        for modality in required_modalities:
+            if self.live_provider_count(modality=modality) <= 0:
+                missing.append(modality)
+        return missing
+
+    def availability_error(self, *, modality: str | None = None) -> str:
+        token = _normalize_modality(modality) if modality else ""
+        if not self.manifest_path.exists():
+            return f"Cloud backend is reachable, but no hosted library manifest is published at {self.root}."
+        if token and not self.active_datasets(modality=token):
+            return f"Cloud backend is reachable, but no hosted {token} provider dataset is published at {self.root}."
+        if not self.active_datasets():
+            return f"Cloud backend is reachable, but the hosted library catalog at {self.root} has no active provider datasets."
+        return ""
+
+
+def _normalized_root_candidates(*, hosted_root: Path, explicit_root: str | Path | None = None) -> list[Path]:
+    candidates: list[Path] = []
+    if explicit_root:
+        candidates.append(Path(explicit_root).resolve())
+    search_roots = [hosted_root.parent, PROJECT_ROOT / "build"]
+    for base_root in search_roots:
+        for name in _LOCAL_NORMALIZED_ROOT_NAMES:
+            candidates.append((base_root / name).resolve())
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def _normalized_root_score(root: Path) -> tuple[int, float]:
+    if not root.exists():
+        return (0, 0.0)
+    spec_paths = [path for path in root.rglob("package_spec.json") if (path.parent / "entries.jsonl").exists()]
+    if not spec_paths:
+        return (0, 0.0)
+    latest_mtime = max(path.stat().st_mtime for path in spec_paths)
+    return (len(spec_paths), latest_mtime)
+
+
+def discover_local_normalized_root(
+    *,
+    hosted_root: str | Path | None = None,
+    explicit_root: str | Path | None = None,
+) -> Path | None:
+    target_root = resolve_hosted_root(hosted_root)
+    ranked = sorted(
+        ((candidate, _normalized_root_score(candidate)) for candidate in _normalized_root_candidates(hosted_root=target_root, explicit_root=explicit_root)),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    for candidate, score in ranked:
+        if score[0] > 0:
+            return candidate
+    return None
+
+
+def ensure_local_dev_hosted_catalog(
+    *,
+    hosted_root: str | Path | None = None,
+    normalized_root: str | Path | None = None,
+    job_state_root: str | Path | None = None,
+    dev_mode: bool = False,
+) -> dict[str, Any]:
+    target_root = resolve_hosted_root(hosted_root)
+    manifest_path = target_root / HOSTED_MANIFEST_FILE
+    if manifest_path.exists():
+        return {
+            "state": "already_present",
+            "hosted_root": str(target_root),
+        }
+    if not dev_mode:
+        return {
+            "state": "disabled",
+            "hosted_root": str(target_root),
+        }
+    source_root = discover_local_normalized_root(hosted_root=target_root, explicit_root=normalized_root)
+    if source_root is None:
+        return {
+            "state": "missing_normalized_root",
+            "hosted_root": str(target_root),
+            "message": f"No normalized provider packages were found near {target_root}.",
+        }
+    try:
+        from tools.publish_hosted_library import publish_hosted_library
+
+        result = publish_hosted_library(
+            normalized_root=source_root,
+            output_root=target_root,
+            job_state_root=job_state_root,
+            clean=False,
+        )
+    except Exception as exc:
+        return {
+            "state": "publish_failed",
+            "hosted_root": str(target_root),
+            "source_root": str(source_root),
+            "message": f"Hosted library bootstrap failed: {exc}",
+        }
+    return {
+        "state": "published",
+        "hosted_root": str(target_root),
+        "source_root": str(source_root),
+        **result,
+    }

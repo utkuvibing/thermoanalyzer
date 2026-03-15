@@ -38,8 +38,12 @@ def render() -> None:
         coverage_payload = cloud_client.coverage()
         if isinstance(coverage_payload, dict):
             cloud_coverage_payload = coverage_payload
-            cloud_auth_state = "ready"
             coverage = coverage_payload.get("coverage") or {}
+            missing_modalities = [
+                modality
+                for modality in ("FTIR", "RAMAN", "XRD")
+                if not isinstance(coverage.get(modality), dict) or not (coverage.get(modality) or {}).get("providers")
+            ]
             seen_providers: dict[str, dict] = {}
             provider_label = tx("Provider", "Provider")
             modalities_label = tx("Modaliteler", "Modalities")
@@ -95,7 +99,17 @@ def render() -> None:
                     }
                 )
             provider_count = len(hosted_provider_rows)
-            manager.record_cloud_lookup(success=True, provider_count=provider_count)
+            if str(coverage_payload.get("library_access_mode") or "").strip() != "cloud_full_access" or missing_modalities:
+                cloud_auth_state = "catalog_empty"
+                token = ", ".join(missing_modalities) if missing_modalities else tx("hosted datasets", "hosted datasets")
+                cloud_auth_message = tx(
+                    f"Cloud backend ulaşılabilir ama hosted provider coverage eksik. Eksik modaliteler: {token}. Local publish tamamlanmadan cloud qualitative matching tam sayılmaz.",
+                    f"Cloud backend is reachable, but hosted provider coverage is incomplete. Missing modalities: {token}. Local publish must complete before cloud qualitative matching is considered fully available.",
+                )
+                manager.record_cloud_lookup(success=False, error=cloud_auth_message)
+            else:
+                cloud_auth_state = "ready"
+                manager.record_cloud_lookup(success=True, provider_count=provider_count)
             status = manager.status()
             st.session_state["library_status"] = status
         elif cloud_client.last_error:
@@ -377,6 +391,7 @@ def _cloud_probe_label(value: object, lang: str) -> str:
 def _cloud_auth_label(value: object, lang: str) -> str:
     mapping = {
         "ready": "Hazır" if lang == "tr" else "Ready",
+        "catalog_empty": "Coverage Eksik" if lang == "tr" else "Coverage Missing",
         "auth_failed": "Auth Hatası" if lang == "tr" else "Auth Failed",
         "request_failed": "İstek Hatası" if lang == "tr" else "Request Failed",
         "backend_unreachable": "Backend Yok" if lang == "tr" else "Backend Unreachable",

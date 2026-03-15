@@ -169,8 +169,17 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
     project_store = store or ProjectStore()
     global_library_manager = library_manager or get_reference_library_manager()
     cloud_library_service = ManagedLibraryCloudService(global_library_manager)
+    app.state.cloud_library_bootstrap_status = dict(cloud_library_service.bootstrap_status or {})
 
     def _record_cloud_lookup_success(payload: dict[str, Any]) -> None:
+        access_mode = str(payload.get("library_access_mode") or "").strip()
+        modality = str(payload.get("analysis_type") or "").strip().upper() or None
+        if access_mode and access_mode != "cloud_full_access":
+            global_library_manager.record_cloud_lookup(
+                success=False,
+                error=cloud_library_service.empty_catalog_error(modality=modality),
+            )
+            return
         provider_count: int | None = None
         provider_scope = [str(item).strip() for item in (payload.get("library_provider_scope") or []) if str(item).strip()]
         if provider_scope:
@@ -195,6 +204,12 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
                         if token:
                             seen.add(token)
             provider_count = len(seen)
+        if provider_count is not None and provider_count <= 0:
+            global_library_manager.record_cloud_lookup(
+                success=False,
+                error=cloud_library_service.empty_catalog_error(),
+            )
+            return
         global_library_manager.record_cloud_lookup(success=True, provider_count=provider_count)
 
     def _record_cloud_lookup_failure(exc: Exception) -> None:

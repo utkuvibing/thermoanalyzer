@@ -20,6 +20,8 @@ from core.hosted_library import build_hosted_manifest, write_hosted_dataset
 from core.library_cloud_client import ManagedLibraryCloudClient
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
 from core.reference_library import get_reference_library_manager
+from tools.library_ingest.common import write_normalized_package
+from tools.library_ingest.schema import PackageSpec, normalized_spectral_entry, normalized_xrd_entry
 from utils.license_manager import APP_VERSION, create_signed_license, encode_license_key
 
 
@@ -384,6 +386,129 @@ def _write_hosted_root(root: Path) -> None:
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def _package_spec(*, package_id: str, analysis_type: str, provider: str) -> PackageSpec:
+    return PackageSpec(
+        package_id=package_id,
+        analysis_type=analysis_type,
+        provider=provider,
+        version="2026.03.fixture-b1",
+        source_url=f"https://example.invalid/{provider}",
+        license_name="Fixture License",
+        license_text="Fixture License Text",
+        attribution=f"{provider} fixture",
+        priority=1,
+        published_at="2026-03-14T00:00:00Z",
+        generated_at="2026-03-14T00:00:00Z",
+        provider_dataset_version="2026.03.fixture",
+        builder_version="b1",
+        normalized_schema_version=1,
+    )
+
+
+def _write_normalized_root(root: Path) -> None:
+    write_normalized_package(
+        root / "openspecy" / "openspecy_ftir_0001",
+        _package_spec(package_id="openspecy_ftir_0001", analysis_type="FTIR", provider="OpenSpecy"),
+        [
+            normalized_spectral_entry(
+                candidate_id="openspecy_ftir_polymer_a",
+                candidate_name="Polymer A",
+                provider="OpenSpecy",
+                source_id="ftir-001",
+                source_url="https://example.invalid/openspecy/ftir-001",
+                axis=[600.0, 900.0, 1200.0, 1500.0],
+                signal=[0.1, 0.4, 0.2, 0.3],
+                generated_at="2026-03-14T00:00:00Z",
+                provider_dataset_version="2026.03.fixture",
+                builder_version="b1",
+                normalized_schema_version=1,
+            )
+        ],
+    )
+    write_normalized_package(
+        root / "openspecy" / "openspecy_raman_0001",
+        _package_spec(package_id="openspecy_raman_0001", analysis_type="RAMAN", provider="OpenSpecy"),
+        [
+            normalized_spectral_entry(
+                candidate_id="openspecy_raman_graphite",
+                candidate_name="Graphite",
+                provider="OpenSpecy",
+                source_id="raman-001",
+                source_url="https://example.invalid/openspecy/raman-001",
+                axis=[450.0, 700.0, 1000.0, 1350.0],
+                signal=[0.11, 0.35, 0.5, 0.27],
+                generated_at="2026-03-14T00:00:00Z",
+                provider_dataset_version="2026.03.fixture",
+                builder_version="b1",
+                normalized_schema_version=1,
+            )
+        ],
+    )
+    write_normalized_package(
+        root / "rod" / "rod_raman_0001",
+        _package_spec(package_id="rod_raman_0001", analysis_type="RAMAN", provider="ROD"),
+        [
+            normalized_spectral_entry(
+                candidate_id="rod_graphite_2001",
+                candidate_name="Graphite",
+                provider="ROD",
+                source_id="rod-2001",
+                source_url="https://example.invalid/rod/2001",
+                axis=[450.0, 700.0, 1000.0, 1350.0],
+                signal=[0.11, 0.35, 0.49, 0.27],
+                generated_at="2026-03-14T00:00:00Z",
+                provider_dataset_version="2026.03.fixture",
+                builder_version="b1",
+                normalized_schema_version=1,
+            )
+        ],
+    )
+    write_normalized_package(
+        root / "cod" / "cod_xrd_0001",
+        _package_spec(package_id="cod_xrd_0001", analysis_type="XRD", provider="COD"),
+        [
+            normalized_xrd_entry(
+                candidate_id="cod_phase_alpha",
+                candidate_name="Phase Alpha",
+                provider="COD",
+                source_id="cod-1001",
+                source_url="https://example.invalid/cod/1001",
+                peaks=[
+                    {"position": 18.4, "intensity": 0.72, "d_spacing": 4.82},
+                    {"position": 33.2, "intensity": 1.0, "d_spacing": 2.70},
+                    {"position": 47.8, "intensity": 0.85, "d_spacing": 1.90},
+                ],
+                generated_at="2026-03-14T00:00:00Z",
+                provider_dataset_version="2026.03.fixture",
+                builder_version="b1",
+                normalized_schema_version=1,
+            )
+        ],
+    )
+    write_normalized_package(
+        root / "materials_project" / "materials_project_xrd_0001",
+        _package_spec(package_id="materials_project_xrd_0001", analysis_type="XRD", provider="Materials Project"),
+        [
+            normalized_xrd_entry(
+                candidate_id="materials_project_phase_beta",
+                candidate_name="Phase Beta",
+                provider="Materials Project",
+                source_id="mp-149",
+                source_url="https://example.invalid/materials-project/mp-149",
+                peaks=[
+                    {"position": 22.1, "intensity": 0.55, "d_spacing": 4.01},
+                    {"position": 36.0, "intensity": 1.0, "d_spacing": 2.49},
+                    {"position": 41.5, "intensity": 0.72, "d_spacing": 2.17},
+                ],
+                generated_at="2026-03-14T00:00:00Z",
+                provider_dataset_version="2026.03.fixture",
+                builder_version="b1",
+                normalized_schema_version=1,
+            )
+        ],
+    )
+
+
 def test_health_and_version_endpoints():
     app = create_app(api_token="test-token")
     client = TestClient(app)
@@ -480,6 +605,88 @@ def test_library_status_reports_cloud_full_access_after_successful_cloud_calls(t
     assert status_payload["fallback_entry_count"] >= 1
     assert status_payload["last_cloud_lookup_at"]
     assert status_payload["last_cloud_error"] in {"", None}
+
+
+def test_library_status_stays_limited_when_hosted_catalog_is_empty(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    hosted_root = tmp_path / "reference_library_hosted"
+    hosted_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", raising=False)
+
+    client = TestClient(create_app(api_token="test-token"))
+    sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})
+    assert sync_response.status_code == 200
+
+    bearer = _cloud_bearer_header(client)
+    coverage_response = client.get("/v1/library/coverage", headers=bearer)
+    assert coverage_response.status_code == 200
+    coverage_payload = coverage_response.json()
+    assert coverage_payload["library_access_mode"] == "limited_cached_fallback"
+    assert coverage_payload["coverage"]["XRD"]["providers"] == {}
+
+    status_response = client.get("/library/status", headers=_auth_headers())
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["library_mode"] == "limited_cached_fallback"
+    assert status_payload["cloud_access_enabled"] is False
+    assert status_payload["cloud_provider_count"] == 0
+    assert "hosted" in str(status_payload["last_cloud_error"]).lower()
+
+
+def test_local_dev_bootstraps_hosted_catalog_from_live_ingest_sibling(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    hosted_root = tmp_path / "reference_library_hosted"
+    normalized_live_root = tmp_path / "reference_library_ingest_live"
+    _write_normalized_root(normalized_live_root)
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "1")
+
+    client = TestClient(create_app(api_token="test-token"))
+    assert (hosted_root / "manifest.json").exists()
+
+    bearer = _cloud_bearer_header(client)
+    coverage_response = client.get("/v1/library/coverage", headers=bearer)
+    assert coverage_response.status_code == 200
+    coverage_payload = coverage_response.json()
+    assert coverage_payload["library_access_mode"] == "cloud_full_access"
+    assert "cod" in coverage_payload["coverage"]["XRD"]["providers"]
+
+    xrd_response = client.post(
+        "/v1/library/search/xrd",
+        headers=bearer,
+        json={
+            "observed_peaks": [
+                {"position": 18.4, "intensity": 0.72},
+                {"position": 33.2, "intensity": 1.0},
+                {"position": 47.8, "intensity": 0.85},
+            ],
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+            "xrd_wavelength_angstrom": 1.5406,
+        },
+    )
+    assert xrd_response.status_code == 200
+    xrd_payload = xrd_response.json()
+    assert xrd_payload["library_result_source"] == "cloud_search"
+    assert xrd_payload["caution_code"] != "xrd_reference_library_unavailable"
+
+    status_response = client.get("/library/status", headers=_auth_headers())
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["library_mode"] == "cloud_full_access"
+    assert status_payload["cloud_access_enabled"] is True
+    assert status_payload["cloud_provider_count"] >= 1
 
 
 def test_runtime_cloud_client_stays_strict_without_dev_override(tmp_path, monkeypatch):

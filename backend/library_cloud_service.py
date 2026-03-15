@@ -17,8 +17,15 @@ from typing import Any, Mapping
 import numpy as np
 from fastapi import HTTPException
 
-from core.hosted_library import HostedLibraryCatalog, normalize_provider_id
-from core.reference_library import ReferenceLibraryManager, get_reference_library_manager
+from core.hosted_library import HostedLibraryCatalog, ensure_local_dev_hosted_catalog, normalize_provider_id
+from core.reference_library import (
+    DELIVERY_TIER_FULL_PROVIDER,
+    LIBRARY_MODE_CLOUD_FULL_ACCESS,
+    LIBRARY_MODE_LIMITED_CACHED_FALLBACK,
+    LIBRARY_MODE_NOT_CONFIGURED,
+    ReferenceLibraryManager,
+    get_reference_library_manager,
+)
 from utils.license_manager import APP_VERSION, get_storage_dir, validate_encoded_license_key
 
 
@@ -29,13 +36,7 @@ _TOKEN_TTL_ENV = "THERMOANALYZER_LIBRARY_CLOUD_TOKEN_TTL_SECONDS"
 _RATE_LIMIT_ENV = "THERMOANALYZER_LIBRARY_CLOUD_RATE_LIMIT_PER_MINUTE"
 _AUDIT_FILE_NAME = "cloud_library_audit.jsonl"
 _ALLOWED_STATUSES = {"trial", "activated"}
-
-_DEFAULT_PROVIDER_SCOPE = {
-    "FTIR": ["openspecy"],
-    "RAMAN": ["openspecy", "rod"],
-    "XRD": ["cod", "materials_project"],
-}
-
+_REQUIRED_CLOUD_MODALITIES = ("FTIR", "RAMAN", "XRD")
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -96,6 +97,11 @@ def _normalize_provider(value: Any) -> str:
     return token
 
 
+def _truthy(value: Any) -> bool:
+    token = str(value or "").strip().lower()
+    return token in {"1", "true", "yes", "on"}
+
+
 class ManagedLibraryCloudService:
     """Encapsulates managed cloud auth, search, coverage, and fallback prefetch."""
 
@@ -105,7 +111,17 @@ class ManagedLibraryCloudService:
         hosted_catalog: HostedLibraryCatalog | None = None,
     ) -> None:
         self.manager = manager or get_reference_library_manager()
-        self.hosted_catalog = hosted_catalog or HostedLibraryCatalog()
+        if hosted_catalog is None:
+            self.bootstrap_status = ensure_local_dev_hosted_catalog(
+                dev_mode=_truthy(os.getenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "")),
+            )
+            self.hosted_catalog = HostedLibraryCatalog()
+        else:
+            self.bootstrap_status = {
+                "state": "provided_catalog",
+                "hosted_root": str(hosted_catalog.root),
+            }
+            self.hosted_catalog = hosted_catalog
         self._rate_windows: dict[str, list[float]] = {}
 
     def _audit_path(self) -> Path:
@@ -205,10 +221,37 @@ class ManagedLibraryCloudService:
             token = _normalize_provider(row.get("library_provider"))
             if token:
                 seen.add(token)
-        if seen:
-            return sorted(seen)
-        defaults = _DEFAULT_PROVIDER_SCOPE.get(str(analysis_type or "").upper(), [])
-        return sorted({str(item).strip().lower() for item in defaults if str(item).strip()})
+        return sorted(seen)
+
+    def _fallback_access_mode(self) -> str:
+        fallback_packages = [
+            item
+            for item in self.manager.installed_packages()
+            if str(item.delivery_tier or "") != DELIVERY_TIER_FULL_PROVIDER
+        ]
+        if fallback_packages:
+            return LIBRARY_MODE_LIMITED_CACHED_FALLBACK
+        return LIBRARY_MODE_NOT_CONFIGURED
+
+    def _current_library_access_mode(self, *, modality: str | None = None) -> str:
+        if modality:
+            if self.hosted_catalog.live_provider_count(modality=modality) > 0:
+                return LIBRARY_MODE_CLOUD_FULL_ACCESS
+            return self._fallback_access_mode()
+        if not self.hosted_catalog.missing_modalities(_REQUIRED_CLOUD_MODALITIES):
+            return LIBRARY_MODE_CLOUD_FULL_ACCESS
+        return self._fallback_access_mode()
+
+    def empty_catalog_error(self, *, modality: str | None = None) -> str:
+        if modality is None:
+            missing = self.hosted_catalog.missing_modalities(_REQUIRED_CLOUD_MODALITIES)
+            if missing:
+                token = ", ".join(missing)
+                return (
+                    "Cloud backend is reachable, but hosted provider coverage is incomplete. "
+                    f"Missing modalities: {token}. Hosted root: {self.hosted_catalog.root}."
+                )
+        return self.hosted_catalog.availability_error(modality=modality)
 
     def _reference_key(
         self,
@@ -387,7 +430,7 @@ class ManagedLibraryCloudService:
             "library_provider": str(top.get("library_provider") or "") if top else "",
             "library_package": str(top.get("library_package") or "") if top else "",
             "library_version": str(top.get("library_version") or "") if top else "",
-            "library_access_mode": "cloud_full_access",
+            "library_access_mode": self._current_library_access_mode(modality=analysis_type),
             "library_result_source": "cloud_search",
             "library_provider_scope": provider_scope,
             "library_offline_limited_mode": False,
@@ -464,7 +507,7 @@ class ManagedLibraryCloudService:
             "library_provider": str(top.get("library_provider") or "") if top else "",
             "library_package": str(top.get("library_package") or "") if top else "",
             "library_version": str(top.get("library_version") or "") if top else "",
-            "library_access_mode": "cloud_full_access",
+            "library_access_mode": self._current_library_access_mode(modality="XRD"),
             "library_result_source": "cloud_search",
             "library_provider_scope": provider_scope,
             "library_offline_limited_mode": False,
@@ -721,7 +764,7 @@ class ManagedLibraryCloudService:
         return {
             "request_id": request_id,
             "providers": rows,
-            "library_access_mode": "cloud_full_access",
+            "library_access_mode": self._current_library_access_mode(),
         }
 
     def coverage(self, *, authorization: str | None) -> dict[str, Any]:
@@ -746,7 +789,7 @@ class ManagedLibraryCloudService:
         return {
             "request_id": request_id,
             "coverage": coverage,
-            "library_access_mode": "cloud_full_access",
+            "library_access_mode": self._current_library_access_mode(),
         }
 
     def prefetch(self, *, request_payload: Mapping[str, Any], authorization: str | None) -> dict[str, Any]:

@@ -147,8 +147,11 @@ THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false
 After provider ingest normalization, publish hosted datasets with:
 
 ```bash
-python tools/publish_hosted_library.py --normalized-root build/reference_library_ingest --output-root build/reference_library_hosted
+python tools/publish_hosted_library.py --output-root build/reference_library_hosted
 ```
+
+`tools/publish_hosted_library.py` auto-detects `build/reference_library_ingest_live` first and falls back to `build/reference_library_ingest`.
+When `THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=true`, `python -m backend.main` also bootstraps `build/reference_library_hosted` automatically if the hosted manifest is missing but a sibling normalized ingest root is available.
 
 ### Local cloud smoke helper
 
