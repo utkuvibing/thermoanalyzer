@@ -1,4 +1,4 @@
-"""Commercial comparison workspace for stable modality runs."""
+﻿"""Commercial comparison workspace for stable modality runs."""
 
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def render():
         x_label=x_label,
         y_label=y_label,
     )
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
     m1, m2, m3 = st.columns(3)
     m1.metric("Karşılaştırılan Koşu" if lang == "tr" else "Runs Compared", str(len(selected)))
@@ -152,7 +152,7 @@ def render():
     m3.metric("Kayıtlı Kararlı Sonuç" if lang == "tr" else "Saved Stable Results", str(sum(1 for key in selected if _has_saved_result(valid_results, analysis_type, key))))
 
     st.subheader("Alan Özeti" if lang == "tr" else "Workspace Summary")
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
 
     notes = st.text_area(
         "Analist notları" if lang == "tr" else "Analyst notes",
@@ -304,7 +304,7 @@ def _render_saved_result_preview(results, analysis_type, selected, lang):
 
     if preview_rows:
         st.subheader("Kayıtlı Analiz Özetleri" if lang == "tr" else "Saved Analysis Summaries")
-        st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(preview_rows), width="stretch", hide_index=True)
 
 
 def _render_batch_runner(workspace, eligible, selected, analysis_type, lang):
@@ -394,7 +394,7 @@ def _render_batch_runner(workspace, eligible, selected, analysis_type, lang):
 
         st.dataframe(
             _batch_summary_dataframe(filtered_rows, lang),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -567,3 +567,4 @@ def _batch_summary_dataframe(summary_rows, lang):
         "failure_reason": "Neden" if lang == "tr" else "Reason",
     }
     return df.rename(columns=rename_map)
+

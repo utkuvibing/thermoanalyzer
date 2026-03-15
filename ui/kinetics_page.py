@@ -1,4 +1,4 @@
-"""Kinetic Analysis page - experimental Kissinger and OFW methods."""
+﻿"""Kinetic Analysis page - experimental Kissinger and OFW methods."""
 
 import streamlit as st
 import numpy as np
@@ -248,7 +248,7 @@ def _render_kissinger(datasets):
                 result.pre_exponential or 0,
                 result.r_squared or 0,
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
         _store_kissinger_result(result)
 
@@ -385,7 +385,7 @@ def _render_ofw(datasets):
                 alphas_plot.append(alpha_val)
                 eas_plot.append(result.activation_energy)
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
         if alphas_plot:
             fig = create_thermal_plot(
@@ -397,7 +397,7 @@ def _render_ofw(datasets):
                 name="Ea",
                 color=THERMAL_COLORS[0],
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
         _store_ofw_results(ofw_results)
 
@@ -523,7 +523,7 @@ def _render_friedman(datasets):
                 alphas_plot.append(alpha_val)
                 eas_plot.append(result.activation_energy)
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
         if alphas_plot:
             fig = create_thermal_plot(
@@ -535,6 +535,7 @@ def _render_friedman(datasets):
                 name="Ea",
                 color=THERMAL_COLORS[1],
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
         _store_friedman_results(friedman_results)
+

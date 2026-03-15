@@ -1,4 +1,4 @@
-"""Analysis pipeline history tracker.
+﻿"""Analysis pipeline history tracker.
 
 Logs each processing step (data load, smoothing, baseline, peak detection, etc.)
 into ``st.session_state.analysis_history`` and renders a timeline in the sidebar
@@ -96,4 +96,5 @@ def render_history_expander():
             "result_id": "Result ID",
             "status": "Status",
         })
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
+

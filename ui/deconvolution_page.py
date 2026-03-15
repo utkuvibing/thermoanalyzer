@@ -1,4 +1,4 @@
-"""Peak Deconvolution page - Fit overlapping peaks using lmfit."""
+﻿"""Peak Deconvolution page - Fit overlapping peaks using lmfit."""
 
 import streamlit as st
 import numpy as np
@@ -185,7 +185,7 @@ def render():
                 title=tx("Sinyal Önizlemesi", "Signal Preview"),
                 y_label=tx("Sinyal", "Signal"),
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
         else:
             x = result["x"]
             y = result["y"]
@@ -193,7 +193,7 @@ def render():
                 x, y, result["fitted"], result["components"],
                 title=tx("Dekonvolüsyon — R² = {value:.4f}", "Deconvolution — R² = {value:.4f}", value=result["r_squared"]),
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
     if result is None:
         return
@@ -229,7 +229,7 @@ def render():
         if f"{prefix}fraction" in params:
             row[tx("Fraksiyon (PV)", "Fraction (PV)")] = f"{params[f'{prefix}fraction']:.4f}"
         rows.append(row)
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     # ── Residual plot ───────────────────────────────────────────────────────
     with st.expander(tx("Artık Grafiği", "Residual Plot")):
@@ -240,7 +240,7 @@ def render():
             color=THERMAL_COLORS[1],
         )
         fig_res.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-        st.plotly_chart(fig_res, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_res, width="stretch", config=PLOTLY_CONFIG)
 
     # ── lmfit report ────────────────────────────────────────────────────────
     with st.expander(tx("Tam lmfit Raporu", "Full lmfit Report")):
@@ -269,3 +269,4 @@ def render():
         )
         st.session_state.setdefault("results", {})[record["id"]] = record
         st.success(tx("Deneysel dekonvolüsyon sonuçları kaydedildi. İndirmek için Rapor Merkezi'ne gidin.", "Experimental deconvolution results saved. Go to Report Center to download."))
+

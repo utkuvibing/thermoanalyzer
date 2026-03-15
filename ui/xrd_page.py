@@ -1,4 +1,4 @@
-"""XRD Analysis page - multi-tab stable qualitative phase-screening workflow."""
+﻿"""XRD Analysis page - multi-tab stable qualitative phase-screening workflow."""
 
 from __future__ import annotations
 
@@ -1272,7 +1272,7 @@ def render():
     with tab_raw:
         st.plotly_chart(
             _build_raw_plot(selected_key, dataset, lang),
-            use_container_width=True,
+            width="stretch",
             config=PLOTLY_CONFIG,
             key=f"xrd_raw_{selected_key}",
         )
@@ -1591,7 +1591,7 @@ def render():
                     lang,
                     plot_settings=preview_plot_settings,
                 ),
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=f"xrd_pipeline_plot_{selected_key}",
             )
@@ -1608,14 +1608,14 @@ def render():
                 lang,
                 plot_settings=current_plot_settings,
             ),
-            use_container_width=True,
+            width="stretch",
             config=PLOTLY_CONFIG,
             key=f"xrd_peak_plot_{selected_key}",
         )
         peaks = current_state.get("peaks") or []
         if peaks:
             st.subheader(tx("Tespit Edilen Pikler", "Detected Peaks"))
-            st.dataframe(pd.DataFrame(peaks), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(peaks), width="stretch", hide_index=True)
         else:
             st.info(tx("Henüz pik tespit edilmedi.", "No peaks detected yet."))
 
@@ -1710,7 +1710,7 @@ def render():
                     plot_settings=matches_plot_settings,
                     selected_match=selected_match,
                 ),
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=f"xrd_match_plot_{selected_key}",
             )
@@ -1848,7 +1848,7 @@ def render():
                         tx("Paket", "Package"): item.get("library_package"),
                     }
                 )
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         else:
             st.info(tx("Henüz faz adayı yok.", "No phase candidates yet."))
 
@@ -1880,7 +1880,7 @@ def render():
                     )
                 )
                 summary_rows = [{"key": key, "value": value} for key, value in derived_summary.items()]
-                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
             else:
                 st.info(
                     tx(
@@ -1971,9 +1971,9 @@ def render():
                 },
             ]
             st.subheader(tx("En İyi Aday Özeti", "Best Candidate Summary"))
-            st.dataframe(pd.DataFrame(evidence_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(evidence_rows), width="stretch", hide_index=True)
         summary_rows = [{"key": key, "value": value} for key, value in summary.items()]
-        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
         artifacts = record.get("artifacts") or {}
         attached_figures = [str(item) for item in (artifacts.get("figure_keys") or []) if item not in (None, "")]
         primary_figure_key = str(artifacts.get("report_figure_key") or "")
@@ -2036,3 +2036,4 @@ def render():
                         error=f"{exc} (Error ID: {error_id})",
                     )
                 )
+

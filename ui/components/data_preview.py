@@ -1,4 +1,4 @@
-"""Data preview widget for displaying loaded thermal datasets."""
+﻿"""Data preview widget for displaying loaded thermal datasets."""
 
 import streamlit as st
 import pandas as pd
@@ -85,11 +85,12 @@ def render_data_preview(dataset, key_prefix="preview"):
         tx("Gösterilecek satır", "Rows to display"), 5, min(100, len(dataset.data)), 10,
         key=f"{key_prefix}_rows",
     )
-    st.dataframe(dataset.data.head(num_rows), use_container_width=True)
+    st.dataframe(dataset.data.head(num_rows), width="stretch")
 
     # Statistics in a collapsed expander
     with st.expander(tx("İstatistikler", "Statistics"), expanded=False):
         st.dataframe(
             dataset.data.describe().round(4),
-            use_container_width=True,
+            width="stretch",
         )
+

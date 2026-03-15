@@ -1,4 +1,4 @@
-"""Global reference-library management page."""
+﻿"""Global reference-library management page."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ def render() -> None:
     render_page_header(
         tx("Referans Kütüphanesi", "Reference Library"),
         tx(
-            "Managed cloud library erişimini, limited fallback cache durumunu ve provider kapsamını yönet.",
-            "Manage managed-cloud library access, limited fallback cache status, and provider coverage.",
+            "Cloud-first managed library erişimini izle; limited fallback cache sağlığını doğrula.",
+            "Monitor cloud-first managed library access and verify limited fallback cache health.",
         ),
         badge=tx("M005 Managed Cloud Library", "M005 Managed Cloud Library"),
     )
@@ -28,15 +28,15 @@ def render() -> None:
     st.session_state["library_status"] = status
 
     sync_col, refresh_col, info_col = st.columns([1, 1, 2])
-    if sync_col.button(tx("Kütüphaneyi Senkronize Et", "Sync Library"), key="library_sync_btn", use_container_width=True):
+    if sync_col.button(tx("Fallback Cache Sync", "Sync Fallback Cache"), key="library_sync_btn", width="stretch"):
         try:
             status = manager.sync(license_state=license_state, force=False)
             st.session_state["library_status"] = status
-            st.success(tx("Library paketleri güncellendi.", "Library packages were updated."))
+            st.success(tx("Fallback paket cache güncellendi.", "Fallback package cache was updated."))
             st.rerun()
         except Exception as exc:
             st.error(f"{tx('Library sync başarısız', 'Library sync failed')}: {exc}")
-    if refresh_col.button(tx("Manifesti Yenile", "Refresh Manifest"), key="library_manifest_refresh_btn", use_container_width=True):
+    if refresh_col.button(tx("Fallback Manifesti Yenile", "Refresh Fallback Manifest"), key="library_manifest_refresh_btn", width="stretch"):
         try:
             status = manager.check_manifest(license_state=license_state, force=True)
             st.session_state["library_status"] = status
@@ -47,8 +47,8 @@ def render() -> None:
 
     info_col.caption(
         tx(
-            "Feed erişimi imzalı lisans yükü ile korunur. Warm cache varsa ağ kesildiğinde runtime cached read-only modda çalışmaya devam eder.",
-            "Feed access is protected by a signed license payload. When the cache is warm, runtime continues in cached read-only mode during feed outages.",
+            "Birincil çalışma yolu cloud_full_access modudur. Feed/mirror sync yalnızca limited fallback cache paketlerini güncel tutmak içindir.",
+            "The primary runtime path is cloud_full_access. Feed/mirror sync is used only to maintain limited fallback cache packages.",
         )
     )
 
@@ -69,8 +69,8 @@ def render() -> None:
 
     n1, n2, n3 = st.columns(3)
     n1.metric(tx("Katalog Paketleri", "Catalog Packages"), str(status.get("available_package_count", 0)))
-    n2.metric(tx("Provider", "Providers"), str(status.get("available_provider_count", 0)))
-    n3.metric(tx("Update Bekleyen", "Updates Available"), str(status.get("update_available_count", 0)))
+    n2.metric(tx("Katalog Provider", "Catalog Providers"), str(status.get("available_provider_count", 0)))
+    n3.metric(tx("Katalog Update", "Catalog Updates"), str(status.get("update_available_count", 0)))
 
     cloud_last_lookup = status.get("last_cloud_lookup_at") or "N/A"
     cloud_last_error = str(status.get("last_cloud_error") or "").strip()
@@ -79,42 +79,61 @@ def render() -> None:
     c2.metric(tx("Son cloud sorgu", "Last cloud lookup"), cloud_last_lookup)
     c3.metric(tx("Son cloud hata", "Last cloud error"), cloud_last_error or tx("Yok", "None"))
 
-    if str(status.get("library_mode") or "") == "not_configured":
+    mode = str(status.get("library_mode") or "")
+    if mode == "not_configured":
         st.warning(
             tx(
-                "Cloud library yapılandırılmamış ve kullanılabilir fallback cache yok. Sonuçlar için cloud endpoint veya limited fallback sync yapılandırın.",
-                "Cloud library is not configured and no fallback cache is available. Configure cloud endpoints or sync limited fallback packages.",
+                "Cloud erişimi kapalı ve kullanılabilir fallback cache yok. Qualitative library sonuçları için cloud endpoint veya limited fallback cache yapılandırın.",
+                "Cloud access is disabled and no fallback cache is available. Configure cloud endpoints or limited fallback cache for qualitative library results.",
             )
         )
-    elif str(status.get("library_mode") or "") == "limited_cached_fallback":
+    elif mode == "limited_cached_fallback":
         st.warning(
             tx(
-                "Limited cached fallback modu aktif. Bu mod tam provider kapsamı vermez; sonuçları tarama amaçlı yorumlayın.",
+                "Limited cached fallback modu aktif. Bu mod reduced capability sağlar; sonuçları screening amaçlı yorumlayın.",
                 "Limited cached fallback mode is active. This mode does not provide full provider coverage; treat results as screening output.",
+            )
+        )
+    elif mode == "cloud_full_access":
+        st.success(
+            tx(
+                "Cloud full access aktif. Fallback cache bu modda yalnızca kesinti dayanıklılığı için ikincil yoldur.",
+                "Cloud full access is active. Fallback cache is a secondary resilience path in this mode.",
             )
         )
 
     if not status.get("feed_configured"):
-        st.warning(
-            tx(
-                "Library feed yapılandırılmamış. Senkronizasyon için `THERMOANALYZER_LIBRARY_FEED_URL` veya `THERMOANALYZER_LIBRARY_MIRROR_ROOT` ayarla.",
-                "The library feed is not configured. Set `THERMOANALYZER_LIBRARY_FEED_URL` or `THERMOANALYZER_LIBRARY_MIRROR_ROOT` before syncing.",
+        if mode == "cloud_full_access":
+            st.info(
+                tx(
+                    "Fallback feed yapılandırılmamış. Cloud full access etkilenmez; yalnızca local fallback cache sync devre dışı kalır.",
+                    "Fallback feed is not configured. Cloud full access is unaffected; only local fallback cache sync is unavailable.",
+                )
             )
-        )
+        else:
+            st.warning(
+                tx(
+                    "Fallback feed yapılandırılmamış. Sync için `THERMOANALYZER_LIBRARY_FEED_URL` veya `THERMOANALYZER_LIBRARY_MIRROR_ROOT` ayarla.",
+                    "Fallback feed is not configured. Set `THERMOANALYZER_LIBRARY_FEED_URL` or `THERMOANALYZER_LIBRARY_MIRROR_ROOT` for sync.",
+                )
+            )
     elif status.get("cache_status") == "cold":
-        st.warning(
-            tx(
-                "Cache cold durumda. İlk sync tamamlanana kadar global library eşleştirme devreye girmez.",
-                "The cache is cold. Global library matching stays unavailable until the first sync completes.",
+        if mode != "cloud_full_access":
+            st.warning(
+                tx(
+                    "Fallback cache cold durumda. İlk fallback sync tamamlanana kadar local fallback eşleştirme sınırlı kalır.",
+                    "Fallback cache is cold. Local fallback matching remains limited until the first fallback sync completes.",
+                )
             )
-        )
     elif status.get("sync_mode") == "cached_read_only":
-        st.warning(
-            tx(
-                "Cached read-only mod aktif. Son senkronize paketlerle çalışılıyor; yeni update'ler alınmıyor.",
-                "Cached read-only mode is active. The app is using previously synced packages and is not receiving new updates.",
-            )
+        message = tx(
+            "Fallback cache cached read-only modunda. Son senkronize paketler kullanılıyor; yeni fallback update'leri alınmıyor.",
+            "Fallback cache is in cached read-only mode. Previously synced packages are used and new fallback updates are not being pulled.",
         )
+        if mode == "cloud_full_access":
+            st.info(message)
+        else:
+            st.warning(message)
 
     if status.get("last_error"):
         st.error(f"{tx('Son hata', 'Last error')}: {status['last_error']}")
@@ -122,7 +141,7 @@ def render() -> None:
         st.warning(f"{tx('Cloud hata', 'Cloud error')}: {status['last_cloud_error']}")
 
     st.caption(
-        f"{tx('Feed', 'Feed')}: `{status.get('feed_source') or 'N/A'}`  |  "
+        f"{tx('Fallback Feed', 'Fallback Feed')}: `{status.get('feed_source') or 'N/A'}`  |  "
         f"{tx('Manifest üretildi', 'Manifest generated')}: `{status.get('manifest_generated_at') or 'N/A'}`  |  "
         f"{tx('Son manifest kontrolü', 'Last manifest check')}: `{status.get('manifest_checked_at') or 'N/A'}`  |  "
         f"{tx('Son sync', 'Last sync')}: `{status.get('last_sync_at') or 'N/A'}`"
@@ -154,7 +173,7 @@ def render() -> None:
                         for item in installed
                     ]
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -185,7 +204,7 @@ def render() -> None:
                         for item in catalog
                     ]
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -210,3 +229,4 @@ def _label(value: object, lang: str) -> str:
     }
     token = str(value or "")
     return mapping.get(token, token or "N/A")
+

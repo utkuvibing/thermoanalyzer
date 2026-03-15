@@ -1,4 +1,4 @@
-"""TGA Analysis page - Full TGA processing pipeline with interactive controls.
+﻿"""TGA Analysis page - Full TGA processing pipeline with interactive controls.
 
 Tabs:
     Raw Data        - TGA curve (mass % vs temperature) with dataset info.
@@ -57,7 +57,7 @@ def _chart_key(selected_key, slot, state):
 
 def _plot_with_status(fig, status_text, *, chart_key):
     """Render a plotly chart followed by a status bar."""
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=chart_key)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=chart_key)
     st.markdown(
         f'<div class="status-bar">{status_text}</div>',
         unsafe_allow_html=True,
@@ -556,7 +556,7 @@ def render():
 
             st.plotly_chart(
                 fig,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "smoothing", state),
             )
@@ -572,7 +572,7 @@ def render():
             )
             st.plotly_chart(
                 fig_dtg,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "dtg_only", state),
             )
@@ -743,7 +743,7 @@ def render():
             )
             st.plotly_chart(
                 fig_steps,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "steps", state),
             )
@@ -767,7 +767,7 @@ def render():
                     rows.append(row)
 
                 df_steps = pd.DataFrame(rows)
-                st.dataframe(df_steps, use_container_width=True, hide_index=True)
+                st.dataframe(df_steps, width="stretch", hide_index=True)
             else:
                 st.info(
                     tx(
@@ -857,3 +857,4 @@ def render():
                         error=f"{exc} (Error ID: {error_id})",
                     )
                 )
+

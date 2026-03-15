@@ -92,7 +92,7 @@ Default URL: `http://localhost:8501`
 ### Optional backend API (if needed in your workflow)
 
 ```bash
-python -m backend.main --host 127.0.0.1 --port 8000
+python -m backend.main
 ```
 
 Default URL: `http://localhost:8000`
@@ -100,6 +100,7 @@ Default URL: `http://localhost:8000`
 ### Local cloud-library dev config (M005)
 
 Use the same repo-root `.env` for both Streamlit (`app.py`) and backend (`backend/app.py`).
+Cloud is the primary library path; mirror/feed sync is only for limited fallback cache.
 
 ```dotenv
 THERMOANALYZER_LIBRARY_CLOUD_URL=http://127.0.0.1:8000
@@ -110,7 +111,7 @@ THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false
 
 `THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false` keeps full-provider local sync blocked by default.
 
-Local endpoint smoke:
+Local dev smoke helper:
 
 ```bash
 python tools/library_cloud_smoke.py --base-url http://127.0.0.1:8000

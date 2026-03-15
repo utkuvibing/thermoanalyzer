@@ -1,4 +1,4 @@
-"""DSC Analysis page - Full DSC processing pipeline with interactive controls."""
+﻿"""DSC Analysis page - Full DSC processing pipeline with interactive controls."""
 
 import numpy as np
 import streamlit as st
@@ -47,7 +47,7 @@ def _chart_key(selected_key, slot, state):
 
 def _plot_with_status(fig, status_text, *, chart_key):
     """Render a plotly chart followed by a status bar."""
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=chart_key)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=chart_key)
     st.markdown(
         f'<div class="status-bar">{status_text}</div>',
         unsafe_allow_html=True,
@@ -395,7 +395,7 @@ def render():
             )
             st.plotly_chart(
                 fig,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "smoothing", state),
             )
@@ -412,7 +412,7 @@ def render():
             )
             st.plotly_chart(
                 fig_d,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "smoothing_derivative", state),
             )
@@ -508,7 +508,7 @@ def render():
             )
             st.plotly_chart(
                 fig,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "baseline", state),
             )
@@ -523,7 +523,7 @@ def render():
                 )
                 st.plotly_chart(
                     fig2,
-                    use_container_width=True,
+                    width="stretch",
                     config=PLOTLY_CONFIG,
                     key=_chart_key(selected_key, "baseline_corrected", state),
                 )
@@ -598,7 +598,7 @@ def render():
                 fig_tg.add_vline(x=tg.tg_endset, line_dash="dot", line_color="#6B7280", annotation_text=tx("Bitiş {value:.1f}°C", "Endset {value:.1f}°C", value=tg.tg_endset))
             st.plotly_chart(
                 fig_tg,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "tg", state),
             )
@@ -704,7 +704,7 @@ def render():
             )
             st.plotly_chart(
                 fig,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "peaks", state),
             )
@@ -727,7 +727,7 @@ def render():
                         tx("Yükseklik", "Height"): f"{peak.height:.4f}" if peak.height is not None else tx("Yok", "N/A"),
                     }
                 )
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     with tab_results:
         st.subheader(tx("Analiz Özeti", "Analysis Summary"))
@@ -787,3 +787,4 @@ def render():
                     exception=exc,
                 )
                 st.error(tx("DSC sonuçları kaydedilemedi: {error}", "Saving DSC results failed: {error}", error=f"{exc} (Error ID: {error_id})"))
+

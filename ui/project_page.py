@@ -1,4 +1,4 @@
-"""Project workspace overview page."""
+﻿"""Project workspace overview page."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def render():
                     ("Nokta" if lang == "tr" else "Points"): len(dataset.data),
                 }
             )
-        st.dataframe(pd.DataFrame(dataset_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(dataset_rows), width="stretch", hide_index=True)
 
     if valid_results:
         st.subheader("Kayıtlı Sonuç Kayıtları" if lang == "tr" else "Saved Result Records")
@@ -54,7 +54,7 @@ def render():
                     ("Satır" if lang == "tr" else "Rows"): len(record.get("rows", [])),
                 }
             )
-        st.dataframe(pd.DataFrame(result_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(result_rows), width="stretch", hide_index=True)
 
     if workspace.get("selected_datasets"):
         st.subheader("Karşılaştırma Alanı" if lang == "tr" else "Comparison Workspace")
@@ -76,3 +76,4 @@ def render():
         if lang == "tr"
         else "Use the sidebar `Project` panel for `New Project`, `Save Project to File`, and `Load Project`."
     )
+

@@ -1,4 +1,4 @@
-"""DTA Analysis page - Full DTA processing pipeline with interactive controls.
+﻿"""DTA Analysis page - Full DTA processing pipeline with interactive controls.
 
 Tabs:
     Raw Data           - DTA curve (delta-T vs temperature) with dataset info.
@@ -50,7 +50,7 @@ def _chart_key(selected_key, slot, state):
 
 def _plot_with_status(fig, status_text, *, chart_key):
     """Render a plotly chart followed by a status bar."""
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=chart_key)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=chart_key)
     st.markdown(
         f'<div class="status-bar">{status_text}</div>',
         unsafe_allow_html=True,
@@ -397,7 +397,7 @@ def render():
             )
             st.plotly_chart(
                 fig,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "smoothing", state),
             )
@@ -419,7 +419,7 @@ def render():
             )
             st.plotly_chart(
                 fig_d,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "smoothing_derivative", state),
             )
@@ -538,7 +538,7 @@ def render():
             )
             st.plotly_chart(
                 fig_bl,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "baseline", state),
             )
@@ -554,7 +554,7 @@ def render():
                 )
                 st.plotly_chart(
                     fig_corr,
-                    use_container_width=True,
+                    width="stretch",
                     config=PLOTLY_CONFIG,
                     key=_chart_key(selected_key, "baseline_corrected", state),
                 )
@@ -689,7 +689,7 @@ def render():
             )
             st.plotly_chart(
                 fig_peaks,
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=_chart_key(selected_key, "peaks", state),
             )
@@ -729,7 +729,7 @@ def render():
                     }
                 )
             df_peaks = pd.DataFrame(rows)
-            st.dataframe(df_peaks, use_container_width=True, hide_index=True)
+            st.dataframe(df_peaks, width="stretch", hide_index=True)
 
     # =========================================================================
     # TAB 5 - RESULTS SUMMARY
@@ -792,3 +792,4 @@ def render():
         if st.button(tx("Sonuçları Oturuma Kaydet", "Save Results to Session"), key="dta_save_results"):
             _store_dta_result(selected_key, dataset, temperature, signal, state)
             st.success(tx("DTA sonuçları kararlı kayıt olarak kaydedildi. İndirmek için Rapor Merkezi'ne gidin.", "DTA results were saved as stable records. Go to Report Center to download."))
+

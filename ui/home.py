@@ -1,4 +1,4 @@
-"""Home page - Data upload and column mapping."""
+﻿"""Home page - Data upload and column mapping."""
 
 import os
 
@@ -494,7 +494,7 @@ def render():
                     x_label=x_label,
                     y_label=y_label,
                 )
-                st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+                st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
         st.markdown(
             (
@@ -507,3 +507,4 @@ def render():
             ),
             unsafe_allow_html=True,
         )
+

@@ -1,4 +1,4 @@
-"""Local smoke helper for managed cloud-library endpoints.
+"""Local dev smoke helper for M005 cloud-library endpoints.
 
 Usage:
     python tools/library_cloud_smoke.py --base-url http://127.0.0.1:8000
@@ -23,7 +23,7 @@ from utils.license_manager import APP_VERSION, create_signed_license, encode_lic
 
 
 def _build_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run cloud-library local smoke checks.")
+    parser = argparse.ArgumentParser(description="Run local dev smoke checks for M005 cloud-library endpoints.")
     parser.add_argument(
         "--base-url",
         default=str(os.getenv("THERMOANALYZER_LIBRARY_CLOUD_URL") or "http://127.0.0.1:8000").strip(),
@@ -164,7 +164,7 @@ def main() -> None:
         )
         _assert_cloud_payload(xrd_payload, require_result_source=True)
 
-    print("Cloud library smoke passed: auth/token -> providers -> coverage -> ftir/raman/xrd")
+    print("Local cloud smoke passed: auth/token -> providers -> coverage -> ftir/raman/xrd")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Shared FTIR/RAMAN stable analysis page built on batch templates."""
+﻿"""Shared FTIR/RAMAN stable analysis page built on batch templates."""
 
 from __future__ import annotations
 
@@ -292,7 +292,7 @@ def render_spectral_page(
                 x_label=_x_axis_label(token, dataset),
                 y_label=_y_axis_label(token, dataset),
             ),
-            use_container_width=True,
+            width="stretch",
             config=PLOTLY_CONFIG,
             key=f"{page_slug}_raw_chart_{selected_key}",
         )
@@ -496,7 +496,7 @@ def render_spectral_page(
             )
             st.plotly_chart(
                 _build_plot(selected_key, dataset, st.session_state.get(state_key, {}), token),
-                use_container_width=True,
+                width="stretch",
                 config=PLOTLY_CONFIG,
                 key=f"{page_slug}_pipeline_plot_{selected_key}",
             )
@@ -505,14 +505,14 @@ def render_spectral_page(
         current = st.session_state.get(state_key, {})
         st.plotly_chart(
             _build_plot(selected_key, dataset, current, token),
-            use_container_width=True,
+            width="stretch",
             config=PLOTLY_CONFIG,
             key=f"{page_slug}_processed_plot_{selected_key}",
         )
         peaks = current.get("peaks") or []
         if peaks:
             st.subheader(tx("Tespit Edilen Pikler", "Detected Peaks"))
-            st.dataframe(pd.DataFrame(peaks), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(peaks), width="stretch", hide_index=True)
         else:
             st.info(tx("Henüz pik tespit edilmedi.", "No peaks detected yet."))
 
@@ -544,7 +544,7 @@ def render_spectral_page(
                         for item in matches
                     ]
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -591,4 +591,5 @@ def render_spectral_page(
                 )
             )
         summary_rows = [{"key": key, "value": value} for key, value in summary.items()]
-        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
+

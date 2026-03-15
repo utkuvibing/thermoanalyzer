@@ -1,4 +1,4 @@
-"""Report center for branded exports and customer-facing outputs."""
+﻿"""Report center for branded exports and customer-facing outputs."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def _render_preview(datasets, valid_results, issues, branding, comparison_worksp
         for record in valid_results.values()
     ]
     if overview_rows:
-        st.dataframe(pd.DataFrame(overview_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(overview_rows), width="stretch", hide_index=True)
     else:
         st.info("Henüz normalize sonuç kaydı yok." if lang == "tr" else "No normalized result records are saved yet.")
 
@@ -277,7 +277,7 @@ def _render_result_export(valid_results, issues, write_enabled, lang):
         }
         for record in valid_results.values()
     ]
-    st.dataframe(pd.DataFrame(overview_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(overview_rows), width="stretch", hide_index=True)
 
     if st.button(
         "Sonuç Dosyalarını Hazırla" if lang == "tr" else "Prepare Result Exports",
@@ -489,7 +489,7 @@ def _render_batch_preview(comparison_workspace, lang):
     )
     filtered_rows = filter_batch_summary_rows(batch_summary, execution_status=outcome_filter)
     if filtered_rows:
-        st.dataframe(_batch_summary_preview_frame(filtered_rows, lang), use_container_width=True, hide_index=True)
+        st.dataframe(_batch_summary_preview_frame(filtered_rows, lang), width="stretch", hide_index=True)
 
 
 def _batch_summary_preview_frame(summary_rows, lang):
@@ -518,3 +518,4 @@ def _batch_summary_preview_frame(summary_rows, lang):
             "failure_reason": "Neden" if lang == "tr" else "Reason",
         }
     )
+
