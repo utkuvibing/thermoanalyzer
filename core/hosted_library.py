@@ -346,6 +346,17 @@ class HostedLibraryCatalog:
         self._manifest_cache: dict[str, Any] | None = None
         self._dataset_cache: dict[str, tuple[float, dict[str, Any], list[dict[str, Any]]]] = {}
 
+    def invalidate(self) -> None:
+        """Clear all cached manifest and dataset state so the next read picks up fresh data."""
+        self._manifest_cache = None
+        self._manifest_mtime = None
+        self._dataset_cache = {}
+
+    def refresh(self) -> dict[str, Any]:
+        """Force a fresh manifest read and clear dataset caches."""
+        self.invalidate()
+        return self.manifest()
+
     @property
     def manifest_path(self) -> Path:
         return self.root / HOSTED_MANIFEST_FILE
@@ -615,6 +626,69 @@ class HostedLibraryCatalog:
         return ""
 
 
+def _hosted_manifest_profile(hosted_root: Path) -> dict[str, Any]:
+    """Read published manifest and summarize hosted health without loading dataset bundles."""
+    manifest_path = hosted_root / HOSTED_MANIFEST_FILE
+    if not manifest_path.exists():
+        return {
+            "coverage_tier": "empty",
+            "xrd_entry_count": 0,
+            "total_entry_count": 0,
+            "package_count": 0,
+            "provider_candidate_counts": {},
+            "mtime": 0.0,
+        }
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "coverage_tier": "empty",
+            "xrd_entry_count": 0,
+            "total_entry_count": 0,
+            "package_count": 0,
+            "provider_candidate_counts": {},
+            "mtime": manifest_path.stat().st_mtime,
+        }
+    if not isinstance(payload, dict):
+        return {
+            "coverage_tier": "empty",
+            "xrd_entry_count": 0,
+            "total_entry_count": 0,
+            "package_count": 0,
+            "provider_candidate_counts": {},
+            "mtime": manifest_path.stat().st_mtime,
+        }
+    total_xrd = 0
+    total_entries = 0
+    package_count = 0
+    provider_rows: dict[str, dict[str, Any]] = {}
+    for dataset in (payload.get("datasets") or []):
+        if not isinstance(dataset, dict):
+            continue
+        if not dataset.get("active", True):
+            continue
+        package_count += 1
+        total_entries += _coerce_int(dataset.get("candidate_count"), 0)
+        if _normalize_dataset_modality(dataset) != "XRD":
+            continue
+        count = _coerce_int(dataset.get("candidate_count"), 0)
+        total_xrd += count
+        pid = normalize_provider_id(dataset.get("provider_id") or dataset.get("provider"))
+        bucket = provider_rows.setdefault(pid, {"candidate_count": 0})
+        bucket["candidate_count"] = _coerce_int(bucket.get("candidate_count"), 0) + count
+    profile = xrd_coverage_profile(total_candidate_count=total_xrd, provider_rows=provider_rows)
+    return {
+        "coverage_tier": str(profile.get("coverage_tier") or "empty"),
+        "xrd_entry_count": total_xrd,
+        "total_entry_count": total_entries,
+        "package_count": package_count,
+        "provider_candidate_counts": dict(profile.get("provider_candidate_counts") or {}),
+        "coverage_warning_code": str(profile.get("coverage_warning_code") or ""),
+        "coverage_warning_message": str(profile.get("coverage_warning_message") or ""),
+        "mtime": manifest_path.stat().st_mtime,
+    }
+
+
 def _normalized_root_candidates(*, hosted_root: Path, explicit_root: str | Path | None = None) -> list[Path]:
     candidates: list[Path] = []
     if explicit_root:
@@ -680,6 +754,29 @@ def _normalized_root_score(root: Path) -> tuple[int, int, int, float]:
     return (xrd_entry_count, total_entry_count, len(spec_paths), latest_mtime)
 
 
+def _normalized_root_profile(root: Path) -> dict[str, Any]:
+    xrd_entry_count, total_entry_count, package_count, latest_mtime = _normalized_root_score(root)
+    return {
+        "xrd_entry_count": xrd_entry_count,
+        "total_entry_count": total_entry_count,
+        "package_count": package_count,
+        "mtime": latest_mtime,
+    }
+
+
+def _score_tuple(payload: Mapping[str, Any]) -> tuple[int, int, int, float]:
+    return (
+        _coerce_int(payload.get("xrd_entry_count"), 0),
+        _coerce_int(payload.get("total_entry_count"), 0),
+        _coerce_int(payload.get("package_count"), 0),
+        float(payload.get("mtime") or 0.0),
+    )
+
+
+def _is_richer_profile(candidate_profile: Mapping[str, Any], existing_profile: Mapping[str, Any]) -> bool:
+    return _score_tuple(candidate_profile) > _score_tuple(existing_profile)
+
+
 def discover_local_normalized_root(
     *,
     hosted_root: str | Path | None = None,
@@ -717,11 +814,119 @@ def ensure_local_dev_hosted_catalog(
 ) -> dict[str, Any]:
     target_root = resolve_hosted_root(hosted_root)
     manifest_path = target_root / HOSTED_MANIFEST_FILE
+    candidate_root = discover_local_normalized_root(hosted_root=target_root, explicit_root=normalized_root)
+    candidate_profile = _normalized_root_profile(candidate_root) if candidate_root is not None else {
+        "xrd_entry_count": 0,
+        "total_entry_count": 0,
+        "package_count": 0,
+        "mtime": 0.0,
+    }
+    selected_source_root = str(candidate_root) if candidate_root is not None else ""
+
     if manifest_path.exists():
+        existing_profile = _hosted_manifest_profile(target_root)
+        existing_tier = str(existing_profile.get("coverage_tier") or "empty")
+        existing_xrd_count = _coerce_int(existing_profile.get("xrd_entry_count"), 0)
+        richer_source_available = candidate_root is not None and _is_richer_profile(candidate_profile, existing_profile)
+        if existing_tier == "expanded" and not richer_source_available:
+            return {
+                "state": "already_present",
+                "hosted_root": str(target_root),
+                "source_root": selected_source_root,
+                "previous_xrd_count": existing_xrd_count,
+                "previous_total_count": _coerce_int(existing_profile.get("total_entry_count"), 0),
+                "previous_package_count": _coerce_int(existing_profile.get("package_count"), 0),
+                "previous_coverage_tier": existing_tier,
+                "upgrade_reason": "existing_coverage_is_expanded",
+                "selected_source_xrd_count": _coerce_int(candidate_profile.get("xrd_entry_count"), 0),
+                "selected_source_total_count": _coerce_int(candidate_profile.get("total_entry_count"), 0),
+                "selected_source_package_count": _coerce_int(candidate_profile.get("package_count"), 0),
+            }
+        if not dev_mode:
+            return {
+                "state": "already_present",
+                "hosted_root": str(target_root),
+                "source_root": selected_source_root,
+                "previous_xrd_count": existing_xrd_count,
+                "previous_total_count": _coerce_int(existing_profile.get("total_entry_count"), 0),
+                "previous_package_count": _coerce_int(existing_profile.get("package_count"), 0),
+                "previous_coverage_tier": existing_tier,
+                "upgrade_reason": "dev_mode_disabled",
+                "selected_source_xrd_count": _coerce_int(candidate_profile.get("xrd_entry_count"), 0),
+                "selected_source_total_count": _coerce_int(candidate_profile.get("total_entry_count"), 0),
+                "selected_source_package_count": _coerce_int(candidate_profile.get("package_count"), 0),
+            }
+        if candidate_root is None:
+            return {
+                "state": "already_present",
+                "hosted_root": str(target_root),
+                "source_root": "",
+                "previous_xrd_count": existing_xrd_count,
+                "previous_total_count": _coerce_int(existing_profile.get("total_entry_count"), 0),
+                "previous_package_count": _coerce_int(existing_profile.get("package_count"), 0),
+                "previous_coverage_tier": existing_tier,
+                "upgrade_reason": "no_richer_normalized_root_found",
+            }
+        if not richer_source_available:
+            return {
+                "state": "already_present",
+                "hosted_root": str(target_root),
+                "source_root": selected_source_root,
+                "previous_xrd_count": existing_xrd_count,
+                "previous_total_count": _coerce_int(existing_profile.get("total_entry_count"), 0),
+                "previous_package_count": _coerce_int(existing_profile.get("package_count"), 0),
+                "previous_coverage_tier": existing_tier,
+                "upgrade_reason": "candidate_not_richer",
+                "selected_source_xrd_count": _coerce_int(candidate_profile.get("xrd_entry_count"), 0),
+                "selected_source_total_count": _coerce_int(candidate_profile.get("total_entry_count"), 0),
+                "selected_source_package_count": _coerce_int(candidate_profile.get("package_count"), 0),
+            }
+        try:
+            from tools.publish_hosted_library import publish_hosted_library
+
+            result = publish_hosted_library(
+                normalized_root=candidate_root,
+                output_root=target_root,
+                job_state_root=job_state_root,
+                clean=True,
+            )
+        except Exception as exc:
+            return {
+                "state": "upgrade_failed",
+                "hosted_root": str(target_root),
+                "source_root": selected_source_root,
+                "previous_xrd_count": existing_xrd_count,
+                "previous_total_count": _coerce_int(existing_profile.get("total_entry_count"), 0),
+                "previous_package_count": _coerce_int(existing_profile.get("package_count"), 0),
+                "previous_coverage_tier": existing_tier,
+                "message": f"Hosted library upgrade failed: {exc}",
+            }
+        new_profile = _hosted_manifest_profile(target_root)
+        new_tier = str(new_profile.get("coverage_tier") or "empty")
+        new_xrd_count = _coerce_int(new_profile.get("xrd_entry_count"), 0)
         return {
-            "state": "already_present",
+            "state": "upgraded",
             "hosted_root": str(target_root),
+            "source_root": selected_source_root,
+            "previous_xrd_count": existing_xrd_count,
+            "previous_total_count": _coerce_int(existing_profile.get("total_entry_count"), 0),
+            "previous_package_count": _coerce_int(existing_profile.get("package_count"), 0),
+            "previous_coverage_tier": existing_tier,
+            "new_xrd_count": new_xrd_count,
+            "new_total_count": _coerce_int(new_profile.get("total_entry_count"), 0),
+            "new_package_count": _coerce_int(new_profile.get("package_count"), 0),
+            "new_coverage_tier": new_tier,
+            "upgrade_reason": (
+                f"stale_{existing_tier}_upgraded_to_{new_tier}"
+                if existing_tier in {"empty", "seed_dev"}
+                else f"stale_manifest_republished_to_{new_tier}"
+            ),
+            "selected_source_xrd_count": _coerce_int(candidate_profile.get("xrd_entry_count"), 0),
+            "selected_source_total_count": _coerce_int(candidate_profile.get("total_entry_count"), 0),
+            "selected_source_package_count": _coerce_int(candidate_profile.get("package_count"), 0),
+            **result,
         }
+
     if not dev_mode:
         return {
             "state": "disabled",
@@ -734,6 +939,7 @@ def ensure_local_dev_hosted_catalog(
             "hosted_root": str(target_root),
             "message": f"No normalized provider packages were found near {target_root}.",
         }
+    source_profile = _normalized_root_profile(source_root)
     try:
         from tools.publish_hosted_library import publish_hosted_library
 
@@ -750,9 +956,19 @@ def ensure_local_dev_hosted_catalog(
             "source_root": str(source_root),
             "message": f"Hosted library bootstrap failed: {exc}",
         }
+    new_profile = _hosted_manifest_profile(target_root)
+    new_tier = str(new_profile.get("coverage_tier") or "empty")
+    new_xrd_count = _coerce_int(new_profile.get("xrd_entry_count"), 0)
     return {
         "state": "published",
         "hosted_root": str(target_root),
         "source_root": str(source_root),
+        "new_xrd_count": new_xrd_count,
+        "new_total_count": _coerce_int(new_profile.get("total_entry_count"), 0),
+        "new_package_count": _coerce_int(new_profile.get("package_count"), 0),
+        "new_coverage_tier": new_tier,
+        "selected_source_xrd_count": _coerce_int(source_profile.get("xrd_entry_count"), 0),
+        "selected_source_total_count": _coerce_int(source_profile.get("total_entry_count"), 0),
+        "selected_source_package_count": _coerce_int(source_profile.get("package_count"), 0),
         **result,
     }

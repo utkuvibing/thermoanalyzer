@@ -48,13 +48,49 @@ def main() -> None:
         print(f"ThermoAnalyzer backend listening on {bind_url}", flush=True)
         bootstrap_status = dict(getattr(app.state, "cloud_library_bootstrap_status", {}) or {})
         state = str(bootstrap_status.get("state") or "").strip()
+        if bootstrap_status:
+            print(
+                "ThermoAnalyzer hosted library bootstrap "
+                f"state={state or 'unknown'} "
+                f"hosted_root={bootstrap_status.get('hosted_root') or 'n/a'} "
+                f"source_root={bootstrap_status.get('source_root') or 'n/a'} "
+                f"reason={bootstrap_status.get('upgrade_reason') or bootstrap_status.get('message') or 'n/a'}",
+                flush=True,
+            )
+            print(
+                "ThermoAnalyzer hosted library XRD coverage "
+                f"previous={bootstrap_status.get('previous_xrd_count', 'n/a')}/"
+                f"{bootstrap_status.get('previous_coverage_tier', 'n/a')} "
+                f"selected_source={bootstrap_status.get('selected_source_xrd_count', 'n/a')}/"
+                f"{bootstrap_status.get('selected_source_total_count', 'n/a')} "
+                f"active={bootstrap_status.get('active_xrd_count', bootstrap_status.get('new_xrd_count', 'n/a'))}/"
+                f"{bootstrap_status.get('active_coverage_tier', bootstrap_status.get('new_coverage_tier', 'n/a'))}",
+                flush=True,
+            )
         if state == "published":
             print(
                 "ThermoAnalyzer hosted library bootstrap published "
                 f"{bootstrap_status.get('dataset_count', 0)} datasets from {bootstrap_status.get('source_root')}",
                 flush=True,
             )
-        elif state == "publish_failed":
+        elif state == "upgraded":
+            print(
+                f"ThermoAnalyzer hosted library upgraded: "
+                f"XRD {bootstrap_status.get('previous_xrd_count', '?')} → {bootstrap_status.get('new_xrd_count', '?')} "
+                f"(tier {bootstrap_status.get('previous_coverage_tier', '?')} → {bootstrap_status.get('new_coverage_tier', '?')}) "
+                f"from {bootstrap_status.get('source_root')} "
+                f"[reason: {bootstrap_status.get('upgrade_reason', 'unknown')}]",
+                flush=True,
+            )
+        elif state == "already_present":
+            print(
+                f"ThermoAnalyzer hosted library already present "
+                f"(XRD {bootstrap_status.get('previous_xrd_count', '?')}, "
+                f"tier={bootstrap_status.get('previous_coverage_tier', '?')}, "
+                f"reason={bootstrap_status.get('upgrade_reason', 'n/a')})",
+                flush=True,
+            )
+        elif state in ("publish_failed", "upgrade_failed"):
             print(
                 f"ThermoAnalyzer hosted library bootstrap failed: {bootstrap_status.get('message')}",
                 flush=True,

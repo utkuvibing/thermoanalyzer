@@ -269,6 +269,54 @@ def test_apply_xrd_input_review_preserves_incomplete_provenance_without_waveleng
     assert state["processing"]["method_context"]["xrd_provenance_state"] == "incomplete"
 
 
+def test_render_xrd_input_review_panel_logs_with_supported_history_signature(monkeypatch):
+    dataset = _xrd_dataset()
+    dataset.metadata["xrd_axis_column"] = "temperature"
+    dataset.metadata["xrd_axis_mapping_review_required"] = True
+    dataset.metadata["xrd_stable_matching_blocked"] = True
+    dataset.metadata["xrd_wavelength_angstrom"] = None
+    state = {"processing": xrd_page._seed_xrd_processing_defaults({}, "xrd.general", dataset)}
+
+    class _Expander:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    events = []
+    reruns = []
+
+    monkeypatch.setattr(xrd_page.st, "expander", lambda *args, **kwargs: _Expander())
+    monkeypatch.setattr(xrd_page.st, "warning", lambda *args, **kwargs: None)
+    monkeypatch.setattr(xrd_page.st, "info", lambda *args, **kwargs: None)
+    monkeypatch.setattr(xrd_page.st, "error", lambda *args, **kwargs: None)
+    monkeypatch.setattr(xrd_page.st, "checkbox", lambda *args, **kwargs: True)
+    monkeypatch.setattr(xrd_page.st, "number_input", lambda *args, **kwargs: 1.5406)
+    monkeypatch.setattr(xrd_page.st, "button", lambda *args, **kwargs: True)
+    monkeypatch.setattr(xrd_page.st, "rerun", lambda: reruns.append(True))
+    monkeypatch.setattr(
+        xrd_page,
+        "_log_event",
+        lambda action, details="", page="", **kwargs: events.append(
+            {"action": action, "details": details, "page": page, **kwargs}
+        ),
+    )
+
+    xrd_page._render_xrd_input_review_panel(
+        dataset_key="synthetic_xrd",
+        dataset=dataset,
+        state=state,
+        lang="en",
+    )
+
+    assert reruns == [True]
+    assert events
+    assert events[0]["dataset_key"] == "synthetic_xrd"
+    assert events[0]["parameters"]["axis_column"] == "temperature"
+    assert events[0]["parameters"]["wavelength_angstrom"] == 1.5406
+
+
 def test_save_xrd_graph_snapshot_to_session_sets_primary_and_prunes(monkeypatch):
     dataset = _xrd_dataset()
     record = {
@@ -322,3 +370,81 @@ def test_save_xrd_graph_snapshot_to_session_sets_primary_and_prunes(monkeypatch)
     assert len(updated_record["artifacts"]["figure_snapshots"]) == 10
     assert "XRD Snapshot - synthetic_xrd - old_0" not in xrd_page.st.session_state["figures"]
     assert xrd_page.st.session_state["figures"][snapshot_key] == b"png-bytes"
+
+
+def test_apply_xrd_input_review_clears_stale_import_warnings():
+    """After applying XRD input review with wavelength, resolved axis/wavelength
+    import warnings should be cleared from the list."""
+    dataset = _xrd_dataset()
+    dataset.metadata["xrd_axis_column"] = "temperature"
+    dataset.metadata["xrd_axis_mapping_review_required"] = True
+    dataset.metadata["xrd_stable_matching_blocked"] = True
+    dataset.metadata["xrd_wavelength_angstrom"] = None
+    dataset.metadata["import_warnings"] = [
+        "The temperature column may represent 2theta/angle data; review axis mapping.",
+        "XRD wavelength is not recorded; qualitative phase matching provenance remains incomplete.",
+        "Column mapping was supplied manually; verify the selected data type and units.",
+    ]
+    dataset.metadata["import_confidence"] = "review"
+    dataset.metadata["import_review_required"] = True
+    state = {"processing": xrd_page._seed_xrd_processing_defaults({}, "xrd.general", dataset)}
+
+    xrd_page._apply_xrd_input_review(dataset=dataset, state=state, wavelength_angstrom=1.5406)
+
+    # The non-XRD warning should survive; the axis+wavelength ones should be gone
+    assert len(dataset.metadata["import_warnings"]) == 1
+    assert "Column mapping" in dataset.metadata["import_warnings"][0]
+    # Since a non-XRD warning remains, import_review_required stays True
+    assert dataset.metadata["import_review_required"] is True
+    assert dataset.metadata["import_confidence"] == "medium"
+    assert dataset.metadata["xrd_provenance_state"] == "complete"
+
+
+def test_apply_xrd_input_review_clears_all_xrd_import_warnings():
+    """When all import warnings are XRD-specific, applying input review should
+    clear them entirely and set import_review_required to False."""
+    dataset = _xrd_dataset()
+    dataset.metadata["xrd_axis_column"] = "temperature"
+    dataset.metadata["xrd_axis_mapping_review_required"] = True
+    dataset.metadata["xrd_stable_matching_blocked"] = True
+    dataset.metadata["xrd_wavelength_angstrom"] = None
+    dataset.metadata["import_warnings"] = [
+        "The temperature column may represent 2theta/angle data; review axis mapping.",
+        "XRD wavelength is not recorded; qualitative phase matching provenance remains incomplete.",
+    ]
+    dataset.metadata["import_confidence"] = "review"
+    dataset.metadata["import_review_required"] = True
+    state = {"processing": xrd_page._seed_xrd_processing_defaults({}, "xrd.general", dataset)}
+
+    xrd_page._apply_xrd_input_review(dataset=dataset, state=state, wavelength_angstrom=1.5406)
+
+    assert dataset.metadata["import_warnings"] == []
+    assert dataset.metadata["import_review_required"] is False
+    assert dataset.metadata["import_confidence"] == "high"
+    assert dataset.metadata["xrd_provenance_state"] == "complete"
+
+
+def test_apply_xrd_input_review_keeps_wavelength_warning_when_wavelength_still_missing():
+    dataset = _xrd_dataset()
+    dataset.metadata["xrd_axis_column"] = "temperature"
+    dataset.metadata["xrd_axis_mapping_review_required"] = True
+    dataset.metadata["xrd_stable_matching_blocked"] = True
+    dataset.metadata["xrd_wavelength_angstrom"] = None
+    dataset.metadata["import_warnings"] = [
+        "XRD axis column 'temperature' is not explicitly labeled as 2theta/angle; review mapping before stable analysis.",
+        "XRD wavelength was not provided; set xrd_wavelength_angstrom for deterministic phase-matching provenance.",
+        "Column mapping was supplied manually; verify the selected data type and units.",
+    ]
+    dataset.metadata["import_confidence"] = "review"
+    dataset.metadata["import_review_required"] = True
+    state = {"processing": xrd_page._seed_xrd_processing_defaults({}, "xrd.general", dataset)}
+
+    xrd_page._apply_xrd_input_review(dataset=dataset, state=state, wavelength_angstrom=None)
+
+    assert dataset.metadata["import_warnings"] == [
+        "XRD wavelength was not provided; set xrd_wavelength_angstrom for deterministic phase-matching provenance.",
+        "Column mapping was supplied manually; verify the selected data type and units.",
+    ]
+    assert dataset.metadata["import_review_required"] is True
+    assert dataset.metadata["import_confidence"] == "medium"
+    assert dataset.metadata["xrd_provenance_state"] == "incomplete"

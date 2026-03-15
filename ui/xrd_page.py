@@ -1,4 +1,4 @@
-﻿"""XRD Analysis page - multi-tab stable qualitative phase-screening workflow."""
+"""XRD Analysis page - multi-tab stable qualitative phase-screening workflow."""
 
 from __future__ import annotations
 
@@ -582,6 +582,25 @@ def _xrd_current_wavelength(dataset, processing) -> float | None:
         return None
 
 
+def _is_resolved_xrd_import_warning(warning: str, *, wavelength_recorded: bool) -> bool:
+    token = str(warning or "").strip().lower()
+    if not token:
+        return False
+    axis_warning = (
+        "2theta/angle" in token
+        or "review axis mapping" in token
+        or ("xrd axis column" in token and "not explicitly labeled" in token)
+        or "diffraction-angle axis" in token
+    )
+    wavelength_warning = (
+        "xrd wavelength was not provided" in token
+        or "xrd wavelength is not recorded" in token
+        or "set xrd_wavelength_angstrom" in token
+        or "phase-matching provenance remains incomplete" in token
+    )
+    return axis_warning or (wavelength_recorded and wavelength_warning)
+
+
 def _apply_xrd_input_review(*, dataset, state, wavelength_angstrom: float | None) -> None:
     metadata = getattr(dataset, "metadata", {}) or {}
     units = getattr(dataset, "units", {}) or {}
@@ -611,6 +630,31 @@ def _apply_xrd_input_review(*, dataset, state, wavelength_angstrom: float | None
             "xrd_wavelength_angstrom": metadata.get("xrd_wavelength_angstrom"),
             "xrd_provenance_state": metadata.get("xrd_provenance_state"),
             "xrd_provenance_warning": metadata.get("xrd_provenance_warning"),
+        },
+        analysis_type="XRD",
+    )
+    existing_warnings = [str(w) for w in (metadata.get("import_warnings") or []) if w]
+    remaining_warnings = [
+        warning
+        for warning in existing_warnings
+        if not _is_resolved_xrd_import_warning(
+            warning,
+            wavelength_recorded=metadata.get("xrd_wavelength_angstrom") not in (None, ""),
+        )
+    ]
+    resolved_any_warning = len(remaining_warnings) != len(existing_warnings)
+    metadata["import_warnings"] = remaining_warnings
+    metadata["import_review_required"] = bool(remaining_warnings)
+    import_confidence = str(metadata.get("import_confidence") or "").strip().lower()
+    if resolved_any_warning and import_confidence == "review":
+        metadata["import_confidence"] = "medium" if remaining_warnings else "high"
+    state["processing"] = update_method_context(
+        state.get("processing"),
+        {
+            "xrd_import_warnings_cleared": True,
+            "import_confidence": metadata.get("import_confidence"),
+            "import_review_required": metadata.get("import_review_required"),
+            "import_warnings": list(remaining_warnings),
         },
         analysis_type="XRD",
     )
@@ -674,10 +718,15 @@ def _render_xrd_input_review_panel(*, dataset_key: str, dataset, state, lang: st
                 wavelength_angstrom=float(wavelength_value) if wavelength_value > 0 else None,
             )
             _log_event(
-                "xrd_input_review_applied",
+                tx("XRD Girdi Onayı Uygulandı", "XRD Input Review Applied"),
+                tx(
+                    "{axis_column} kolonu 2theta/açı ekseni olarak onaylandı.",
+                    "{axis_column} was confirmed as the 2theta/angle axis.",
+                    axis_column=str(axis_column),
+                ),
+                t("xrd.title"),
                 dataset_key=dataset_key,
-                analysis_type="XRD",
-                details={
+                parameters={
                     "axis_column": str(axis_column),
                     "wavelength_angstrom": float(wavelength_value) if wavelength_value > 0 else None,
                 },

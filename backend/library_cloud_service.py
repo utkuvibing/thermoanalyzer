@@ -112,10 +112,26 @@ class ManagedLibraryCloudService:
     ) -> None:
         self.manager = manager or get_reference_library_manager()
         if hosted_catalog is None:
-            self.bootstrap_status = ensure_local_dev_hosted_catalog(
+            bootstrap_status = ensure_local_dev_hosted_catalog(
                 dev_mode=_truthy(os.getenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "")),
             )
             self.hosted_catalog = HostedLibraryCatalog()
+            if str(bootstrap_status.get("state")) in {"upgraded", "published"}:
+                self.hosted_catalog.refresh()
+            hosted_coverage = self.hosted_catalog.coverage()
+            xrd_coverage = dict((hosted_coverage.get("XRD") or {}))
+            self.bootstrap_status = {
+                **bootstrap_status,
+                "hosted_root": str(self.hosted_catalog.root),
+                "active_xrd_count": int(xrd_coverage.get("total_candidate_count") or 0),
+                "active_total_count": sum(
+                    int((item or {}).get("total_candidate_count") or 0)
+                    for item in hosted_coverage.values()
+                    if isinstance(item, Mapping)
+                ),
+                "active_coverage_tier": str(xrd_coverage.get("coverage_tier") or "empty"),
+                "active_provider_candidate_counts": dict(xrd_coverage.get("provider_candidate_counts") or {}),
+            }
         else:
             self.bootstrap_status = {
                 "state": "provided_catalog",

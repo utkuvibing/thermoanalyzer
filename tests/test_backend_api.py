@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import io
@@ -391,6 +391,45 @@ def _write_hosted_root(root: Path) -> None:
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def _write_seed_xrd_manifest(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": "2026-03-14T00:00:00Z",
+                "providers": [],
+                "datasets": [
+                    {
+                        "dataset_id": "cod_xrd_seed",
+                        "provider_id": "cod",
+                        "provider": "COD",
+                        "modality": "XRD",
+                        "dataset_version": "2026.03.seed",
+                        "candidate_count": 4,
+                        "deduped_candidate_count": 4,
+                        "published_at": "2026-03-14T00:00:00Z",
+                        "active": True,
+                    },
+                    {
+                        "dataset_id": "materials_project_xrd_seed",
+                        "provider_id": "materials_project",
+                        "provider": "Materials Project",
+                        "modality": "XRD",
+                        "dataset_version": "2026.03.seed",
+                        "candidate_count": 2,
+                        "deduped_candidate_count": 2,
+                        "published_at": "2026-03-14T00:00:00Z",
+                        "active": True,
+                    },
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _package_spec(*, package_id: str, analysis_type: str, provider: str) -> PackageSpec:
     return PackageSpec(
         package_id=package_id,
@@ -533,6 +572,7 @@ def test_cloud_library_auth_and_search_endpoints(tmp_path, monkeypatch):
     hosted_root = tmp_path / "reference_library_hosted"
     _write_hosted_root(hosted_root)
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "false")
     app = create_app(api_token="test-token")
     client = TestClient(app)
     bearer = _cloud_bearer_header(client)
@@ -582,6 +622,7 @@ def test_library_status_reports_cloud_full_access_after_successful_cloud_calls(t
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", "false")
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "false")
 
     client = TestClient(create_app(api_token="test-token"))
     sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})
@@ -740,6 +781,57 @@ def test_local_dev_bootstrap_prefers_expanded_sample_data_xrd_corpus(tmp_path, m
     assert xrd_payload["summary"]["xrd_coverage_tier"] == "expanded"
 
 
+def test_local_dev_bootstrap_upgrades_stale_seed_manifest_to_expanded_runtime(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    hosted_root = tmp_path / "reference_library_hosted"
+    _write_seed_xrd_manifest(hosted_root)
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "1")
+
+    app = create_app(api_token="test-token")
+    client = TestClient(app)
+    bootstrap_status = dict(app.state.cloud_library_bootstrap_status or {})
+    assert bootstrap_status["state"] == "upgraded"
+    assert "stale_seed_dev_upgraded_to_expanded" in str(bootstrap_status.get("upgrade_reason") or "")
+    assert bootstrap_status["previous_xrd_count"] == 6
+    assert bootstrap_status["active_xrd_count"] == 29
+    assert bootstrap_status["active_coverage_tier"] == "expanded"
+
+    bearer = _cloud_bearer_header(client)
+    coverage_response = client.get("/v1/library/coverage", headers=bearer)
+    assert coverage_response.status_code == 200
+    xrd_coverage = coverage_response.json()["coverage"]["XRD"]
+    assert xrd_coverage["total_candidate_count"] == 29
+    assert xrd_coverage["provider_candidate_counts"] == {"cod": 27, "materials_project": 2}
+    assert xrd_coverage["coverage_tier"] == "expanded"
+    assert xrd_coverage["coverage_warning_code"] == ""
+
+    xrd_response = client.post(
+        "/v1/library/search/xrd",
+        headers=bearer,
+        json={
+            "observed_peaks": [
+                {"position": 11.22, "intensity": 0.32},
+                {"position": 18.38, "intensity": 1.0},
+                {"position": 23.65, "intensity": 0.41},
+            ],
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+            "xrd_wavelength_angstrom": 1.5406,
+        },
+    )
+    assert xrd_response.status_code == 200
+    xrd_payload = xrd_response.json()
+    assert xrd_payload["library_result_source"] == "cloud_search"
+    assert xrd_payload["summary"]["reference_candidate_count"] == 29
+    assert xrd_payload["summary"]["xrd_coverage_tier"] == "expanded"
+
+
 def test_runtime_cloud_client_stays_strict_without_dev_override(tmp_path, monkeypatch):
     home_root = tmp_path / "home"
     mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
@@ -824,7 +916,8 @@ def test_runtime_cloud_client_dev_override_enables_real_cloud_full_access(tmp_pa
     coverage_payload = cloud_client.coverage()
     assert coverage_payload is not None
     assert coverage_payload["library_access_mode"] == "cloud_full_access"
-    assert coverage_payload["coverage"]["XRD"]["providers"]["cod"]["dataset_version"] == "2026.03.fixture"
+    assert "2026." in coverage_payload["coverage"]["XRD"]["providers"]["cod"]["dataset_version"]
+    assert coverage_payload["coverage"]["XRD"]["coverage_tier"] == "expanded"
 
     ftir_payload = cloud_client.search(
         analysis_type="FTIR",
