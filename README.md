@@ -131,12 +131,14 @@ Use the same repo-root `.env` for both Streamlit (`app.py`) and backend (`backen
 ```dotenv
 THERMOANALYZER_LIBRARY_CLOUD_URL=http://127.0.0.1:8000
 THERMOANALYZER_LIBRARY_CLOUD_ENABLED=true
+THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=true
 THERMOANALYZER_LIBRARY_MIRROR_ROOT=C:\thermoanalyzer\build\reference_library_mirror_live
 THERMOANALYZER_LIBRARY_HOSTED_ROOT=C:\thermoanalyzer\build\reference_library_hosted
 THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false
 ```
 
 `THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false` preserves the limited-fallback policy and blocks local full-provider sync by default.
+`THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=true` is a dev-only override. It lets the runtime cloud client generate a temporary local trial-style payload when no stored trial or activation exists; production entitlement checks remain strict by default.
 
 ### Publishing hosted library data locally
 
@@ -151,6 +153,11 @@ python tools/publish_hosted_library.py --normalized-root build/reference_library
 ```bash
 python tools/library_cloud_smoke.py --base-url http://127.0.0.1:8000
 ```
+
+Expected local/dev result after `auth/token`, `providers`, and `coverage` succeed:
+
+- `Library Mode = Cloud Full Access`
+- `Cloud Access = Enabled`
 
 ---
 

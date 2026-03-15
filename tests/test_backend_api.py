@@ -5,12 +5,15 @@ import io
 import json
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from core.hosted_library import build_hosted_manifest, write_hosted_dataset
+from core.library_cloud_client import ManagedLibraryCloudClient
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
+from core.reference_library import get_reference_library_manager
 from utils.license_manager import APP_VERSION, create_signed_license, encode_license_key
 
 
@@ -145,6 +148,21 @@ def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     assert xrd_payload["request_id"]
     assert xrd_payload["summary"]["active_dataset_version"] == "2026.03.fixture"
     assert xrd_payload["rows"][0]["evidence"]["hosted_dataset_version"] == "2026.03.fixture"
+
+
+def _route_runtime_cloud_client(monkeypatch, api_client: TestClient) -> None:
+    def _path(url: str) -> str:
+        parsed = urlparse(url)
+        return parsed.path or "/"
+
+    def _post(url: str, *, headers=None, timeout=None):
+        return api_client.post(_path(url), headers=headers)
+
+    def _request(method: str, url: str, *, json=None, headers=None, timeout=None):
+        return api_client.request(method, _path(url), headers=headers, json=json)
+
+    monkeypatch.setattr("core.library_cloud_client.httpx.post", _post)
+    monkeypatch.setattr("core.library_cloud_client.httpx.request", _request)
 
 
 def _write_hosted_root(root: Path) -> None:
@@ -432,6 +450,146 @@ def test_library_status_reports_cloud_full_access_after_successful_cloud_calls(t
     assert status_payload["fallback_entry_count"] >= 1
     assert status_payload["last_cloud_lookup_at"]
     assert status_payload["last_cloud_error"] in {"", None}
+
+
+def test_runtime_cloud_client_stays_strict_without_dev_override(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", raising=False)
+    monkeypatch.delenv("THERMOANALYZER_COMMERCIAL_MODE", raising=False)
+
+    client = TestClient(create_app(api_token="test-token"))
+    sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})
+    assert sync_response.status_code == 200
+
+    auth_attempts: list[str] = []
+
+    def _unexpected_post(url: str, *, headers=None, timeout=None):
+        auth_attempts.append(url)
+        raise AssertionError("Cloud auth/token should not be called without dev override.")
+
+    monkeypatch.setattr("core.library_cloud_client.httpx.post", _unexpected_post)
+
+    cloud_client = ManagedLibraryCloudClient(base_url="http://127.0.0.1:8000")
+    assert cloud_client.coverage() is None
+    assert auth_attempts == []
+    assert "Cloud library access requires trial or activated license status." in cloud_client.last_error
+    assert "THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=1" in cloud_client.last_error
+
+    manager = get_reference_library_manager()
+    manager.record_cloud_lookup(success=False, error=cloud_client.last_error)
+
+    status_response = client.get("/library/status", headers=_auth_headers())
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["library_mode"] == "limited_cached_fallback"
+    assert status_payload["cloud_access_enabled"] is False
+    assert "trial or activated license status" in str(status_payload["last_cloud_error"])
+
+
+def test_runtime_cloud_client_dev_override_enables_real_cloud_full_access(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    hosted_root = tmp_path / "reference_library_hosted"
+    _write_hosted_root(hosted_root)
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", "1")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", "false")
+    monkeypatch.delenv("THERMOANALYZER_COMMERCIAL_MODE", raising=False)
+
+    client = TestClient(create_app(api_token="test-token"))
+    sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})
+    assert sync_response.status_code == 200
+
+    _route_runtime_cloud_client(monkeypatch, client)
+    cloud_client = ManagedLibraryCloudClient(base_url="http://127.0.0.1:8000")
+
+    providers_payload = cloud_client.providers()
+    assert providers_payload is not None
+    assert providers_payload["library_access_mode"] == "cloud_full_access"
+
+    coverage_payload = cloud_client.coverage()
+    assert coverage_payload is not None
+    assert coverage_payload["library_access_mode"] == "cloud_full_access"
+    assert coverage_payload["coverage"]["XRD"]["providers"]["cod"]["dataset_version"] == "2026.03.fixture"
+
+    ftir_payload = cloud_client.search(
+        analysis_type="FTIR",
+        payload={
+            "axis": [600.0, 900.0, 1200.0, 1500.0],
+            "signal": [0.1, 0.4, 0.2, 0.3],
+            "top_n": 3,
+            "minimum_score": 0.45,
+        },
+    )
+    assert ftir_payload is not None
+    assert ftir_payload["library_result_source"] == "cloud_search"
+
+    raman_payload = cloud_client.search(
+        analysis_type="RAMAN",
+        payload={
+            "axis": [450.0, 700.0, 1000.0, 1350.0],
+            "signal": [0.11, 0.35, 0.5, 0.27],
+            "top_n": 3,
+            "minimum_score": 0.45,
+        },
+    )
+    assert raman_payload is not None
+    assert raman_payload["library_result_source"] == "cloud_search"
+
+    xrd_payload = cloud_client.search(
+        analysis_type="XRD",
+        payload={
+            "observed_peaks": [
+                {"position": 18.4, "intensity": 0.72},
+                {"position": 33.2, "intensity": 1.0},
+                {"position": 47.8, "intensity": 0.85},
+            ],
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+            "xrd_wavelength_angstrom": 1.5406,
+        },
+    )
+    assert xrd_payload is not None
+    assert xrd_payload["library_result_source"] == "cloud_search"
+
+    assert cloud_client.dev_auth_override_used is True
+    assert cloud_client.last_error == ""
+
+    status_response = client.get("/library/status", headers=_auth_headers())
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["library_mode"] == "cloud_full_access"
+    assert status_payload["cloud_access_enabled"] is True
+    assert status_payload["cloud_provider_count"] >= 1
+    assert status_payload["last_cloud_error"] in {"", None}
+
+
+def test_runtime_cloud_client_production_error_remains_strict_without_dev_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("THERMOANALYZER_COMMERCIAL_MODE", "1")
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH", raising=False)
+
+    auth_attempts: list[str] = []
+
+    def _unexpected_post(url: str, *, headers=None, timeout=None):
+        auth_attempts.append(url)
+        raise AssertionError("Production strict mode should not call cloud auth/token.")
+
+    monkeypatch.setattr("core.library_cloud_client.httpx.post", _unexpected_post)
+
+    cloud_client = ManagedLibraryCloudClient(base_url="https://cloud.thermoanalyzer.example")
+    assert cloud_client._acquire_token() is None
+    assert auth_attempts == []
+    assert cloud_client.last_error == "Cloud library access requires trial or activated license status."
 
 
 def test_project_load_save_roundtrip_compatibility(thermal_dataset):
