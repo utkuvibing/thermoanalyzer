@@ -43,6 +43,10 @@ def _provider_meta(provider_id: str) -> dict[str, Any]:
     return payload
 
 
+def provider_metadata(provider_id: str) -> dict[str, Any]:
+    return dict(_provider_meta(provider_id))
+
+
 def _first_non_empty(mapping: dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = mapping.get(key)

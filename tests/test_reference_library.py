@@ -348,6 +348,27 @@ def test_reference_library_manager_allows_full_provider_packages_with_dev_overri
     assert status["cache_status"] == "warm"
 
 
+def test_reference_library_manager_degrades_to_limited_fallback_after_cloud_failure(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = tmp_path / "mirror"
+    _write_mirror(mirror_root)
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+
+    manager = ReferenceLibraryManager(feed_source=mirror_root.as_uri())
+    manager.sync(force=True)
+    manager.record_cloud_lookup(success=True, provider_count=2)
+
+    assert manager.status()["library_mode"] == "cloud_full_access"
+
+    manager.record_cloud_lookup(success=False, error="cloud unreachable")
+    status = manager.status()
+    assert status["library_mode"] == "limited_cached_fallback"
+    assert status["cloud_access_enabled"] is False
+    assert status["last_cloud_error"] == "cloud unreachable"
+
+
 def test_library_feed_enforces_license_statuses(tmp_path):
     mirror_root = tmp_path / "mirror"
     manifest = _write_mirror(mirror_root)

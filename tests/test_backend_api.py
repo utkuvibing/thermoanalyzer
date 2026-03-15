@@ -2,12 +2,14 @@
 
 import base64
 import io
+import json
 from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from core.hosted_library import build_hosted_manifest, write_hosted_dataset
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
 from utils.license_manager import APP_VERSION, create_signed_license, encode_license_key
 
@@ -68,6 +70,7 @@ def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     assert providers_payload["library_access_mode"] == "cloud_full_access"
     assert providers_payload["request_id"]
     assert isinstance(providers_payload["providers"], list)
+    assert any(item["provider_id"] == "openspecy" for item in providers_payload["providers"])
 
     coverage_response = client.get("/v1/library/coverage", headers=bearer)
     assert coverage_response.status_code == 200
@@ -75,6 +78,10 @@ def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     assert coverage_payload["library_access_mode"] == "cloud_full_access"
     assert coverage_payload["request_id"]
     assert isinstance(coverage_payload["coverage"], dict)
+    for modality in ("FTIR", "RAMAN", "XRD"):
+        assert coverage_payload["coverage"][modality]["total_candidate_count"] >= 1
+        assert "providers" in coverage_payload["coverage"][modality]
+    assert coverage_payload["coverage"]["XRD"]["providers"]["cod"]["dataset_version"] == "2026.03.fixture"
 
     ftir_response = client.post(
         "/v1/library/search/ftir",
@@ -92,6 +99,8 @@ def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     assert ftir_payload["library_access_mode"] == "cloud_full_access"
     assert ftir_payload["library_result_source"] == "cloud_search"
     assert ftir_payload["request_id"]
+    assert ftir_payload["summary"]["active_dataset_version"] == "2026.03.fixture"
+    assert ftir_payload["rows"][0]["evidence"]["hosted_dataset_version"] == "2026.03.fixture"
 
     raman_response = client.post(
         "/v1/library/search/raman",
@@ -109,6 +118,9 @@ def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     assert raman_payload["library_access_mode"] == "cloud_full_access"
     assert raman_payload["library_result_source"] == "cloud_search"
     assert raman_payload["request_id"]
+    assert raman_payload["summary"]["active_dataset_version"] == "2026.03.fixture"
+    assert raman_payload["rows"][0]["evidence"]["hosted_dataset_version"] == "2026.03.fixture"
+    assert "provider_alternates" in raman_payload["rows"][0]["evidence"]
 
     xrd_response = client.post(
         "/v1/library/search/xrd",
@@ -131,6 +143,197 @@ def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     assert xrd_payload["library_access_mode"] == "cloud_full_access"
     assert xrd_payload["library_result_source"] == "cloud_search"
     assert xrd_payload["request_id"]
+    assert xrd_payload["summary"]["active_dataset_version"] == "2026.03.fixture"
+    assert xrd_payload["rows"][0]["evidence"]["hosted_dataset_version"] == "2026.03.fixture"
+
+
+def _write_hosted_root(root: Path) -> None:
+    datasets = []
+    datasets.append(
+        {
+            **write_hosted_dataset(
+                output_dir=root / "datasets" / "ftir" / "openspecy" / "2026.03.fixture",
+                dataset_metadata={
+                    "dataset_id": "openspecy_ftir_2026_03_fixture",
+                    "provider_id": "openspecy",
+                    "provider": "OpenSpecy",
+                    "modality": "FTIR",
+                    "dataset_version": "2026.03.fixture",
+                    "published_at": "2026-03-14T00:00:00Z",
+                    "generated_at": "2026-03-14T00:00:00Z",
+                    "last_successful_ingest_at": "2026-03-14T00:00:00Z",
+                    "failed_ingest_count": 0,
+                    "candidate_count": 2,
+                    "deduped_candidate_count": 2,
+                    "provider_dataset_version": "2026.03.fixture",
+                    "builder_version": "b1",
+                    "normalized_schema_version": 1,
+                },
+                entries=[
+                    {
+                        "candidate_id": "openspecy_ftir_polymer_a",
+                        "candidate_name": "Polymer A",
+                        "axis": [600.0, 900.0, 1200.0, 1500.0],
+                        "signal": [0.1, 0.4, 0.2, 0.3],
+                        "canonical_material_key": "polymer_a",
+                    },
+                    {
+                        "candidate_id": "openspecy_ftir_polymer_b",
+                        "candidate_name": "Polymer B",
+                        "axis": [600.0, 900.0, 1200.0, 1500.0],
+                        "signal": [0.1, 0.3, 0.22, 0.35],
+                        "canonical_material_key": "polymer_b",
+                    },
+                ],
+            ),
+            "path": "datasets/ftir/openspecy/2026.03.fixture",
+            "active": True,
+        }
+    )
+    datasets.append(
+        {
+            **write_hosted_dataset(
+                output_dir=root / "datasets" / "raman" / "openspecy" / "2026.03.fixture",
+                dataset_metadata={
+                    "dataset_id": "openspecy_raman_2026_03_fixture",
+                    "provider_id": "openspecy",
+                    "provider": "OpenSpecy",
+                    "modality": "RAMAN",
+                    "dataset_version": "2026.03.fixture",
+                    "published_at": "2026-03-14T00:00:00Z",
+                    "generated_at": "2026-03-14T00:00:00Z",
+                    "last_successful_ingest_at": "2026-03-14T00:00:00Z",
+                    "failed_ingest_count": 0,
+                    "candidate_count": 1,
+                    "deduped_candidate_count": 1,
+                    "provider_dataset_version": "2026.03.fixture",
+                    "builder_version": "b1",
+                    "normalized_schema_version": 1,
+                },
+                entries=[
+                    {
+                        "candidate_id": "openspecy_raman_graphite",
+                        "candidate_name": "Graphite",
+                        "axis": [450.0, 700.0, 1000.0, 1350.0],
+                        "signal": [0.11, 0.35, 0.5, 0.27],
+                        "canonical_material_key": "graphite",
+                    }
+                ],
+            ),
+            "path": "datasets/raman/openspecy/2026.03.fixture",
+            "active": True,
+        }
+    )
+    datasets.append(
+        {
+            **write_hosted_dataset(
+                output_dir=root / "datasets" / "raman" / "rod" / "2026.03.fixture",
+                dataset_metadata={
+                    "dataset_id": "rod_raman_2026_03_fixture",
+                    "provider_id": "rod",
+                    "provider": "ROD",
+                    "modality": "RAMAN",
+                    "dataset_version": "2026.03.fixture",
+                    "published_at": "2026-03-14T00:00:00Z",
+                    "generated_at": "2026-03-14T00:00:00Z",
+                    "last_successful_ingest_at": "2026-03-14T00:00:00Z",
+                    "failed_ingest_count": 0,
+                    "candidate_count": 1,
+                    "deduped_candidate_count": 1,
+                    "provider_dataset_version": "2026.03.fixture",
+                    "builder_version": "b1",
+                    "normalized_schema_version": 1,
+                },
+                entries=[
+                    {
+                        "candidate_id": "rod_graphite_2001",
+                        "candidate_name": "Graphite",
+                        "axis": [450.0, 700.0, 1000.0, 1350.0],
+                        "signal": [0.11, 0.35, 0.49, 0.27],
+                        "canonical_material_key": "graphite",
+                    }
+                ],
+            ),
+            "path": "datasets/raman/rod/2026.03.fixture",
+            "active": True,
+        }
+    )
+    datasets.append(
+        {
+            **write_hosted_dataset(
+                output_dir=root / "datasets" / "xrd" / "cod" / "2026.03.fixture",
+                dataset_metadata={
+                    "dataset_id": "cod_xrd_2026_03_fixture",
+                    "provider_id": "cod",
+                    "provider": "COD",
+                    "modality": "XRD",
+                    "dataset_version": "2026.03.fixture",
+                    "published_at": "2026-03-14T00:00:00Z",
+                    "generated_at": "2026-03-14T00:00:00Z",
+                    "last_successful_ingest_at": "2026-03-14T00:00:00Z",
+                    "failed_ingest_count": 0,
+                    "candidate_count": 1,
+                    "deduped_candidate_count": 1,
+                    "provider_dataset_version": "2026.03.fixture",
+                    "builder_version": "b1",
+                    "normalized_schema_version": 1,
+                },
+                entries=[
+                    {
+                        "candidate_id": "cod_phase_alpha",
+                        "candidate_name": "Phase Alpha",
+                        "canonical_material_key": "phase_alpha",
+                        "peaks": [
+                            {"position": 18.4, "intensity": 0.72, "d_spacing": 4.82},
+                            {"position": 33.2, "intensity": 1.0, "d_spacing": 2.70},
+                            {"position": 47.8, "intensity": 0.85, "d_spacing": 1.90},
+                        ],
+                    }
+                ],
+            ),
+            "path": "datasets/xrd/cod/2026.03.fixture",
+            "active": True,
+        }
+    )
+    datasets.append(
+        {
+            **write_hosted_dataset(
+                output_dir=root / "datasets" / "xrd" / "materials_project" / "2026.03.fixture",
+                dataset_metadata={
+                    "dataset_id": "materials_project_xrd_2026_03_fixture",
+                    "provider_id": "materials_project",
+                    "provider": "Materials Project",
+                    "modality": "XRD",
+                    "dataset_version": "2026.03.fixture",
+                    "published_at": "2026-03-14T00:00:00Z",
+                    "generated_at": "2026-03-14T00:00:00Z",
+                    "last_successful_ingest_at": "2026-03-14T00:00:00Z",
+                    "failed_ingest_count": 0,
+                    "candidate_count": 1,
+                    "deduped_candidate_count": 1,
+                    "provider_dataset_version": "2026.03.fixture",
+                    "builder_version": "b1",
+                    "normalized_schema_version": 1,
+                },
+                entries=[
+                    {
+                        "candidate_id": "materials_project_phase_beta",
+                        "candidate_name": "Phase Beta",
+                        "canonical_material_key": "phase_beta",
+                        "peaks": [
+                            {"position": 22.1, "intensity": 0.55, "d_spacing": 4.01},
+                            {"position": 36.0, "intensity": 1.0, "d_spacing": 2.49},
+                            {"position": 41.5, "intensity": 0.72, "d_spacing": 2.17},
+                        ],
+                    }
+                ],
+            ),
+            "path": "datasets/xrd/materials_project/2026.03.fixture",
+            "active": True,
+        }
+    )
+    manifest = build_hosted_manifest(generated_at="2026-03-14T00:00:00Z", datasets=datasets)
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def test_health_and_version_endpoints():
@@ -148,7 +351,10 @@ def test_health_and_version_endpoints():
     assert body["project_extension"] == PROJECT_EXTENSION
 
 
-def test_cloud_library_auth_and_search_endpoints():
+def test_cloud_library_auth_and_search_endpoints(tmp_path, monkeypatch):
+    hosted_root = tmp_path / "reference_library_hosted"
+    _write_hosted_root(hosted_root)
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
     app = create_app(api_token="test-token")
     client = TestClient(app)
     bearer = _cloud_bearer_header(client)
@@ -190,11 +396,14 @@ def test_library_status_reports_limited_fallback_when_cloud_url_missing(tmp_path
 def test_library_status_reports_cloud_full_access_after_successful_cloud_calls(tmp_path, monkeypatch):
     home_root = tmp_path / "home"
     mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    hosted_root = tmp_path / "reference_library_hosted"
+    _write_hosted_root(hosted_root)
     monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
     monkeypatch.setenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", "false")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_HOSTED_ROOT", str(hosted_root))
 
     client = TestClient(create_app(api_token="test-token"))
     sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from core.library_cloud_client import get_library_cloud_client
 from core.reference_library import get_reference_library_manager
 from ui.components.chrome import render_page_header
 from utils.i18n import tx
@@ -26,6 +27,77 @@ def render() -> None:
     catalog = manager.catalog()
     installed = manager.installed_packages()
     st.session_state["library_status"] = status
+    cloud_client = get_library_cloud_client()
+    cloud_coverage_payload: dict | None = None
+    hosted_provider_rows: list[dict] = []
+
+    if cloud_client.configured:
+        coverage_payload = cloud_client.coverage()
+        if isinstance(coverage_payload, dict):
+            cloud_coverage_payload = coverage_payload
+            coverage = coverage_payload.get("coverage") or {}
+            seen_providers: dict[str, dict] = {}
+            provider_label = tx("Provider", "Provider")
+            modalities_label = tx("Modaliteler", "Modalities")
+            candidates_label = tx("Aday", "Candidates")
+            deduped_label = tx("Deduped", "Deduped")
+            dataset_label = tx("Veri Seti", "Dataset")
+            freshness_label = tx("Tazelik", "Freshness")
+            published_label = tx("Yayınlandı", "Published")
+            for modality, details in coverage.items():
+                if not isinstance(details, dict):
+                    continue
+                for provider_id, provider_row in (details.get("providers") or {}).items():
+                    payload = dict(provider_row or {})
+                    key = str(provider_id)
+                    item = seen_providers.setdefault(
+                        key,
+                        {
+                            provider_label: payload.get("provider") or key,
+                            modalities_label: [],
+                            candidates_label: 0,
+                            deduped_label: 0,
+                            dataset_label: {},
+                            freshness_label: {},
+                            published_label: {},
+                        },
+                    )
+                    item[candidates_label] = int(item.get(candidates_label, 0)) + int(payload.get("candidate_count") or 0)
+                    item[deduped_label] = int(item.get(deduped_label, 0)) + int(payload.get("deduped_candidate_count") or 0)
+                    item[modalities_label].append(str(modality))
+                    item[dataset_label][str(modality)] = payload.get("dataset_version") or "N/A"
+                    item[freshness_label][str(modality)] = payload.get("freshness_state") or "unknown"
+                    item[published_label][str(modality)] = payload.get("published_at") or "N/A"
+            hosted_provider_rows = []
+            for row in seen_providers.values():
+                hosted_provider_rows.append(
+                    {
+                        provider_label: row[provider_label],
+                        modalities_label: ", ".join(sorted(set(row[modalities_label]))),
+                        candidates_label: row[candidates_label],
+                        deduped_label: row[deduped_label],
+                        dataset_label: " | ".join(
+                            f"{modality}:{version}"
+                            for modality, version in sorted(row[dataset_label].items())
+                        ),
+                        freshness_label: " | ".join(
+                            f"{modality}:{state}"
+                            for modality, state in sorted(row[freshness_label].items())
+                        ),
+                        published_label: " | ".join(
+                            f"{modality}:{published}"
+                            for modality, published in sorted(row[published_label].items())
+                        ),
+                    }
+                )
+            provider_count = len(hosted_provider_rows)
+            manager.record_cloud_lookup(success=True, provider_count=provider_count)
+            status = manager.status()
+            st.session_state["library_status"] = status
+        elif cloud_client.last_error:
+            manager.record_cloud_lookup(success=False, error=cloud_client.last_error)
+            status = manager.status()
+            st.session_state["library_status"] = status
 
     sync_col, refresh_col, info_col = st.columns([1, 1, 2])
     if sync_col.button(tx("Fallback Cache Sync", "Sync Fallback Cache"), key="library_sync_btn", width="stretch"):
@@ -150,6 +222,30 @@ def render() -> None:
     installed_tab, catalog_tab = st.tabs(
         [tx("Kurulu Paketler", "Installed Packages"), tx("Katalog", "Catalog")]
     )
+
+    if cloud_coverage_payload:
+        st.subheader(tx("Hosted Cloud Coverage", "Hosted Cloud Coverage"))
+        coverage_rows = []
+        for modality, details in (cloud_coverage_payload.get("coverage") or {}).items():
+            if not isinstance(details, dict):
+                continue
+            coverage_rows.append(
+                {
+                    tx("Analiz", "Analysis"): modality,
+                    tx("Toplam Aday", "Total Candidates"): int(details.get("total_candidate_count") or 0),
+                    tx("Deduped", "Deduped"): int(details.get("deduped_candidate_count") or 0),
+                    tx("Tazelik", "Freshness"): details.get("freshness_state") or "unknown",
+                    tx("Veri Seti Yayını", "Dataset Publish"): details.get("published_at") or "N/A",
+                    tx("Son Başarılı Ingest", "Last Successful Ingest"): details.get("last_successful_ingest_at") or "N/A",
+                    tx("Başarısız Ingest", "Failed Ingests"): int(details.get("failed_ingest_count") or 0),
+                    tx("Providerlar", "Providers"): ", ".join(sorted((details.get("providers") or {}).keys())),
+                }
+            )
+        if coverage_rows:
+            st.dataframe(pd.DataFrame(coverage_rows), width="stretch", hide_index=True)
+        if hosted_provider_rows:
+            st.caption(tx("Hosted provider görünümü aktif dataset version + freshness bilgisini gösterir.", "Hosted provider view shows active dataset version and freshness metadata."))
+            st.dataframe(pd.DataFrame(hosted_provider_rows), width="stretch", hide_index=True)
 
     with installed_tab:
         if installed:

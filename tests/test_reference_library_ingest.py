@@ -5,11 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from core.hosted_library import HostedLibraryCatalog
 from tools.build_reference_library_mirror import main as build_mirror_main
 from tools.ingest_cod import main as ingest_cod_main
 from tools.ingest_materials_project import main as ingest_materials_project_main
 from tools.ingest_openspecy import main as ingest_openspecy_main
 from tools.ingest_rod import main as ingest_rod_main
+from tools.publish_hosted_library import main as publish_hosted_main
+from tools.library_ingest.providers import normalize_openspecy_record
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "reference_library_ingest"
 GENERATED_AT = "2026-03-14T00:00:00Z"
@@ -347,3 +350,196 @@ def test_mirror_builder_falls_back_to_legacy_seed_when_normalized_root_is_empty(
     manifest = _read_json(mirror_root / "manifest.json")
     assert [package["package_id"] for package in manifest["packages"]] == ["legacy_ftir_fixture"]
     assert (mirror_root / "packages" / "legacy_ftir_fixture-2026.03.fixture.zip").exists()
+
+
+def test_openspecy_ingest_resume_uses_job_state_pending_buffer(tmp_path):
+    output_root = tmp_path / "reference_library_ingest"
+    state_root = tmp_path / "reference_library_jobs"
+    records = _read_json(FIXTURE_ROOT / "openspecy" / "records.json")
+    _, first_entry = normalize_openspecy_record(
+        records[0],
+        generated_at=GENERATED_AT,
+        provider_dataset_version=DATASET_VERSION,
+    )
+    state_path = state_root / "openspecy" / f"{DATASET_VERSION.replace('.', '_')}.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "provider_id": "openspecy",
+                "provider_dataset_version": DATASET_VERSION,
+                "cursor": 1,
+                "processed_count": 1,
+                "failed_count": 0,
+                "last_successful_ingest_at": GENERATED_AT,
+                "sampled_failures": [],
+                "next_chunk_index_by_analysis_type": {"FTIR": 1},
+                "pending_entries_by_analysis_type": {"FTIR": [first_entry]},
+                "emitted_package_ids": [],
+                "completed": False,
+                "completed_at": "",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    ingest_openspecy_main(
+        [
+            "--input-json",
+            str(FIXTURE_ROOT / "openspecy" / "records.json"),
+            "--output-root",
+            str(output_root),
+            "--generated-at",
+            GENERATED_AT,
+            "--provider-dataset-version",
+            DATASET_VERSION,
+            "--chunk-size",
+            "2",
+            "--resume",
+            "--job-state-root",
+            str(state_root),
+        ]
+    )
+
+    ftir_rows = _read_jsonl(output_root / "openspecy" / "openspecy_ftir_0001" / "entries.jsonl")
+    assert [row["source_id"] for row in ftir_rows] == ["ftir-001", "ftir-002"]
+    state = _read_json(state_path)
+    assert state["processed_count"] == 3
+    assert state["pending_entries_by_analysis_type"]["FTIR"] == []
+    assert state["completed"] is True
+
+
+@pytest.mark.usefixtures("tmp_path")
+def test_publish_hosted_library_builds_hosted_manifest_and_coverage(tmp_path):
+    pytest.importorskip("pymatgen")
+    normalized_root = tmp_path / "reference_library_ingest"
+    job_state_root = tmp_path / "reference_library_jobs"
+
+    ingest_cod_main(
+        [
+            "--manifest",
+            str(
+                _write_json(
+                    tmp_path / "cod_records.json",
+                    [
+                        {
+                            "source_id": "1001",
+                            "candidate_name": "Silicon",
+                            "cif_path": str(FIXTURE_ROOT / "cod" / "cod_si.cif"),
+                        },
+                        {
+                            "source_id": "1002",
+                            "candidate_name": "Sodium Chloride",
+                            "cif_path": str(FIXTURE_ROOT / "cod" / "cod_nacl.cif"),
+                        },
+                    ],
+                )
+            ),
+            "--output-root",
+            str(normalized_root),
+            "--generated-at",
+            GENERATED_AT,
+            "--provider-dataset-version",
+            DATASET_VERSION,
+            "--job-state-root",
+            str(job_state_root),
+        ]
+    )
+    ingest_materials_project_main(
+        [
+            "--input-json",
+            str(
+                _write_json(
+                    tmp_path / "mp_records.json",
+                    [
+                        {
+                            "material_id": "mp-149",
+                            "formula_pretty": "Si",
+                            "structure_cif_path": str(FIXTURE_ROOT / "materials_project" / "mp_149_si.cif"),
+                        },
+                        {
+                            "material_id": "mp-22862",
+                            "formula_pretty": "NaCl",
+                            "structure_cif_path": str(FIXTURE_ROOT / "materials_project" / "mp_22862_nacl.cif"),
+                        },
+                    ],
+                )
+            ),
+            "--output-root",
+            str(normalized_root),
+            "--generated-at",
+            GENERATED_AT,
+            "--provider-dataset-version",
+            DATASET_VERSION,
+            "--job-state-root",
+            str(job_state_root),
+        ]
+    )
+    ingest_openspecy_main(
+        [
+            "--input-json",
+            str(FIXTURE_ROOT / "openspecy" / "records.json"),
+            "--output-root",
+            str(normalized_root),
+            "--generated-at",
+            GENERATED_AT,
+            "--provider-dataset-version",
+            DATASET_VERSION,
+            "--job-state-root",
+            str(job_state_root),
+        ]
+    )
+    ingest_rod_main(
+        [
+            "--manifest",
+            str(
+                _write_json(
+                    tmp_path / "rod_records.json",
+                    [
+                        {
+                            "source_id": "2001",
+                            "candidate_name": "Calcite",
+                            "jcamp_path": str(FIXTURE_ROOT / "rod" / "calcite_2001.jdx"),
+                        }
+                    ],
+                )
+            ),
+            "--output-root",
+            str(normalized_root),
+            "--generated-at",
+            GENERATED_AT,
+            "--provider-dataset-version",
+            DATASET_VERSION,
+            "--job-state-root",
+            str(job_state_root),
+        ]
+    )
+
+    hosted_root = tmp_path / "reference_library_hosted"
+    publish_hosted_main(
+        [
+            "--normalized-root",
+            str(normalized_root),
+            "--output-root",
+            str(hosted_root),
+            "--job-state-root",
+            str(job_state_root),
+        ]
+    )
+
+    manifest = _read_json(hosted_root / "manifest.json")
+    assert len(manifest["datasets"]) == 5
+    assert sum(1 for item in manifest["datasets"] if item["active"]) == 5
+    catalog = HostedLibraryCatalog(hosted_root)
+    coverage = catalog.coverage()
+    assert coverage["FTIR"]["total_candidate_count"] == 2
+    assert coverage["FTIR"]["providers"]["openspecy"]["dataset_version"] == DATASET_VERSION
+    assert coverage["RAMAN"]["total_candidate_count"] == 2
+    assert set(coverage["RAMAN"]["providers"]) == {"openspecy", "rod"}
+    assert coverage["XRD"]["total_candidate_count"] == 4
+    assert set(coverage["XRD"]["providers"]) == {"cod", "materials_project"}
+    raman_entries = catalog.load_entries("RAMAN")
+    assert raman_entries[0]["package_version"] == DATASET_VERSION
+    assert raman_entries[0]["provider_dataset_version"] == DATASET_VERSION
+    assert raman_entries[0]["canonical_material_key"]

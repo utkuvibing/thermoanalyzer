@@ -23,6 +23,7 @@ import numpy as np
 from .schema import PackageSpec
 
 BUILD_ROOT = Path("build") / "reference_library_ingest"
+JOB_STATE_ROOT = Path("build") / "reference_library_jobs"
 BUILDER_VERSION = "b1"
 NORMALIZED_SCHEMA_VERSION = 1
 PROVIDER_SOURCE_FILE = Path(__file__).with_name("provider_sources.json")
@@ -48,6 +49,10 @@ def load_provider_sources() -> dict[str, Any]:
 
 def resolve_output_root(output_root: str | Path | None) -> Path:
     return Path(output_root or BUILD_ROOT).resolve()
+
+
+def resolve_job_state_root(job_state_root: str | Path | None) -> Path:
+    return Path(job_state_root or JOB_STATE_ROOT).resolve()
 
 
 def ensure_dir(path: str | Path) -> Path:
@@ -81,6 +86,66 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
 def safe_slug(value: str, *, default: str = "item") -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
     return slug or default
+
+
+def ingest_job_state_path(
+    provider_id: str,
+    provider_dataset_version: str,
+    *,
+    job_state_root: str | Path | None = None,
+) -> Path:
+    root = resolve_job_state_root(job_state_root)
+    return root / safe_slug(provider_id) / f"{safe_slug(provider_dataset_version, default='dataset')}.json"
+
+
+def default_ingest_job_state(provider_id: str, provider_dataset_version: str) -> dict[str, Any]:
+    return {
+        "provider_id": safe_slug(provider_id),
+        "provider_dataset_version": str(provider_dataset_version),
+        "cursor": 0,
+        "processed_count": 0,
+        "failed_count": 0,
+        "last_successful_ingest_at": "",
+        "sampled_failures": [],
+        "next_chunk_index_by_analysis_type": {},
+        "pending_entries_by_analysis_type": {},
+        "emitted_package_ids": [],
+        "completed": False,
+        "completed_at": "",
+    }
+
+
+def load_ingest_job_state(
+    provider_id: str,
+    provider_dataset_version: str,
+    *,
+    job_state_root: str | Path | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    path = ingest_job_state_path(
+        provider_id,
+        provider_dataset_version,
+        job_state_root=job_state_root,
+    )
+    state = read_json(path, default_ingest_job_state(provider_id, provider_dataset_version))
+    if not isinstance(state, dict):
+        state = default_ingest_job_state(provider_id, provider_dataset_version)
+    state.setdefault("provider_id", safe_slug(provider_id))
+    state.setdefault("provider_dataset_version", str(provider_dataset_version))
+    state.setdefault("cursor", 0)
+    state.setdefault("processed_count", 0)
+    state.setdefault("failed_count", 0)
+    state.setdefault("last_successful_ingest_at", "")
+    state.setdefault("sampled_failures", [])
+    state.setdefault("next_chunk_index_by_analysis_type", {})
+    state.setdefault("pending_entries_by_analysis_type", {})
+    state.setdefault("emitted_package_ids", [])
+    state.setdefault("completed", False)
+    state.setdefault("completed_at", "")
+    return path, state
+
+
+def save_ingest_job_state(path: str | Path, state: dict[str, Any]) -> None:
+    write_json(path, state)
 
 
 def iter_jsonl(path: str | Path) -> Iterator[dict[str, Any]]:
@@ -296,6 +361,7 @@ class ChunkedPackageEmitter:
         provider_dataset_version: str,
         chunk_size: int,
         next_chunk_index: int = 1,
+        initial_buffer: list[dict[str, Any]] | None = None,
     ) -> None:
         self.output_root = ensure_dir(output_root)
         self.package_prefix = package_prefix
@@ -310,7 +376,7 @@ class ChunkedPackageEmitter:
         self.provider_dataset_version = provider_dataset_version
         self.chunk_size = max(int(chunk_size), 1)
         self.next_chunk_index = max(int(next_chunk_index), 1)
-        self.buffer: list[dict[str, Any]] = []
+        self.buffer: list[dict[str, Any]] = [dict(item) for item in (initial_buffer or [])]
         self.emitted_package_ids: list[str] = []
         self.version = build_version(provider_dataset_version, generated_at=generated_at)
 
@@ -342,7 +408,7 @@ class ChunkedPackageEmitter:
             normalized_schema_version=NORMALIZED_SCHEMA_VERSION,
         )
         write_json(package_dir / "package_spec.json", spec.to_dict())
-        write_jsonl(package_dir / "entries.jsonl", self.buffer)
+        write_jsonl(package_dir / "entries.jsonl", sorted_entries(self.buffer))
         self.emitted_package_ids.append(package_id)
         self.buffer = []
         self.next_chunk_index += 1

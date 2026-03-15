@@ -182,10 +182,17 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             for row in coverage.values():
                 if not isinstance(row, dict):
                     continue
-                for provider in row.get("providers") or []:
-                    token = str(provider).strip()
-                    if token:
-                        seen.add(token)
+                providers = row.get("providers") or {}
+                if isinstance(providers, dict):
+                    for provider_id in providers:
+                        token = str(provider_id).strip()
+                        if token:
+                            seen.add(token)
+                else:
+                    for provider in providers:
+                        token = str(provider).strip()
+                        if token:
+                            seen.add(token)
             provider_count = len(seen)
         global_library_manager.record_cloud_lookup(success=True, provider_count=provider_count)
 

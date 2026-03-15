@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -11,8 +12,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools.library_ingest.common import BUILD_ROOT, read_json_records, today_version_token, utcnow_iso
-from tools.library_ingest.providers import XRDPatternOptions, emit_grouped_packages, normalize_cod_record
+from tools.library_ingest.common import (
+    BUILD_ROOT,
+    ChunkedPackageEmitter,
+    default_ingest_job_state,
+    load_ingest_job_state,
+    provider_output_root,
+    read_json_records,
+    save_ingest_job_state,
+    today_version_token,
+    utcnow_iso,
+)
+from tools.library_ingest.providers import XRDPatternOptions, normalize_cod_record, provider_metadata
 
 
 def _read_ids(path: str | Path | None) -> list[str]:
@@ -30,6 +41,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--generated-at", default=utcnow_iso(), help="ISO-8601 generation timestamp for emitted packages.")
     parser.add_argument("--provider-dataset-version", default=today_version_token(), help="Version token recorded in package_spec.json.")
     parser.add_argument("--chunk-size", type=int, default=500, help="Maximum entries per emitted normalized package.")
+    parser.add_argument("--resume", action="store_true", help="Resume from the persisted ingest job checkpoint for this provider/version.")
+    parser.add_argument("--job-state-root", help="Override build/reference_library_jobs storage location.")
     parser.add_argument("--wavelength-angstrom", type=float, default=1.5406, help="X-ray wavelength used to calculate powder patterns.")
     parser.add_argument("--two-theta-min", type=float, default=5.0, help="Lower two-theta bound for emitted peaks.")
     parser.add_argument("--two-theta-max", type=float, default=90.0, help="Upper two-theta bound for emitted peaks.")
@@ -52,27 +65,98 @@ def main(argv: list[str] | None = None) -> None:
         two_theta_max=float(args.two_theta_max),
         min_relative_intensity=float(args.min_relative_intensity),
     )
-    normalized_entries = [
-        (
-            "XRD",
-            normalize_cod_record(
+    provider_id = "cod"
+    provider = provider_metadata(provider_id)
+    provider_root = provider_output_root(args.output_root, provider_id)
+    state_path, state = load_ingest_job_state(
+        provider_id,
+        args.provider_dataset_version,
+        job_state_root=args.job_state_root,
+    )
+    if not args.resume:
+        shutil.rmtree(provider_root, ignore_errors=True)
+        state = default_ingest_job_state(provider_id, args.provider_dataset_version)
+    ordered_records = sorted(records, key=lambda item: str(item.get("source_id") or item.get("id") or ""))
+    emitters: dict[str, ChunkedPackageEmitter] = {}
+
+    def emitter_for(analysis_type: str) -> ChunkedPackageEmitter:
+        token = str(analysis_type or "").upper()
+        emitter = emitters.get(token)
+        if emitter is None:
+            emitter = ChunkedPackageEmitter(
+                output_root=provider_root,
+                package_prefix=f"{provider_id}_{token.lower()}",
+                analysis_type=token,
+                provider_name=str(provider.get("provider_name") or provider_id),
+                source_url=str(provider.get("source_url") or ""),
+                license_name=str(provider.get("license_name") or ""),
+                license_text=str(provider.get("license_text") or ""),
+                attribution=str(provider.get("attribution") or ""),
+                priority=int(provider.get("priority") or 0),
+                generated_at=args.generated_at,
+                provider_dataset_version=args.provider_dataset_version,
+                chunk_size=int(args.chunk_size),
+                next_chunk_index=int((state.get("next_chunk_index_by_analysis_type") or {}).get(token) or 1),
+                initial_buffer=list((state.get("pending_entries_by_analysis_type") or {}).get(token) or []),
+            )
+            emitters[token] = emitter
+        return emitter
+
+    for index in range(int(state.get("cursor") or 0), len(ordered_records)):
+        record = ordered_records[index]
+        try:
+            entry = normalize_cod_record(
                 record,
                 generated_at=args.generated_at,
                 provider_dataset_version=args.provider_dataset_version,
                 options=options,
-            ),
+            )
+            emitter = emitter_for("XRD")
+            emitted_ids = [package_id for package_id in emitter.append(entry) if package_id]
+            if emitted_ids:
+                state["emitted_package_ids"] = [*state.get("emitted_package_ids", []), *emitted_ids]
+            state["processed_count"] = int(state.get("processed_count") or 0) + 1
+            state["last_successful_ingest_at"] = utcnow_iso()
+            state.setdefault("pending_entries_by_analysis_type", {})["XRD"] = [dict(item) for item in emitter.buffer]
+            state.setdefault("next_chunk_index_by_analysis_type", {})["XRD"] = emitter.next_chunk_index
+        except Exception as exc:
+            state["failed_count"] = int(state.get("failed_count") or 0) + 1
+            sampled = list(state.get("sampled_failures") or [])
+            if len(sampled) < 20:
+                sampled.append(
+                    {
+                        "cursor": index,
+                        "source_id": str(record.get("source_id") or record.get("id") or ""),
+                        "message": str(exc),
+                    }
+                )
+            state["sampled_failures"] = sampled
+        finally:
+            state["cursor"] = index + 1
+            save_ingest_job_state(state_path, state)
+
+    for analysis_type, emitter in emitters.items():
+        emitted_ids = [package_id for package_id in emitter.close() if package_id]
+        if emitted_ids:
+            state["emitted_package_ids"] = [*state.get("emitted_package_ids", []), *emitted_ids]
+        state.setdefault("pending_entries_by_analysis_type", {})[analysis_type] = [dict(item) for item in emitter.buffer]
+        state.setdefault("next_chunk_index_by_analysis_type", {})[analysis_type] = emitter.next_chunk_index
+
+    state["completed"] = True
+    state["completed_at"] = utcnow_iso()
+    save_ingest_job_state(state_path, state)
+    print(
+        json.dumps(
+            {
+                "provider": provider_id,
+                "package_ids": state.get("emitted_package_ids", []),
+                "processed_count": int(state.get("processed_count") or 0),
+                "failed_count": int(state.get("failed_count") or 0),
+                "state_path": str(state_path),
+            },
+            indent=2,
         )
-        for record in sorted(records, key=lambda item: str(item.get("source_id") or item.get("id") or ""))
-    ]
-    package_ids = emit_grouped_packages(
-        provider_id="cod",
-        output_root=args.output_root,
-        generated_at=args.generated_at,
-        provider_dataset_version=args.provider_dataset_version,
-        chunk_size=int(args.chunk_size),
-        entries_by_analysis_type={"XRD": [entry for _, entry in normalized_entries]},
     )
-    print(json.dumps({"provider": "cod", "package_ids": package_ids, "processed_count": len(normalized_entries)}, indent=2))
 
 
 if __name__ == "__main__":

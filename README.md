@@ -100,16 +100,23 @@ Default URL: `http://localhost:8000`
 ### Local cloud-library dev config (M005)
 
 Use the same repo-root `.env` for both Streamlit (`app.py`) and backend (`backend/app.py`).
-Cloud is the primary library path; mirror/feed sync is only for limited fallback cache.
+Cloud is the primary library path. Hosted indexes back cloud search; mirror/feed sync remains limited fallback only.
 
 ```dotenv
 THERMOANALYZER_LIBRARY_CLOUD_URL=http://127.0.0.1:8000
 THERMOANALYZER_LIBRARY_CLOUD_ENABLED=true
 THERMOANALYZER_LIBRARY_MIRROR_ROOT=C:\thermoanalyzer\build\reference_library_mirror_live
+THERMOANALYZER_LIBRARY_HOSTED_ROOT=C:\thermoanalyzer\build\reference_library_hosted
 THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false
 ```
 
 `THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false` keeps full-provider local sync blocked by default.
+
+To refresh local hosted cloud coverage after ingest normalization:
+
+```bash
+python tools/publish_hosted_library.py --normalized-root build/reference_library_ingest --output-root build/reference_library_hosted
+```
 
 Local dev smoke helper:
 

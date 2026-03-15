@@ -17,6 +17,7 @@ from typing import Any, Mapping
 import numpy as np
 from fastapi import HTTPException
 
+from core.hosted_library import HostedLibraryCatalog, normalize_provider_id
 from core.reference_library import ReferenceLibraryManager, get_reference_library_manager
 from utils.license_manager import APP_VERSION, get_storage_dir, validate_encoded_license_key
 
@@ -83,7 +84,7 @@ def _rate_limit_per_minute() -> int:
 
 
 def _normalize_provider(value: Any) -> str:
-    token = str(value or "").strip().lower()
+    token = normalize_provider_id(value)
     if token in {"materialsproject", "materials_project", "mp"}:
         return "materials_project"
     if token in {"cod"}:
@@ -98,8 +99,13 @@ def _normalize_provider(value: Any) -> str:
 class ManagedLibraryCloudService:
     """Encapsulates managed cloud auth, search, coverage, and fallback prefetch."""
 
-    def __init__(self, manager: ReferenceLibraryManager | None = None) -> None:
+    def __init__(
+        self,
+        manager: ReferenceLibraryManager | None = None,
+        hosted_catalog: HostedLibraryCatalog | None = None,
+    ) -> None:
         self.manager = manager or get_reference_library_manager()
+        self.hosted_catalog = hosted_catalog or HostedLibraryCatalog()
         self._rate_windows: dict[str, list[float]] = {}
 
     def _audit_path(self) -> Path:
@@ -203,6 +209,146 @@ class ManagedLibraryCloudService:
             return sorted(seen)
         defaults = _DEFAULT_PROVIDER_SCOPE.get(str(analysis_type or "").upper(), [])
         return sorted({str(item).strip().lower() for item in defaults if str(item).strip()})
+
+    def _reference_key(
+        self,
+        *,
+        candidate_id: Any,
+        provider: Any,
+        package_id: Any,
+        package_version: Any,
+    ) -> tuple[str, str, str, str]:
+        return (
+            str(candidate_id or "").strip(),
+            str(provider or "").strip(),
+            str(package_id or "").strip(),
+            str(package_version or "").strip(),
+        )
+
+    def _reference_lookup(self, references: list[dict[str, Any]]) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+        lookup: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for reference in references:
+            key = self._reference_key(
+                candidate_id=reference.get("candidate_id"),
+                provider=reference.get("provider"),
+                package_id=reference.get("package_id"),
+                package_version=reference.get("package_version"),
+            )
+            lookup[key] = dict(reference)
+        return lookup
+
+    def _attach_hosted_row_provenance(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        reference_lookup: Mapping[tuple[str, str, str, str], dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        enriched: list[dict[str, Any]] = []
+        for row in rows:
+            payload = dict(row)
+            reference = reference_lookup.get(
+                self._reference_key(
+                    candidate_id=payload.get("candidate_id"),
+                    provider=payload.get("library_provider"),
+                    package_id=payload.get("library_package"),
+                    package_version=payload.get("library_version"),
+                )
+            )
+            evidence = dict(payload.get("evidence") or {})
+            if reference:
+                evidence.setdefault("canonical_material_key", str(reference.get("canonical_material_key") or ""))
+                evidence.setdefault("provider_dataset_version", str(reference.get("provider_dataset_version") or ""))
+                evidence.setdefault("hosted_dataset_version", str(reference.get("hosted_dataset_version") or reference.get("package_version") or ""))
+                evidence.setdefault("hosted_published_at", str(reference.get("hosted_published_at") or reference.get("published_at") or ""))
+            payload["evidence"] = evidence
+            enriched.append(payload)
+        return enriched
+
+    def _collapse_ranked_rows_by_material(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        reference_lookup: Mapping[tuple[str, str, str, str], dict[str, Any]],
+        top_n: int,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            reference = reference_lookup.get(
+                self._reference_key(
+                    candidate_id=row.get("candidate_id"),
+                    provider=row.get("library_provider"),
+                    package_id=row.get("library_package"),
+                    package_version=row.get("library_version"),
+                )
+            )
+            material_key = str((reference or {}).get("canonical_material_key") or row.get("candidate_id") or "").strip()
+            grouped.setdefault(material_key, []).append(dict(row))
+
+        collapsed: list[dict[str, Any]] = []
+        for bucket in grouped.values():
+            bucket.sort(
+                key=lambda item: (
+                    -float(item.get("normalized_score") or 0.0),
+                    str(item.get("library_provider") or ""),
+                    str(item.get("candidate_id") or ""),
+                )
+            )
+            winner = dict(bucket[0])
+            alternates = [
+                {
+                    "provider": str(item.get("library_provider") or ""),
+                    "package": str(item.get("library_package") or ""),
+                    "version": str(item.get("library_version") or ""),
+                    "candidate_id": str(item.get("candidate_id") or ""),
+                    "candidate_name": str(item.get("candidate_name") or ""),
+                    "normalized_score": float(item.get("normalized_score") or 0.0),
+                }
+                for item in bucket[1:]
+            ]
+            evidence = dict(winner.get("evidence") or {})
+            if alternates:
+                evidence["provider_alternates"] = alternates
+            winner["evidence"] = evidence
+            collapsed.append(winner)
+
+        collapsed.sort(
+            key=lambda item: (
+                -float(item.get("normalized_score") or 0.0),
+                str(item.get("library_provider") or ""),
+                str(item.get("candidate_id") or ""),
+            )
+        )
+        trimmed = collapsed[:top_n]
+        for rank, item in enumerate(trimmed, start=1):
+            item["rank"] = rank
+        return trimmed
+
+    def _attach_hosted_summary_provenance(
+        self,
+        response: dict[str, Any],
+        *,
+        reference_lookup: Mapping[tuple[str, str, str, str], dict[str, Any]],
+    ) -> dict[str, Any]:
+        rows = list(response.get("rows") or [])
+        if not rows:
+            return response
+        top_row = rows[0]
+        reference = reference_lookup.get(
+            self._reference_key(
+                candidate_id=top_row.get("candidate_id"),
+                provider=top_row.get("library_provider"),
+                package_id=top_row.get("library_package"),
+                package_version=top_row.get("library_version"),
+            )
+        )
+        if not reference:
+            return response
+        summary = dict(response.get("summary") or {})
+        summary.setdefault("active_dataset_version", str(reference.get("hosted_dataset_version") or reference.get("package_version") or ""))
+        summary.setdefault("active_dataset_published_at", str(reference.get("hosted_published_at") or reference.get("published_at") or ""))
+        summary.setdefault("provider_dataset_version", str(reference.get("provider_dataset_version") or ""))
+        response["summary"] = summary
+        return response
 
     def _build_spectral_response(
         self,
@@ -397,19 +543,37 @@ class ManagedLibraryCloudService:
         minimum_score = float(request_payload.get("minimum_score") or 0.45)
         peak_config = {"prominence": 0.05, "min_distance": 6, "max_peaks": 12}
         observed_peaks = _detect_spectral_peaks(axis, normalized_signal, peak_config)
+        top_n_internal = top_n if token != "RAMAN" else max(top_n * 5, 10)
+        references = self.hosted_catalog.load_entries(token)
+        reference_lookup = self._reference_lookup(references)
         rows = _rank_spectral_matches(
             axis=axis,
             normalized_signal=normalized_signal,
             observed_peaks=observed_peaks,
-            references=self.manager.load_entries(token),
-            matching_config={"top_n": top_n, "minimum_score": minimum_score},
+            references=references,
+            matching_config={"top_n": top_n_internal, "minimum_score": minimum_score},
             peak_config=peak_config,
         )
+        rows = self._attach_hosted_row_provenance(rows, reference_lookup=reference_lookup)
+        if token == "RAMAN":
+            rows = self._collapse_ranked_rows_by_material(
+                rows,
+                reference_lookup=reference_lookup,
+                top_n=top_n,
+            )
+        else:
+            rows = rows[:top_n]
+            for rank, item in enumerate(rows, start=1):
+                item["rank"] = rank
         response = self._build_spectral_response(
             analysis_type=token,
             request_id=request_id,
             rows=rows,
             minimum_score=minimum_score,
+        )
+        response = self._attach_hosted_summary_provenance(
+            response,
+            reference_lookup=reference_lookup,
         )
         self._audit_search(
             request_id=request_id,
@@ -505,7 +669,8 @@ class ManagedLibraryCloudService:
                     peak["d_spacing"] = float(peak["position"])
                 if wavelength_angstrom is not None:
                     peak["wavelength_angstrom"] = float(wavelength_angstrom)
-        references = self.manager.load_entries("XRD")
+        references = self.hosted_catalog.load_entries("XRD")
+        reference_lookup = self._reference_lookup(references)
         rows = _rank_xrd_phase_candidates(
             observed_peaks=matching_peaks,
             references=references,
@@ -513,6 +678,7 @@ class ManagedLibraryCloudService:
             comparison_space=observed_space,
             wavelength_angstrom=wavelength_angstrom,
         )
+        rows = self._attach_hosted_row_provenance(rows, reference_lookup=reference_lookup)
         response = self._build_xrd_response(
             request_id=request_id,
             rows=rows,
@@ -525,6 +691,10 @@ class ManagedLibraryCloudService:
             },
             observed_space=observed_space,
             reference_count=len(references),
+        )
+        response = self._attach_hosted_summary_provenance(
+            response,
+            reference_lookup=reference_lookup,
         )
         self._audit_search(
             request_id=request_id,
@@ -539,48 +709,7 @@ class ManagedLibraryCloudService:
     def providers(self, *, authorization: str | None) -> dict[str, Any]:
         claims = self._authorize(authorization=authorization, modality="META")
         request_id = f"libreq_{uuid.uuid4().hex}"
-        catalog = self.manager.catalog()
-        providers: dict[str, dict[str, Any]] = {}
-        for row in catalog:
-            provider = _normalize_provider(row.get("provider"))
-            if not provider:
-                continue
-            item = providers.setdefault(
-                provider,
-                {
-                    "provider_id": provider,
-                    "name": row.get("provider"),
-                    "analysis_types": set(),
-                    "package_count": 0,
-                    "entry_count": 0,
-                },
-            )
-            item["analysis_types"].add(str(row.get("analysis_type") or "").upper())
-            item["package_count"] += 1
-            item["entry_count"] += int(row.get("entry_count") or 0)
-        for defaults in _DEFAULT_PROVIDER_SCOPE.values():
-            for provider in defaults:
-                providers.setdefault(
-                    provider,
-                    {
-                        "provider_id": provider,
-                        "name": provider,
-                        "analysis_types": set(),
-                        "package_count": 0,
-                        "entry_count": 0,
-                    },
-                )
-        rows = []
-        for payload in sorted(providers.values(), key=lambda item: str(item["provider_id"])):
-            rows.append(
-                {
-                    "provider_id": payload["provider_id"],
-                    "name": payload["name"],
-                    "analysis_types": sorted(payload["analysis_types"]),
-                    "package_count": payload["package_count"],
-                    "entry_count": payload["entry_count"],
-                }
-            )
+        rows = self.hosted_catalog.providers()
         self._audit_search(
             request_id=request_id,
             claims=claims,
@@ -598,21 +727,20 @@ class ManagedLibraryCloudService:
     def coverage(self, *, authorization: str | None) -> dict[str, Any]:
         claims = self._authorize(authorization=authorization, modality="META")
         request_id = f"libreq_{uuid.uuid4().hex}"
-        catalog = self.manager.catalog()
-        coverage: dict[str, dict[str, Any]] = {}
-        for modality in ("FTIR", "RAMAN", "XRD"):
-            rows = [row for row in catalog if str(row.get("analysis_type") or "").upper() == modality]
-            coverage[modality] = {
-                "package_count": len(rows),
-                "entry_count": sum(int(row.get("entry_count") or 0) for row in rows),
-                "providers": sorted({_normalize_provider(row.get("provider")) for row in rows if row.get("provider")}),
-            }
+        coverage = self.hosted_catalog.coverage()
         self._audit_search(
             request_id=request_id,
             claims=claims,
             modality="META",
-            provider_scope=sorted({provider for item in coverage.values() for provider in item.get("providers", [])}),
-            candidate_count=sum(int(item.get("entry_count") or 0) for item in coverage.values()),
+            provider_scope=sorted(
+                {
+                    str(provider_id)
+                    for item in coverage.values()
+                    if isinstance(item, Mapping)
+                    for provider_id in ((item.get("providers") or {}) if isinstance(item.get("providers"), Mapping) else {})
+                }
+            ),
+            candidate_count=sum(int((item or {}).get("total_candidate_count") or 0) for item in coverage.values()),
             source="cloud_search",
         )
         return {
@@ -656,4 +784,3 @@ def get_library_cloud_service() -> ManagedLibraryCloudService:
     if _SERVICE_INSTANCE is None:
         _SERVICE_INSTANCE = ManagedLibraryCloudService()
     return _SERVICE_INSTANCE
-

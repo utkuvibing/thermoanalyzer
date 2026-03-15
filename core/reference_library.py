@@ -522,9 +522,9 @@ class ReferenceLibraryManager:
         if not cloud_root:
             return False
         enabled_override = os.getenv(LIBRARY_ENV_CLOUD_ENABLED, "")
-        if enabled_override == "":
-            return bool(state.cloud_access_enabled or cloud_root)
-        return _truthy(enabled_override)
+        if enabled_override != "" and not _truthy(enabled_override):
+            return False
+        return bool(state.cloud_access_enabled)
 
     def _allow_full_provider_sync(self) -> bool:
         return _truthy(os.getenv(LIBRARY_ENV_ALLOW_FULL_PROVIDER_SYNC, ""))
@@ -724,13 +724,17 @@ class ReferenceLibraryManager:
         error: str = "",
     ) -> None:
         state = self.load_sync_state()
-        state.cloud_access_enabled = self._cloud_access_enabled(state)
+        cloud_root = str(os.getenv(LIBRARY_ENV_CLOUD_URL, "")).strip()
+        enabled_override = os.getenv(LIBRARY_ENV_CLOUD_ENABLED, "")
+        cloud_configured = bool(cloud_root) and (enabled_override == "" or _truthy(enabled_override))
+        state.cloud_access_enabled = bool(success and cloud_configured)
         state.last_cloud_lookup_at = utcnow_iso()
         if provider_count is not None:
             state.cloud_provider_count = max(0, int(provider_count))
         if success:
             state.last_cloud_error = ""
         else:
+            state.cloud_provider_count = 0
             state.last_cloud_error = str(error or "").strip()
         self.save_sync_state(state)
 
