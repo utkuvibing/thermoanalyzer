@@ -599,7 +599,8 @@ class ReferenceLibraryManager:
             if str(item.delivery_tier or DELIVERY_TIER_LIMITED_FALLBACK) != DELIVERY_TIER_FULL_PROVIDER
         ]
         cloud_access_enabled = self._cloud_access_enabled(state)
-        if cloud_access_enabled:
+        cloud_provider_count = max(0, int(state.cloud_provider_count or 0)) if cloud_access_enabled else 0
+        if cloud_access_enabled and cloud_provider_count > 0:
             library_mode = LIBRARY_MODE_CLOUD_FULL_ACCESS
         elif fallback_packages:
             library_mode = LIBRARY_MODE_LIMITED_CACHED_FALLBACK
@@ -626,7 +627,7 @@ class ReferenceLibraryManager:
             "cloud_enabled_by_env": bool(str(os.getenv(LIBRARY_ENV_CLOUD_URL, "")).strip())
             and (str(os.getenv(LIBRARY_ENV_CLOUD_ENABLED, "")).strip() == "" or _truthy(os.getenv(LIBRARY_ENV_CLOUD_ENABLED, ""))),
             "cloud_access_enabled": cloud_access_enabled,
-            "cloud_provider_count": max(0, int(state.cloud_provider_count or 0)) if cloud_access_enabled else 0,
+            "cloud_provider_count": cloud_provider_count,
             "fallback_package_count": len(fallback_packages),
             "fallback_entry_count": sum(item.entry_count for item in fallback_packages),
             "last_cloud_lookup_at": state.last_cloud_lookup_at or None,
@@ -745,7 +746,7 @@ class ReferenceLibraryManager:
             if zero_provider_lookup:
                 state.last_cloud_error = str(error or "Cloud coverage lookup returned zero providers.").strip()
             elif missing_provider_lookup:
-                state.last_cloud_error = str(error or "Cloud coverage lookup did not report provider coverage.").strip()
+                state.last_cloud_error = str(error or "Cloud coverage lookup did not report provider count.").strip()
             else:
                 state.last_cloud_error = str(error or "").strip()
         self.save_sync_state(state)
