@@ -21,6 +21,7 @@ from core.report_generator import (
     _insert_soft_breaks,
     _paper_display_label,
     _figures_for_record,
+    _record_full_rows,
     select_comparison_figures,
     _pdf_render_sections,
     generate_csv_summary,
@@ -544,6 +545,12 @@ def test_pdf_soft_break_insertion_wraps_long_hash_tokens():
     assert "\u200b" in wrapped
 
 
+def test_pdf_soft_break_insertion_truncates_when_max_chars_is_set():
+    wrapped = _insert_soft_breaks("b" * 200, chunk=8, max_chars=60)
+    assert len(wrapped) <= 80
+    assert wrapped.endswith("…")
+
+
 def test_pdf_layout_selector_uses_landscape_for_wide_appendix_tables():
     headers = ["Run", "Sample", "Template", "Execution", "Validation", "Calibration", "Reference", "Result ID", "Error ID", "Reason"]
     rows = [["x" * 48 for _ in headers]]
@@ -781,6 +788,58 @@ def test_figures_for_record_uses_sample_artifact_key_when_caption_is_generic():
     matched = _figures_for_record(record, figures, used=set())
 
     assert matched == [("Thermogram Figure", b"sample")]
+
+
+def test_figures_for_record_prefers_primary_report_figure_key():
+    record = {
+        "analysis_type": "XRD",
+        "dataset_key": "synthetic_xrd",
+        "artifacts": {
+            "report_figure_key": "XRD Snapshot - synthetic_xrd - primary",
+            "figure_keys": ["XRD Snapshot - synthetic_xrd - backup"],
+        },
+    }
+    figures = {
+        "XRD Snapshot - synthetic_xrd - primary": b"primary-bytes",
+        "XRD Snapshot - synthetic_xrd - backup": b"backup-bytes",
+    }
+
+    matched = _figures_for_record(record, figures, used=set())
+
+    assert matched == [("XRD Snapshot - synthetic_xrd - primary", b"primary-bytes")]
+
+
+def test_record_full_rows_compacts_xrd_evidence_for_table_safety():
+    record = {
+        "analysis_type": "XRD",
+        "rows": [
+            {
+                "rank": 1,
+                "candidate_id": "xrd_phase_alpha",
+                "normalized_score": 0.44,
+                "evidence": {
+                    "shared_peak_count": 7,
+                    "weighted_overlap_score": 0.31,
+                    "coverage_ratio": 0.22,
+                    "mean_delta_position": 0.14,
+                    "unmatched_major_peak_count": 3,
+                    "matched_peak_pairs": [{"observed_index": idx, "reference_index": idx} for idx in range(120)],
+                    "unmatched_observed_peaks": [{"observed_index": idx} for idx in range(80)],
+                    "unmatched_reference_peaks": [{"reference_index": idx} for idx in range(60)],
+                },
+            }
+        ],
+    }
+
+    payload = _record_full_rows(record)
+
+    assert payload is not None
+    headers, rows = payload
+    evidence_index = headers.index("evidence")
+    evidence_cell = rows[0][evidence_index]
+    assert "shared_peak_count" in evidence_cell
+    assert "matched_peak_pairs=120" in evidence_cell
+    assert len(evidence_cell) <= 320
 
 
 def test_figures_for_record_uses_non_conflicting_generic_when_no_direct_match():

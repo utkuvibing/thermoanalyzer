@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 import numpy as np
@@ -75,6 +75,14 @@ _XRD_PLOT_DEFAULTS = {
     "show_match_labels": True,
     "style_preset": "color_shape",
     "only_selected_candidate": True,
+    "x_range_enabled": False,
+    "x_min": None,
+    "x_max": None,
+    "y_range_enabled": False,
+    "y_min": None,
+    "y_max": None,
+    "log_y": False,
+    "line_width": 2.0,
 }
 
 _XRD_MATCH_STYLE = {
@@ -111,6 +119,15 @@ def _coerce_plot_float(value, fallback: float, minimum: float, maximum: float) -
     except (TypeError, ValueError):
         parsed = fallback
     return max(minimum, min(maximum, parsed))
+
+
+def _coerce_optional_plot_float(value) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalize_xrd_plot_settings(payload: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -159,6 +176,28 @@ def _normalize_xrd_plot_settings(payload: Mapping[str, Any] | None) -> dict[str,
         source.get("only_selected_candidate"),
         settings["only_selected_candidate"],
     )
+    settings["x_range_enabled"] = _coerce_plot_bool(source.get("x_range_enabled"), settings["x_range_enabled"])
+    settings["x_min"] = _coerce_optional_plot_float(source.get("x_min"))
+    settings["x_max"] = _coerce_optional_plot_float(source.get("x_max"))
+    if (
+        settings["x_range_enabled"]
+        and settings["x_min"] is not None
+        and settings["x_max"] is not None
+        and settings["x_min"] > settings["x_max"]
+    ):
+        settings["x_min"], settings["x_max"] = settings["x_max"], settings["x_min"]
+    settings["y_range_enabled"] = _coerce_plot_bool(source.get("y_range_enabled"), settings["y_range_enabled"])
+    settings["y_min"] = _coerce_optional_plot_float(source.get("y_min"))
+    settings["y_max"] = _coerce_optional_plot_float(source.get("y_max"))
+    if (
+        settings["y_range_enabled"]
+        and settings["y_min"] is not None
+        and settings["y_max"] is not None
+        and settings["y_min"] > settings["y_max"]
+    ):
+        settings["y_min"], settings["y_max"] = settings["y_max"], settings["y_min"]
+    settings["log_y"] = _coerce_plot_bool(source.get("log_y"), settings["log_y"])
+    settings["line_width"] = _coerce_plot_float(source.get("line_width"), float(settings["line_width"]), 0.8, 5.0)
     return settings
 
 
@@ -300,6 +339,7 @@ def _build_processed_plot(
     axis = np.asarray(dataset.data["temperature"].values, dtype=float)
     raw_signal = np.asarray(dataset.data["signal"].values, dtype=float)
     settings = _normalize_xrd_plot_settings(plot_settings)
+    line_width = float(settings.get("line_width", 2.0))
     fig = create_thermal_plot(
         axis,
         raw_signal,
@@ -320,7 +360,7 @@ def _build_processed_plot(
                 y=smoothed,
                 mode="lines",
                 name=tx("Yumuşatılmış", "Smoothed"),
-                line=dict(color="#0EA5E9", width=1.8),
+                line=dict(color="#0EA5E9", width=max(0.8, line_width - 0.2)),
             )
         )
     if corrected is not None and corrected.shape[0] == axis.shape[0]:
@@ -330,7 +370,7 @@ def _build_processed_plot(
                 y=corrected,
                 mode="lines",
                 name=tx("Arkaplan Düzeltilmiş", "Background Corrected"),
-                line=dict(color="#16A34A", width=2.0),
+                line=dict(color="#16A34A", width=line_width),
             )
         )
     if peaks:
@@ -472,6 +512,29 @@ def _build_processed_plot(
                     hoverinfo="text",
                 )
             )
+
+    for trace in fig.data:
+        if "lines" not in str(getattr(trace, "mode", "")):
+            continue
+        trace.line.width = line_width
+
+    x_min = settings.get("x_min")
+    x_max = settings.get("x_max")
+    if settings.get("x_range_enabled") and x_min is not None and x_max is not None:
+        fig.update_xaxes(range=[float(x_min), float(x_max)])
+    else:
+        fig.update_xaxes(autorange=True)
+
+    y_min = settings.get("y_min")
+    y_max = settings.get("y_max")
+    if settings.get("log_y"):
+        fig.update_yaxes(type="log")
+        if settings.get("y_range_enabled") and y_min is not None and y_max is not None:
+            fig.update_yaxes(range=[np.log10(max(float(y_min), 1e-6)), np.log10(max(float(y_max), 1e-6))])
+    else:
+        fig.update_yaxes(type="linear")
+        if settings.get("y_range_enabled") and y_min is not None and y_max is not None:
+            fig.update_yaxes(range=[float(y_min), float(y_max)])
 
     return fig
 
@@ -733,6 +796,14 @@ def _sync_xrd_processing_from_controls(processing, *, dataset_key: str, dataset,
                     ),
                     "style_preset": _xrd_control_value(dataset_key, "plot_style", state, plot_defaults["style_preset"]),
                     "only_selected_candidate": True,
+                    "x_range_enabled": _xrd_control_value(dataset_key, "plot_x_range", state, plot_defaults["x_range_enabled"]),
+                    "x_min": _xrd_control_value(dataset_key, "plot_x_min", state, plot_defaults["x_min"]),
+                    "x_max": _xrd_control_value(dataset_key, "plot_x_max", state, plot_defaults["x_max"]),
+                    "y_range_enabled": _xrd_control_value(dataset_key, "plot_y_range", state, plot_defaults["y_range_enabled"]),
+                    "y_min": _xrd_control_value(dataset_key, "plot_y_min", state, plot_defaults["y_min"]),
+                    "y_max": _xrd_control_value(dataset_key, "plot_y_max", state, plot_defaults["y_max"]),
+                    "log_y": _xrd_control_value(dataset_key, "plot_log_y", state, plot_defaults["log_y"]),
+                    "line_width": _xrd_control_value(dataset_key, "plot_line_width", state, plot_defaults["line_width"]),
                 }
             ),
         },
@@ -741,8 +812,20 @@ def _sync_xrd_processing_from_controls(processing, *, dataset_key: str, dataset,
     return payload
 
 
-def _render_xrd_plot_settings_panel(dataset_key: str, state: dict, settings: Mapping[str, Any]) -> dict[str, Any]:
+def _render_xrd_plot_settings_panel(dataset_key: str, state: dict, settings: Mapping[str, Any], dataset=None) -> dict[str, Any]:
     with st.expander(tx("Grafik Ayarları", "Plot Settings"), expanded=False):
+        if st.button(
+            tx("Autoscale Sıfırla", "Reset Autoscale"),
+            key=_xrd_control_key(dataset_key, "plot_reset_autoscale", state),
+        ):
+            st.session_state[_xrd_control_key(dataset_key, "plot_x_range", state)] = False
+            st.session_state[_xrd_control_key(dataset_key, "plot_y_range", state)] = False
+            st.session_state.pop(_xrd_control_key(dataset_key, "plot_x_min", state), None)
+            st.session_state.pop(_xrd_control_key(dataset_key, "plot_x_max", state), None)
+            st.session_state.pop(_xrd_control_key(dataset_key, "plot_y_min", state), None)
+            st.session_state.pop(_xrd_control_key(dataset_key, "plot_y_max", state), None)
+            st.rerun()
+
         left, right = st.columns(2)
         with left:
             show_peak_labels = st.checkbox(
@@ -782,6 +865,41 @@ def _render_xrd_plot_settings_panel(dataset_key: str, state: dict, settings: Map
                 20,
                 int(settings.get("marker_size", 8)),
                 key=_xrd_control_key(dataset_key, "plot_marker_size", state),
+            )
+            x_range_enabled = st.checkbox(
+                tx("X aralığını sabitle", "Lock X range"),
+                value=bool(settings.get("x_range_enabled", False)),
+                key=_xrd_control_key(dataset_key, "plot_x_range", state),
+            )
+            fallback_x_min = 0.0
+            fallback_x_max = 100.0
+            try:
+                if dataset is not None:
+                    axis = np.asarray(dataset.data["temperature"].values, dtype=float)
+                    if axis.size:
+                        fallback_x_min = float(np.nanmin(axis))
+                        fallback_x_max = float(np.nanmax(axis))
+            except Exception:
+                pass
+            x_min = st.number_input(
+                tx("X min", "X min"),
+                value=float(settings.get("x_min") if settings.get("x_min") is not None else fallback_x_min),
+                key=_xrd_control_key(dataset_key, "plot_x_min", state),
+                disabled=not x_range_enabled,
+            )
+            x_max = st.number_input(
+                tx("X max", "X max"),
+                value=float(settings.get("x_max") if settings.get("x_max") is not None else fallback_x_max),
+                key=_xrd_control_key(dataset_key, "plot_x_max", state),
+                disabled=not x_range_enabled,
+            )
+            line_width = st.slider(
+                tx("Çizgi kalınlığı", "Line width"),
+                0.8,
+                5.0,
+                float(settings.get("line_width", 2.0)),
+                0.1,
+                key=_xrd_control_key(dataset_key, "plot_line_width", state),
             )
         with right:
             position_precision = st.slider(
@@ -834,6 +952,38 @@ def _render_xrd_plot_settings_panel(dataset_key: str, state: dict, settings: Map
                 value=bool(settings.get("show_match_connectors", True)),
                 key=_xrd_control_key(dataset_key, "plot_show_connectors", state),
             )
+            y_range_enabled = st.checkbox(
+                tx("Y aralığını sabitle", "Lock Y range"),
+                value=bool(settings.get("y_range_enabled", False)),
+                key=_xrd_control_key(dataset_key, "plot_y_range", state),
+            )
+            fallback_y_min = 0.0
+            fallback_y_max = 10000.0
+            try:
+                if dataset is not None:
+                    signal = np.asarray(dataset.data["signal"].values, dtype=float)
+                    if signal.size:
+                        fallback_y_min = float(np.nanmin(signal))
+                        fallback_y_max = float(np.nanmax(signal))
+            except Exception:
+                pass
+            y_min = st.number_input(
+                tx("Y min", "Y min"),
+                value=float(settings.get("y_min") if settings.get("y_min") is not None else fallback_y_min),
+                key=_xrd_control_key(dataset_key, "plot_y_min", state),
+                disabled=not y_range_enabled,
+            )
+            y_max = st.number_input(
+                tx("Y max", "Y max"),
+                value=float(settings.get("y_max") if settings.get("y_max") is not None else fallback_y_max),
+                key=_xrd_control_key(dataset_key, "plot_y_max", state),
+                disabled=not y_range_enabled,
+            )
+            log_y = st.checkbox(
+                tx("Log Y ölçeği", "Log Y scale"),
+                value=bool(settings.get("log_y", False)),
+                key=_xrd_control_key(dataset_key, "plot_log_y", state),
+            )
 
     return _normalize_xrd_plot_settings(
         {
@@ -851,8 +1001,67 @@ def _render_xrd_plot_settings_panel(dataset_key: str, state: dict, settings: Map
             "show_match_labels": show_match_labels,
             "style_preset": style_preset,
             "only_selected_candidate": True,
+            "x_range_enabled": x_range_enabled,
+            "x_min": x_min,
+            "x_max": x_max,
+            "y_range_enabled": y_range_enabled,
+            "y_min": y_min,
+            "y_max": y_max,
+            "log_y": log_y,
+            "line_width": line_width,
         }
     )
+
+
+def _slug_token(value: Any, fallback: str = "snapshot") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in raw)
+    cleaned = "_".join(part for part in cleaned.split("_") if part)
+    if not cleaned:
+        return fallback
+    return cleaned[:42]
+
+
+def _xrd_snapshot_figure_key(dataset_key: str, selected_match: Mapping[str, Any] | None) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    rank = int((selected_match or {}).get("rank") or 0)
+    candidate = _slug_token((selected_match or {}).get("candidate_name") or (selected_match or {}).get("candidate_id") or "candidate")
+    return f"XRD Snapshot - {dataset_key} - {timestamp} - r{rank}_{candidate}"
+
+
+def _upsert_xrd_record_figure_artifacts(
+    record: dict[str, Any],
+    *,
+    figure_key: str,
+    snapshot_metadata: Mapping[str, Any] | None = None,
+    set_primary: bool = False,
+    max_snapshots: int = 10,
+) -> dict[str, Any]:
+    updated_record = dict(record or {})
+    artifacts = dict(updated_record.get("artifacts") or {})
+
+    figure_keys = [str(item) for item in (artifacts.get("figure_keys") or []) if item not in (None, "")]
+    if figure_key not in figure_keys:
+        figure_keys.append(figure_key)
+    artifacts["figure_keys"] = figure_keys
+
+    if snapshot_metadata is not None:
+        snapshots = [dict(item) for item in (artifacts.get("figure_snapshots") or []) if isinstance(item, Mapping)]
+        snapshots = [item for item in snapshots if str(item.get("figure_key") or "") != figure_key]
+        snapshots.append(dict(snapshot_metadata))
+        if len(snapshots) > max_snapshots:
+            snapshots = snapshots[-max_snapshots:]
+        artifacts["figure_snapshots"] = snapshots
+
+    if set_primary:
+        artifacts["report_figure_key"] = figure_key
+    elif artifacts.get("report_figure_key") in (None, ""):
+        artifacts["report_figure_key"] = figure_key
+
+    updated_record["artifacts"] = artifacts
+    return updated_record
 
 
 def _attach_xrd_report_figure(record, *, dataset_key: str, dataset, state, lang: str, figures_store):
@@ -868,16 +1077,17 @@ def _attach_xrd_report_figure(record, *, dataset_key: str, dataset, state, lang:
         )
     )
 
-    updated_record = dict(record or {})
-    artifacts = dict(updated_record.get("artifacts") or {})
-    figure_keys = [
-        str(item)
-        for item in (artifacts.get("figure_keys") or [])
-        if item not in (None, "", figure_key)
-    ]
-    figure_keys.append(figure_key)
-    artifacts["figure_keys"] = figure_keys
-    updated_record["artifacts"] = artifacts
+    updated_record = _upsert_xrd_record_figure_artifacts(
+        dict(record or {}),
+        figure_key=figure_key,
+        snapshot_metadata={
+            "figure_key": figure_key,
+            "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source_tab": "result_summary",
+            "snapshot_type": "default_result_figure",
+        },
+        set_primary=False,
+    )
     return updated_record, figure_key
 
 
@@ -891,6 +1101,78 @@ def _save_xrd_result_to_session(record, *, dataset_key: str, dataset, state, lan
         lang=lang,
         figures_store=figures_store,
     )
+    st.session_state.setdefault("results", {})[updated_record["id"]] = updated_record
+    return updated_record, figure_key
+
+
+def _save_xrd_graph_snapshot_to_session(
+    *,
+    record: dict[str, Any],
+    dataset_key: str,
+    dataset,
+    state: dict[str, Any],
+    lang: str,
+    selected_match: Mapping[str, Any] | None,
+    plot_settings: Mapping[str, Any],
+    set_primary: bool,
+) -> tuple[dict[str, Any], str]:
+    figure_key = _xrd_snapshot_figure_key(dataset_key, selected_match)
+    fig = _build_processed_plot(
+        dataset_key,
+        dataset,
+        state,
+        lang,
+        plot_settings=plot_settings,
+        selected_match=selected_match,
+    )
+
+    figures_store = st.session_state.setdefault("figures", {})
+    figures_store[figure_key] = fig_to_bytes(fig, format="png")
+    figure_outputs = st.session_state.setdefault("figure_outputs", {})
+    outputs = {"png": figures_store[figure_key]}
+    try:
+        outputs["svg"] = fig_to_bytes(fig, format="svg")
+    except Exception:
+        pass
+    figure_outputs[figure_key] = outputs
+
+    existing_snapshot_keys = {
+        str(item.get("figure_key"))
+        for item in (((record or {}).get("artifacts") or {}).get("figure_snapshots") or [])
+        if isinstance(item, Mapping) and item.get("figure_key")
+    }
+
+    metadata = {
+        "figure_key": figure_key,
+        "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source_tab": "phase_candidates",
+        "selected_candidate_id": (selected_match or {}).get("candidate_id"),
+        "selected_candidate_name": (selected_match or {}).get("candidate_name"),
+        "selected_candidate_rank": (selected_match or {}).get("rank"),
+        "plot_settings": dict(plot_settings or {}),
+        "layer_flags": {
+            "show_matched_peaks": bool((plot_settings or {}).get("show_matched_peaks", True)),
+            "show_unmatched_observed": bool((plot_settings or {}).get("show_unmatched_observed", True)),
+            "show_unmatched_reference": bool((plot_settings or {}).get("show_unmatched_reference", True)),
+            "show_match_connectors": bool((plot_settings or {}).get("show_match_connectors", True)),
+            "show_peak_labels": bool((plot_settings or {}).get("show_peak_labels", True)),
+        },
+    }
+
+    updated_record = _upsert_xrd_record_figure_artifacts(
+        dict(record or {}),
+        figure_key=figure_key,
+        snapshot_metadata=metadata,
+        set_primary=set_primary,
+    )
+    kept_snapshot_keys = {
+        str(item.get("figure_key"))
+        for item in ((updated_record.get("artifacts") or {}).get("figure_snapshots") or [])
+        if isinstance(item, Mapping) and item.get("figure_key")
+    }
+    for stale_key in sorted(existing_snapshot_keys - kept_snapshot_keys):
+        figures_store.pop(stale_key, None)
+        figure_outputs.pop(stale_key, None)
     st.session_state.setdefault("results", {})[updated_record["id"]] = updated_record
     return updated_record, figure_key
 
@@ -1317,7 +1599,7 @@ def render():
     with tab_peaks:
         current_state = st.session_state.get(state_key, {})
         current_plot_settings = _xrd_plot_settings_from_processing((current_state.get("processing") or {}))
-        current_plot_settings = _render_xrd_plot_settings_panel(selected_key, current_state, current_plot_settings)
+        current_plot_settings = _render_xrd_plot_settings_panel(selected_key, current_state, current_plot_settings, dataset=dataset)
         st.plotly_chart(
             _build_processed_plot(
                 selected_key,
@@ -1439,6 +1721,107 @@ def render():
                     "Selected candidate is highlighted with color/shape. Matched peaks, unmatched observed/reference peaks, and connector lines are controlled from Plot Settings.",
                 )
             )
+            snapshot_col, primary_col = st.columns(2)
+            with snapshot_col:
+                if st.button(
+                    tx("Snapshot Kaydet", "Save Snapshot"),
+                    key=_xrd_control_key(selected_key, "save_snapshot", current_state),
+                    disabled=record is None,
+                ):
+                    try:
+                        updated_record, snapshot_key = _save_xrd_graph_snapshot_to_session(
+                            record=record,
+                            dataset_key=selected_key,
+                            dataset=dataset,
+                            state=current_state,
+                            lang=lang,
+                            selected_match=selected_match,
+                            plot_settings=matches_plot_settings,
+                            set_primary=False,
+                        )
+                        record = updated_record
+                        st.success(
+                            tx(
+                                "Snapshot kaydedildi: {key}",
+                                "Snapshot saved: {key}",
+                                key=snapshot_key,
+                            )
+                        )
+                    except Exception as exc:
+                        error_id = record_exception(
+                            st.session_state,
+                            area="xrd_analysis",
+                            action="save_snapshot",
+                            message="Saving XRD snapshot failed.",
+                            context={"dataset_key": selected_key, "result_id": (record or {}).get("id")},
+                            exception=exc,
+                        )
+                        st.error(
+                            tx(
+                                "Snapshot kaydı başarısız: {error}",
+                                "Snapshot save failed: {error}",
+                                error=f"{exc} (Error ID: {error_id})",
+                            )
+                        )
+            with primary_col:
+                if st.button(
+                    tx("Bu Grafiği Raporda Kullan", "Use This Graph in Report"),
+                    key=_xrd_control_key(selected_key, "use_snapshot_report", current_state),
+                    disabled=record is None,
+                ):
+                    try:
+                        updated_record, snapshot_key = _save_xrd_graph_snapshot_to_session(
+                            record=record,
+                            dataset_key=selected_key,
+                            dataset=dataset,
+                            state=current_state,
+                            lang=lang,
+                            selected_match=selected_match,
+                            plot_settings=matches_plot_settings,
+                            set_primary=True,
+                        )
+                        record = updated_record
+                        st.success(
+                            tx(
+                                "Primary rapor grafiği seçildi: {key}",
+                                "Primary report figure selected: {key}",
+                                key=snapshot_key,
+                            )
+                        )
+                    except Exception as exc:
+                        error_id = record_exception(
+                            st.session_state,
+                            area="xrd_analysis",
+                            action="use_snapshot_report",
+                            message="Setting XRD primary report figure failed.",
+                            context={"dataset_key": selected_key, "result_id": (record or {}).get("id")},
+                            exception=exc,
+                        )
+                        st.error(
+                            tx(
+                                "Rapor figürü seçimi başarısız: {error}",
+                                "Setting report figure failed: {error}",
+                                error=f"{exc} (Error ID: {error_id})",
+                            )
+                        )
+
+            if record is None:
+                st.caption(
+                    tx(
+                        "Snapshot/rapor figürü için önce sonucu kaydetmiş olmanız gerekir.",
+                        "Save the result first to enable snapshot/report figure actions.",
+                    )
+                )
+            else:
+                primary_figure_key = ((record.get("artifacts") or {}).get("report_figure_key") or "")
+                if primary_figure_key:
+                    st.caption(
+                        tx(
+                            "Primary rapor grafiği: {key}",
+                            "Primary report figure: {key}",
+                            key=primary_figure_key,
+                        )
+                    )
             if not (selected_evidence.get("matched_peak_pairs") or []):
                 st.info(
                     tx(
@@ -1591,8 +1974,18 @@ def render():
             st.dataframe(pd.DataFrame(evidence_rows), use_container_width=True, hide_index=True)
         summary_rows = [{"key": key, "value": value} for key, value in summary.items()]
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-        attached_figures = [str(item) for item in ((record.get("artifacts") or {}).get("figure_keys") or []) if item not in (None, "")]
-        if _xrd_figure_key(selected_key) in attached_figures:
+        artifacts = record.get("artifacts") or {}
+        attached_figures = [str(item) for item in (artifacts.get("figure_keys") or []) if item not in (None, "")]
+        primary_figure_key = str(artifacts.get("report_figure_key") or "")
+        if primary_figure_key in attached_figures:
+            st.caption(
+                tx(
+                    "Primary rapor grafiği hazır: {figure}",
+                    "Primary report figure ready: {figure}",
+                    figure=primary_figure_key,
+                )
+            )
+        elif _xrd_figure_key(selected_key) in attached_figures:
             st.caption(
                 tx(
                     "Bu sonuç rapor merkezine grafik ile birlikte hazır.",

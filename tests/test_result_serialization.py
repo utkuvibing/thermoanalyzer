@@ -6,6 +6,7 @@ from core.data_io import ThermalDataset
 from core.peak_analysis import ThermalPeak
 from core.processing_schema import ensure_processing_payload, update_method_context, update_processing_step
 from core.result_serialization import (
+    collect_figure_keys,
     flatten_result_records,
     make_result_record,
     serialize_dta_result,
@@ -425,3 +426,28 @@ def test_serialize_xrd_result_adds_no_match_caution_semantics():
     assert record["review"]["caution"]["top_candidate_name"] == "Phase Alpha"
     assert any("no-match" in item.lower() for item in record["scientific_context"]["limitations"])
     assert record["scientific_context"]["fit_quality"]["top_candidate_score"] == 0.33
+
+
+def test_collect_figure_keys_prefers_primary_report_figure_when_present():
+    results = {
+        "xrd_demo": {
+            "id": "xrd_demo",
+            "analysis_type": "XRD",
+            "status": "stable",
+            "dataset_key": "synthetic_xrd",
+            "metadata": {},
+            "summary": {},
+            "rows": [],
+            "artifacts": {
+                "report_figure_key": "XRD Snapshot - synthetic_xrd - primary",
+                "figure_keys": [
+                    "XRD Snapshot - synthetic_xrd - old_1",
+                    "XRD Snapshot - synthetic_xrd - old_2",
+                ],
+            },
+        }
+    }
+
+    figure_keys = collect_figure_keys(results)
+
+    assert figure_keys == ["XRD Snapshot - synthetic_xrd - primary"]

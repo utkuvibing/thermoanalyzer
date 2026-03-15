@@ -48,6 +48,8 @@ def test_attach_xrd_report_figure_stores_png_and_links_record(monkeypatch):
     assert figure_key == "XRD Analysis - synthetic_xrd"
     assert figures_store[figure_key] == b"xrd-figure"
     assert updated_record["artifacts"]["figure_keys"] == [figure_key]
+    assert updated_record["artifacts"]["report_figure_key"] == figure_key
+    assert updated_record["artifacts"]["figure_snapshots"][0]["figure_key"] == figure_key
 
 
 def test_attach_xrd_report_figure_deduplicates_existing_figure_key(monkeypatch):
@@ -69,6 +71,7 @@ def test_attach_xrd_report_figure_deduplicates_existing_figure_key(monkeypatch):
     )
 
     assert updated_record["artifacts"]["figure_keys"] == ["Aux Figure", figure_key]
+    assert updated_record["artifacts"]["report_figure_key"] == figure_key
 
 
 def test_xrd_page_uses_pending_workflow_seed_for_preset_application():
@@ -118,6 +121,14 @@ def test_sync_xrd_processing_from_controls_prefers_widget_state(monkeypatch):
         "xrd_plot_show_unmatched_ref_synthetic_xrd_2": True,
         "xrd_plot_show_connectors_synthetic_xrd_2": False,
         "xrd_plot_style_synthetic_xrd_2": "shape_only",
+        "xrd_plot_x_range_synthetic_xrd_2": True,
+        "xrd_plot_x_min_synthetic_xrd_2": 9.5,
+        "xrd_plot_x_max_synthetic_xrd_2": 66.2,
+        "xrd_plot_y_range_synthetic_xrd_2": True,
+        "xrd_plot_y_min_synthetic_xrd_2": 5.0,
+        "xrd_plot_y_max_synthetic_xrd_2": 9000.0,
+        "xrd_plot_log_y_synthetic_xrd_2": True,
+        "xrd_plot_line_width_synthetic_xrd_2": 2.8,
     }
     monkeypatch.setattr(xrd_page.st, "session_state", widget_state)
 
@@ -146,6 +157,11 @@ def test_sync_xrd_processing_from_controls_prefers_widget_state(monkeypatch):
     assert context["xrd_plot_settings"]["marker_size"] == 12
     assert context["xrd_plot_settings"]["show_unmatched_observed"] is False
     assert context["xrd_plot_settings"]["style_preset"] == "shape_only"
+    assert context["xrd_plot_settings"]["x_range_enabled"] is True
+    assert context["xrd_plot_settings"]["x_min"] == 9.5
+    assert context["xrd_plot_settings"]["y_range_enabled"] is True
+    assert context["xrd_plot_settings"]["log_y"] is True
+    assert context["xrd_plot_settings"]["line_width"] == 2.8
 
 
 def test_pick_peak_label_indices_uses_smart_filter():
@@ -217,3 +233,58 @@ def test_build_processed_plot_adds_match_overlay_traces():
     assert "Eşleşen Referans Pik" in trace_names
     assert "Eşleşmeyen Gözlenen Pik" in trace_names
     assert "Eşleşmeyen Referans Pik" in trace_names
+
+
+def test_save_xrd_graph_snapshot_to_session_sets_primary_and_prunes(monkeypatch):
+    dataset = _xrd_dataset()
+    record = {
+        "id": "xrd_synthetic_xrd",
+        "artifacts": {
+            "figure_snapshots": [
+                {"figure_key": f"XRD Snapshot - synthetic_xrd - old_{idx}"}
+                for idx in range(10)
+            ],
+            "figure_keys": [f"XRD Snapshot - synthetic_xrd - old_{idx}" for idx in range(10)],
+            "report_figure_key": "XRD Snapshot - synthetic_xrd - old_9",
+        },
+    }
+    state = {"processing": {"method_context": {"xrd_plot_settings": {}}}, "peaks": [{"position": 27.5, "intensity": 290.0}]}
+    selected_match = {"rank": 1, "candidate_id": "phase_alpha", "candidate_name": "Phase Alpha", "evidence": {}}
+
+    monkeypatch.setattr(xrd_page, "_build_processed_plot", lambda *args, **kwargs: object())
+
+    def _fake_fig_to_bytes(fig, format="png", width=1000, height=600):
+        return f"{format}-bytes".encode("utf-8")
+
+    monkeypatch.setattr(xrd_page, "fig_to_bytes", _fake_fig_to_bytes)
+    monkeypatch.setattr(
+        xrd_page,
+        "_xrd_snapshot_figure_key",
+        lambda dataset_key, selected_match: "XRD Snapshot - synthetic_xrd - new_primary",
+    )
+    monkeypatch.setattr(
+        xrd_page.st,
+        "session_state",
+        {
+            "figures": {f"XRD Snapshot - synthetic_xrd - old_{idx}": b"old" for idx in range(10)},
+            "figure_outputs": {f"XRD Snapshot - synthetic_xrd - old_{idx}": {"png": b"old"} for idx in range(10)},
+            "results": {},
+        },
+    )
+
+    updated_record, snapshot_key = xrd_page._save_xrd_graph_snapshot_to_session(
+        record=record,
+        dataset_key="synthetic_xrd",
+        dataset=dataset,
+        state=state,
+        lang="tr",
+        selected_match=selected_match,
+        plot_settings={"show_matched_peaks": True},
+        set_primary=True,
+    )
+
+    assert snapshot_key == "XRD Snapshot - synthetic_xrd - new_primary"
+    assert updated_record["artifacts"]["report_figure_key"] == snapshot_key
+    assert len(updated_record["artifacts"]["figure_snapshots"]) == 10
+    assert "XRD Snapshot - synthetic_xrd - old_0" not in xrd_page.st.session_state["figures"]
+    assert xrd_page.st.session_state["figures"][snapshot_key] == b"png-bytes"

@@ -7,7 +7,7 @@ import io
 import datetime
 import os
 import re
-from typing import Any, Optional, Union
+from typing import Any, Mapping, Optional, Union
 
 from core.batch_runner import normalize_batch_summary_rows, summarize_batch_outcomes
 from core.mechanism_rules import tga_mechanism_signals
@@ -150,6 +150,74 @@ def _format_value(value):
         return f"{float(value):.4f}"
     except (TypeError, ValueError):
         return normalize_report_text(value)
+
+
+def _truncate_report_text(value: Any, *, max_chars: int = 320) -> str:
+    text = normalize_report_text(value)
+    if len(text) <= max_chars:
+        return text
+    return f"{text[: max_chars - 1]}…"
+
+
+def _compact_collection_value(value: Any, *, max_items: int = 6, max_chars: int = 320) -> str:
+    if value in (None, "", [], {}):
+        return "N/A"
+    if isinstance(value, Mapping):
+        items = list(value.items())
+        fragments: list[str] = []
+        for key, item in items[:max_items]:
+            if isinstance(item, Mapping):
+                token = f"{key}=[{len(item)} fields]"
+            elif isinstance(item, list):
+                token = f"{key}=[{len(item)} items]"
+            else:
+                token = f"{key}={_format_value(item)}"
+            fragments.append(_truncate_report_text(token, max_chars=max_chars))
+        if len(items) > max_items:
+            fragments.append(f"…(+{len(items) - max_items})")
+        return _truncate_report_text("; ".join(fragments), max_chars=max_chars)
+    if isinstance(value, list):
+        if not value:
+            return "N/A"
+        if all(not isinstance(item, (list, dict, tuple, set)) for item in value):
+            preview = "; ".join(_format_value(item) for item in value[:max_items])
+            if len(value) > max_items:
+                preview = f"{preview}; …(+{len(value) - max_items})"
+            return _truncate_report_text(preview, max_chars=max_chars)
+        return _truncate_report_text(f"[{len(value)} items]", max_chars=max_chars)
+    return _truncate_report_text(_format_value(value), max_chars=max_chars)
+
+
+def _compact_xrd_evidence_for_table(value: Any, *, max_chars: int = 320) -> str:
+    if not isinstance(value, Mapping):
+        return _compact_collection_value(value, max_chars=max_chars)
+    tokens: list[str] = []
+    for key in (
+        "shared_peak_count",
+        "weighted_overlap_score",
+        "coverage_ratio",
+        "mean_delta_position",
+        "unmatched_major_peak_count",
+    ):
+        if value.get(key) not in (None, ""):
+            tokens.append(f"{key}={_format_value(value.get(key))}")
+    if value.get("matched_peak_pairs") is not None:
+        tokens.append(f"matched_peak_pairs={len(value.get('matched_peak_pairs') or [])}")
+    if value.get("unmatched_observed_peaks") is not None:
+        tokens.append(f"unmatched_observed={len(value.get('unmatched_observed_peaks') or [])}")
+    if value.get("unmatched_reference_peaks") is not None:
+        tokens.append(f"unmatched_reference={len(value.get('unmatched_reference_peaks') or [])}")
+    if not tokens:
+        return _compact_collection_value(value, max_chars=max_chars)
+    return _truncate_report_text("; ".join(tokens), max_chars=max_chars)
+
+
+def _format_table_cell_value(*, analysis_type: str, header: str, value: Any, max_chars: int = 320) -> str:
+    header_key = str(header or "").strip().lower()
+    normalized_type = str(analysis_type or "").upper()
+    if normalized_type == "XRD" and header_key == "evidence":
+        return _compact_xrd_evidence_for_table(value, max_chars=max_chars)
+    return _compact_collection_value(value, max_chars=max_chars)
 
 
 def _record_title(record: dict) -> str:
@@ -579,7 +647,18 @@ def _record_full_rows(record: dict) -> tuple[list[str], list[list[str]]] | None:
     headers = _record_headers(record)
     if not headers:
         return None
-    rows = [[_format_value(row.get(header)) for header in headers] for row in (record.get("rows") or [])]
+    analysis_type = str(record.get("analysis_type") or "").upper()
+    rows = [
+        [
+            _format_table_cell_value(
+                analysis_type=analysis_type,
+                header=header,
+                value=row.get(header),
+            )
+            for header in headers
+        ]
+        for row in (record.get("rows") or [])
+    ]
     if not rows:
         return None
     return headers, rows
@@ -1243,11 +1322,29 @@ def _record_figure_keys(record: dict) -> list[str]:
     return []
 
 
+def _record_primary_figure_key(record: dict) -> str | None:
+    value = (record.get("artifacts") or {}).get("report_figure_key")
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
 def select_record_figures(record: dict, figures: dict | None, used: set[str]) -> list[tuple[str, bytes]]:
     figures = figures or {}
     explicit: list[tuple[str, bytes]] = []
     matched: list[tuple[str, bytes]] = []
     safe_generic: list[tuple[str, bytes]] = []
+
+    primary_key = _record_primary_figure_key(record)
+    if (
+        primary_key
+        and primary_key in figures
+        and primary_key not in used
+        and not _is_comparison_figure_caption(primary_key)
+        and not _caption_explicitly_conflicts_record(primary_key, record)
+    ):
+        used.add(primary_key)
+        return [(primary_key, figures[primary_key])]
 
     preferred_keys = _record_figure_keys(record)
     for key in preferred_keys:
@@ -2143,8 +2240,10 @@ def _configure_pdf_font(styles) -> str | None:
     return None
 
 
-def _insert_soft_breaks(value: Any, *, chunk: int = 20) -> str:
+def _insert_soft_breaks(value: Any, *, chunk: int = 20, max_chars: int | None = None) -> str:
     text = normalize_report_text(_format_value(value))
+    if max_chars and len(text) > max_chars:
+        text = f"{text[: max_chars - 1]}…"
     if not text:
         return ""
     tokens = text.split(" ")
@@ -2196,7 +2295,7 @@ def _build_pdf_kv_table(
         rows.append(
             [
                 Paragraph(_insert_soft_breaks(key, chunk=24), paragraph_style),
-                Paragraph(_insert_soft_breaks(value, chunk=20), paragraph_style),
+                Paragraph(_insert_soft_breaks(value, chunk=20, max_chars=420), paragraph_style),
             ]
         )
     table = Table(rows, colWidths=col_widths, hAlign="LEFT")
@@ -2249,11 +2348,11 @@ def _build_pdf_matrix_table(
     weight_total = sum(weights) or float(len(weights))
     col_widths = [available_width * weight / weight_total for weight in weights]
 
-    matrix = [[Paragraph(_insert_soft_breaks(header, chunk=24), header_style) for header in headers]]
+    matrix = [[Paragraph(_insert_soft_breaks(header, chunk=24, max_chars=120), header_style) for header in headers]]
     for row in normalized_rows:
         row_cells = []
         for value in row:
-            row_cells.append(Paragraph(_insert_soft_breaks(value, chunk=18), paragraph_style))
+            row_cells.append(Paragraph(_insert_soft_breaks(value, chunk=18, max_chars=280), paragraph_style))
         while len(row_cells) < len(headers):
             row_cells.append(Paragraph("", paragraph_style))
         matrix.append(row_cells)

@@ -169,6 +169,33 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
     global_library_manager = library_manager or get_reference_library_manager()
     cloud_library_service = ManagedLibraryCloudService(global_library_manager)
 
+    def _record_cloud_lookup_success(payload: dict[str, Any]) -> None:
+        provider_count: int | None = None
+        provider_scope = [str(item).strip() for item in (payload.get("library_provider_scope") or []) if str(item).strip()]
+        if provider_scope:
+            provider_count = len(set(provider_scope))
+        elif isinstance(payload.get("providers"), list):
+            provider_count = len(payload["providers"])
+        elif isinstance(payload.get("coverage"), dict):
+            coverage = payload.get("coverage") or {}
+            seen: set[str] = set()
+            for row in coverage.values():
+                if not isinstance(row, dict):
+                    continue
+                for provider in row.get("providers") or []:
+                    token = str(provider).strip()
+                    if token:
+                        seen.add(token)
+            provider_count = len(seen)
+        global_library_manager.record_cloud_lookup(success=True, provider_count=provider_count)
+
+    def _record_cloud_lookup_failure(exc: Exception) -> None:
+        if isinstance(exc, HTTPException):
+            detail = str(exc.detail or "").strip() or str(exc)
+        else:
+            detail = str(exc or "").strip()
+        global_library_manager.record_cloud_lookup(success=False, error=detail)
+
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(api_version=BACKEND_API_VERSION)
@@ -230,11 +257,16 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         request: SpectralLibrarySearchRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> LibrarySearchResponse:
-        payload = cloud_library_service.search_spectral(
-            analysis_type="FTIR",
-            request_payload=_model_payload(request),
-            authorization=authorization,
-        )
+        try:
+            payload = cloud_library_service.search_spectral(
+                analysis_type="FTIR",
+                request_payload=_model_payload(request),
+                authorization=authorization,
+            )
+        except Exception as exc:
+            _record_cloud_lookup_failure(exc)
+            raise
+        _record_cloud_lookup_success(payload)
         return LibrarySearchResponse(**payload)
 
     @app.post("/v1/library/search/raman", response_model=LibrarySearchResponse)
@@ -242,11 +274,16 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         request: SpectralLibrarySearchRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> LibrarySearchResponse:
-        payload = cloud_library_service.search_spectral(
-            analysis_type="RAMAN",
-            request_payload=_model_payload(request),
-            authorization=authorization,
-        )
+        try:
+            payload = cloud_library_service.search_spectral(
+                analysis_type="RAMAN",
+                request_payload=_model_payload(request),
+                authorization=authorization,
+            )
+        except Exception as exc:
+            _record_cloud_lookup_failure(exc)
+            raise
+        _record_cloud_lookup_success(payload)
         return LibrarySearchResponse(**payload)
 
     @app.post("/v1/library/search/xrd", response_model=LibrarySearchResponse)
@@ -254,33 +291,55 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         request: XRDLibrarySearchRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> LibrarySearchResponse:
-        payload = cloud_library_service.search_xrd(
-            request_payload=_model_payload(request),
-            authorization=authorization,
-        )
+        try:
+            payload = cloud_library_service.search_xrd(
+                request_payload=_model_payload(request),
+                authorization=authorization,
+            )
+        except Exception as exc:
+            _record_cloud_lookup_failure(exc)
+            raise
+        _record_cloud_lookup_success(payload)
         return LibrarySearchResponse(**payload)
 
     @app.get("/v1/library/providers", response_model=LibraryProvidersResponse)
     def library_providers(
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> LibraryProvidersResponse:
-        return LibraryProvidersResponse(**cloud_library_service.providers(authorization=authorization))
+        try:
+            payload = cloud_library_service.providers(authorization=authorization)
+        except Exception as exc:
+            _record_cloud_lookup_failure(exc)
+            raise
+        _record_cloud_lookup_success(payload)
+        return LibraryProvidersResponse(**payload)
 
     @app.get("/v1/library/coverage", response_model=LibraryCoverageResponse)
     def library_coverage(
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> LibraryCoverageResponse:
-        return LibraryCoverageResponse(**cloud_library_service.coverage(authorization=authorization))
+        try:
+            payload = cloud_library_service.coverage(authorization=authorization)
+        except Exception as exc:
+            _record_cloud_lookup_failure(exc)
+            raise
+        _record_cloud_lookup_success(payload)
+        return LibraryCoverageResponse(**payload)
 
     @app.post("/v1/library/prefetch", response_model=LibraryPrefetchResponse)
     def library_prefetch(
         request: LibraryPrefetchRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> LibraryPrefetchResponse:
-        payload = cloud_library_service.prefetch(
-            request_payload=_model_payload(request),
-            authorization=authorization,
-        )
+        try:
+            payload = cloud_library_service.prefetch(
+                request_payload=_model_payload(request),
+                authorization=authorization,
+            )
+        except Exception as exc:
+            _record_cloud_lookup_failure(exc)
+            raise
+        _record_cloud_lookup_success(payload)
         return LibraryPrefetchResponse(**payload)
 
     @app.post("/project/load", response_model=ProjectLoadResponse)

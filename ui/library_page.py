@@ -72,6 +72,13 @@ def render() -> None:
     n2.metric(tx("Provider", "Providers"), str(status.get("available_provider_count", 0)))
     n3.metric(tx("Update Bekleyen", "Updates Available"), str(status.get("update_available_count", 0)))
 
+    cloud_last_lookup = status.get("last_cloud_lookup_at") or "N/A"
+    cloud_last_error = str(status.get("last_cloud_error") or "").strip()
+    c1, c2, c3 = st.columns(3)
+    c1.metric(tx("Cloud Provider", "Cloud Providers"), str(status.get("cloud_provider_count", 0)))
+    c2.metric(tx("Son cloud sorgu", "Last cloud lookup"), cloud_last_lookup)
+    c3.metric(tx("Son cloud hata", "Last cloud error"), cloud_last_error or tx("Yok", "None"))
+
     if str(status.get("library_mode") or "") == "not_configured":
         st.warning(
             tx(
@@ -118,8 +125,7 @@ def render() -> None:
         f"{tx('Feed', 'Feed')}: `{status.get('feed_source') or 'N/A'}`  |  "
         f"{tx('Manifest üretildi', 'Manifest generated')}: `{status.get('manifest_generated_at') or 'N/A'}`  |  "
         f"{tx('Son manifest kontrolü', 'Last manifest check')}: `{status.get('manifest_checked_at') or 'N/A'}`  |  "
-        f"{tx('Son sync', 'Last sync')}: `{status.get('last_sync_at') or 'N/A'}`  |  "
-        f"{tx('Son cloud sorgu', 'Last cloud lookup')}: `{status.get('last_cloud_lookup_at') or 'N/A'}`"
+        f"{tx('Son sync', 'Last sync')}: `{status.get('last_sync_at') or 'N/A'}`"
     )
 
     installed_tab, catalog_tab = st.tabs(

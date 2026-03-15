@@ -1695,7 +1695,14 @@ def collect_figure_keys(results: dict[str, dict[str, Any]]) -> list[str]:
     """Collect referenced figure keys from result artifacts."""
     keys: list[str] = []
     for record in results.values():
-        artifact_keys = record.get("artifacts", {}).get("figure_keys", [])
+        artifacts = record.get("artifacts", {}) or {}
+        primary_key = artifacts.get("report_figure_key")
+        if isinstance(primary_key, str) and primary_key:
+            if primary_key not in keys:
+                keys.append(primary_key)
+            # Primary report figure takes precedence; do not auto-include other record snapshots.
+            continue
+        artifact_keys = artifacts.get("figure_keys", [])
         if not isinstance(artifact_keys, list):
             continue
         for key in artifact_keys:

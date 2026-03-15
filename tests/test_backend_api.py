@@ -52,40 +52,29 @@ def _cloud_license_header() -> dict[str, str]:
     return {"X-TA-License": encode_license_key(payload)}
 
 
-def test_health_and_version_endpoints():
-    app = create_app(api_token="test-token")
-    client = TestClient(app)
-
-    health_response = client.get("/health")
-    assert health_response.status_code == 200
-    assert health_response.json()["status"] == "ok"
-
-    version_response = client.get("/version", headers=_auth_headers())
-    assert version_response.status_code == 200
-    body = version_response.json()
-    assert body["app_version"] == APP_VERSION
-    assert body["project_extension"] == PROJECT_EXTENSION
-
-
-def test_cloud_library_auth_and_search_endpoints():
-    app = create_app(api_token="test-token")
-    client = TestClient(app)
-
+def _cloud_bearer_header(client: TestClient) -> dict[str, str]:
     auth_response = client.post("/v1/library/auth/token", headers=_cloud_license_header())
     assert auth_response.status_code == 200
     auth_payload = auth_response.json()
-    token = auth_payload["access_token"]
     assert auth_payload["token_type"] == "bearer"
     assert auth_payload["request_id"]
+    return {"Authorization": f"Bearer {auth_payload['access_token']}"}
 
-    bearer = {"Authorization": f"Bearer {token}"}
+
+def _run_cloud_smoke_chain(client: TestClient, bearer: dict[str, str]) -> None:
     providers_response = client.get("/v1/library/providers", headers=bearer)
     assert providers_response.status_code == 200
-    assert providers_response.json()["library_access_mode"] == "cloud_full_access"
+    providers_payload = providers_response.json()
+    assert providers_payload["library_access_mode"] == "cloud_full_access"
+    assert providers_payload["request_id"]
+    assert isinstance(providers_payload["providers"], list)
 
     coverage_response = client.get("/v1/library/coverage", headers=bearer)
     assert coverage_response.status_code == 200
-    assert coverage_response.json()["library_access_mode"] == "cloud_full_access"
+    coverage_payload = coverage_response.json()
+    assert coverage_payload["library_access_mode"] == "cloud_full_access"
+    assert coverage_payload["request_id"]
+    assert isinstance(coverage_payload["coverage"], dict)
 
     ftir_response = client.post(
         "/v1/library/search/ftir",
@@ -103,6 +92,23 @@ def test_cloud_library_auth_and_search_endpoints():
     assert ftir_payload["library_access_mode"] == "cloud_full_access"
     assert ftir_payload["library_result_source"] == "cloud_search"
     assert ftir_payload["request_id"]
+
+    raman_response = client.post(
+        "/v1/library/search/raman",
+        headers=bearer,
+        json={
+            "axis": [450.0, 700.0, 1000.0, 1350.0],
+            "signal": [0.11, 0.35, 0.5, 0.27],
+            "top_n": 3,
+            "minimum_score": 0.45,
+        },
+    )
+    assert raman_response.status_code == 200
+    raman_payload = raman_response.json()
+    assert raman_payload["analysis_type"] == "RAMAN"
+    assert raman_payload["library_access_mode"] == "cloud_full_access"
+    assert raman_payload["library_result_source"] == "cloud_search"
+    assert raman_payload["request_id"]
 
     xrd_response = client.post(
         "/v1/library/search/xrd",
@@ -123,6 +129,30 @@ def test_cloud_library_auth_and_search_endpoints():
     assert xrd_payload["analysis_type"] == "XRD"
     assert "match_status" in xrd_payload
     assert xrd_payload["library_access_mode"] == "cloud_full_access"
+    assert xrd_payload["library_result_source"] == "cloud_search"
+    assert xrd_payload["request_id"]
+
+
+def test_health_and_version_endpoints():
+    app = create_app(api_token="test-token")
+    client = TestClient(app)
+
+    health_response = client.get("/health")
+    assert health_response.status_code == 200
+    assert health_response.json()["status"] == "ok"
+
+    version_response = client.get("/version", headers=_auth_headers())
+    assert version_response.status_code == 200
+    body = version_response.json()
+    assert body["app_version"] == APP_VERSION
+    assert body["project_extension"] == PROJECT_EXTENSION
+
+
+def test_cloud_library_auth_and_search_endpoints():
+    app = create_app(api_token="test-token")
+    client = TestClient(app)
+    bearer = _cloud_bearer_header(client)
+    _run_cloud_smoke_chain(client, bearer)
 
 
 def test_cloud_library_search_requires_bearer_token():
@@ -134,6 +164,65 @@ def test_cloud_library_search_requires_bearer_token():
         json={"axis": [500.0, 900.0, 1200.0], "signal": [0.1, 0.3, 0.2]},
     )
     assert response.status_code == 401
+
+
+def test_library_status_reports_limited_fallback_when_cloud_url_missing(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_CLOUD_URL", raising=False)
+    monkeypatch.delenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", raising=False)
+
+    client = TestClient(create_app(api_token="test-token"))
+    sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})
+    assert sync_response.status_code == 200
+
+    status_response = client.get("/library/status", headers=_auth_headers())
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["library_mode"] == "limited_cached_fallback"
+    assert status_payload["cloud_access_enabled"] is False
+    assert status_payload["fallback_package_count"] >= 1
+    assert status_payload["fallback_entry_count"] >= 1
+
+
+def test_library_status_reports_cloud_full_access_after_successful_cloud_calls(tmp_path, monkeypatch):
+    home_root = tmp_path / "home"
+    mirror_root = Path(__file__).resolve().parents[1] / "sample_data" / "reference_library_mirror"
+    monkeypatch.setenv("THERMOANALYZER_HOME", str(home_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_MIRROR_ROOT", str(mirror_root))
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", "true")
+    monkeypatch.setenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", "false")
+
+    client = TestClient(create_app(api_token="test-token"))
+    sync_response = client.post("/library/sync", headers=_auth_headers(), json={"force": True})
+    assert sync_response.status_code == 200
+
+    bearer = _cloud_bearer_header(client)
+    _run_cloud_smoke_chain(client, bearer)
+
+    status_response = client.get("/library/status", headers=_auth_headers())
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    for key in (
+        "library_mode",
+        "cloud_access_enabled",
+        "cloud_provider_count",
+        "fallback_package_count",
+        "fallback_entry_count",
+        "last_cloud_lookup_at",
+        "last_cloud_error",
+    ):
+        assert key in status_payload
+    assert status_payload["library_mode"] == "cloud_full_access"
+    assert status_payload["cloud_access_enabled"] is True
+    assert status_payload["cloud_provider_count"] >= 1
+    assert status_payload["fallback_package_count"] >= 1
+    assert status_payload["fallback_entry_count"] >= 1
+    assert status_payload["last_cloud_lookup_at"]
+    assert status_payload["last_cloud_error"] in {"", None}
 
 
 def test_project_load_save_roundtrip_compatibility(thermal_dataset):
