@@ -381,6 +381,14 @@ def test_serialize_xrd_result_keeps_candidate_evidence_and_confidence_band_field
     assert record["scientific_context"]["methodology"]["library_context"]["provider"] == "COD"
     assert record["scientific_context"]["methodology"]["library_context"]["request_id"] == "libreq_xrd_001"
     assert record["scientific_context"]["fit_quality"]["confidence_band"] == "medium"
+    claim_text = " ".join(item.get("claim", "") for item in record["scientific_context"]["scientific_claims"])
+    assert "not specialized for this analysis type yet" not in claim_text.lower()
+    assert record["scientific_context"]["scientific_claims"]
+    assert record["scientific_context"]["evidence_map"]
+    assert record["scientific_context"]["uncertainty_assessment"]["items"]
+    assert record["scientific_context"]["alternative_hypotheses"]
+    assert record["scientific_context"]["next_experiments"]
+    assert "qualitative phase screening" in claim_text.lower() or "xrd" in claim_text.lower()
 
 
 def test_serialize_xrd_result_adds_no_match_caution_semantics():
@@ -431,6 +439,10 @@ def test_serialize_xrd_result_adds_no_match_caution_semantics():
     assert "screening only" in record["report_payload"]["xrd_reference_dossiers"][0]["match_evidence"]["caution_note"].lower()
     assert any("no-match" in item.lower() for item in record["scientific_context"]["limitations"])
     assert record["scientific_context"]["fit_quality"]["top_candidate_score"] == 0.33
+    claim_text = " ".join(item.get("claim", "") for item in record["scientific_context"]["scientific_claims"]).lower()
+    assert "generic" not in claim_text
+    assert "no_match" in claim_text
+    assert "definitive identification" not in claim_text
 
 
 def test_serialize_xrd_result_adds_humanized_display_fields_without_losing_raw_ids():
@@ -571,6 +583,68 @@ def test_serialize_xrd_result_builds_reference_dossiers_with_truncated_peaks_and
     assert first_dossier["reference_peaks"]["displayed_peak_count"] == 20
     assert first_dossier["reference_peaks"]["total_peak_count"] == 25
     assert first_dossier["reference_peaks"]["truncated_count"] == 5
+
+
+def test_serialize_xrd_result_gates_stronger_scientific_claims_on_strong_evidence():
+    dataset = _xrd_dataset()
+    processing = ensure_processing_payload(analysis_type="XRD", workflow_template="xrd.general")
+
+    record = serialize_xrd_result(
+        "synthetic_xrd_strong_reasoning",
+        dataset,
+        summary={
+            "peak_count": 4,
+            "match_status": "matched",
+            "candidate_count": 2,
+            "top_phase_id": "cod_1000026",
+            "top_phase": "COD 1000026",
+            "top_phase_score": 0.93,
+            "confidence_band": "high",
+            "top_candidate_shared_peak_count": 5,
+            "top_candidate_coverage_ratio": 0.82,
+            "top_candidate_weighted_overlap_score": 0.88,
+            "top_candidate_mean_delta_position": 0.03,
+            "top_candidate_unmatched_major_peak_count": 0,
+        },
+        rows=[
+            {
+                "rank": 1,
+                "candidate_id": "cod_1000026",
+                "candidate_name": "COD 1000026",
+                "formula": "MgB2",
+                "source_id": "1000026",
+                "normalized_score": 0.93,
+                "confidence_band": "high",
+                "library_provider": "COD",
+                "evidence": {
+                    "shared_peak_count": 5,
+                    "coverage_ratio": 0.82,
+                    "weighted_overlap_score": 0.88,
+                    "mean_delta_position": 0.03,
+                    "unmatched_major_peak_count": 0,
+                },
+            },
+            {
+                "rank": 2,
+                "candidate_id": "xrd_phase_beta",
+                "candidate_name": "Phase Beta",
+                "normalized_score": 0.51,
+                "confidence_band": "medium",
+                "evidence": {"shared_peak_count": 2, "coverage_ratio": 0.31},
+            },
+        ],
+        processing=processing,
+        validation={"status": "pass", "issues": [], "warnings": []},
+    )
+
+    mechanistic_claims = [
+        item for item in record["scientific_context"]["scientific_claims"]
+        if str(item.get("strength") or "").lower() == "mechanistic"
+    ]
+
+    assert mechanistic_claims
+    assert "follow-up verification" in mechanistic_claims[0]["claim"].lower()
+    assert "confirmed" not in mechanistic_claims[0]["claim"].lower()
 
 
 def test_collect_figure_keys_prefers_primary_report_figure_when_present():

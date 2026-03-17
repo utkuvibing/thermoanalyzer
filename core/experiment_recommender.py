@@ -112,6 +112,34 @@ def recommend_next_experiments(
                 "Repeat DTA with inert and oxidative atmospheres to test atmosphere-sensitive event assignments.",
             ]
         )
+    elif analysis == "XRD":
+        recommendations.extend(
+            [
+                "Review raw peak picking and the configured tolerance window against the top-ranked candidate references.",
+                "Compare the best-ranked candidates against additional reference libraries or provider coverage before elevating phase confidence.",
+                "Use an orthogonal confirmatory technique or a repeat XRD acquisition if qualitative screening remains uncertain.",
+            ]
+        )
+        if mechanism_hint == "accepted_screening":
+            recommendations.insert(
+                0,
+                "Inspect the top-ranked candidate against the raw pattern and reference dossiers before treating the qualitative screen as a retained follow-up phase candidate.",
+            )
+        elif mechanism_hint == "low_confidence":
+            recommendations.insert(
+                0,
+                "Recheck peak picking, tolerance settings, and reference overlap before retaining the low-confidence phase candidate.",
+            )
+        elif mechanism_hint == "no_match":
+            recommendations.insert(
+                0,
+                "Expand reference-corpus coverage or compare additional candidate structures because the current screen remained no_match.",
+            )
+        elif mechanism_hint == "partial_overlap":
+            recommendations.insert(
+                0,
+                "Inspect possible multiphase behavior or preferred-orientation effects when overlap remains partial across the ranked candidates.",
+            )
     elif analysis in {"KISSINGER", "OZAWA-FLYNN-WALL", "FRIEDMAN"}:
         recommendations.extend(
             [

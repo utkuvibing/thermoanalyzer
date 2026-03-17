@@ -876,6 +876,26 @@ def test_generate_docx_report_adds_xrd_reference_dossier_sections_with_caution_s
     assert "No provider structure image or visual asset was available in the current reference payload." in appendix_xml
 
 
+def test_generate_docx_report_renders_xrd_domain_specific_scientific_reasoning_sections():
+    xrd_record, xrd_dataset = _make_xrd_no_match_record()
+
+    docx_bytes = generate_docx_report(
+        results={xrd_record["id"]: xrd_record},
+        datasets={"synthetic_xrd": xrd_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Primary Scientific Interpretation" in xml
+    assert "Evidence Supporting This Interpretation" in xml
+    assert "Alternative Explanations" in xml
+    assert "Uncertainty and Methodological Limits" in xml
+    assert "Recommended Follow-Up Experiments" in xml
+    assert "best-ranked XRD candidate" in xml or "qualitative phase screening" in xml
+    assert "Scientific reasoning is not specialized for this analysis type yet." not in xml
+
+
 def test_generate_docx_report_hides_operational_fields_from_experimental_conditions(thermal_dataset):
     dataset = thermal_dataset.copy()
     dataset.metadata["import_confidence"] = "high"

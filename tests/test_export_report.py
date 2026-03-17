@@ -1140,3 +1140,37 @@ def test_generate_pdf_report_exports_xrd_reference_dossier_sections():
     assert "example.test" in extracted
     assert "1000026" in extracted
     assert "MgB₂" in extracted
+
+
+def test_generate_pdf_report_renders_xrd_domain_specific_scientific_reasoning_sections():
+    pytest.importorskip("reportlab")
+    pypdf = pytest.importorskip("pypdf")
+    record = _make_xrd_no_match_result()
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [18.2, 27.5, 36.1, 44.8], "signal": [130.0, 290.0, 175.0, 120.0]}),
+        metadata={
+            "sample_name": "SyntheticXRD",
+            "display_name": "Synthetic XRD Pattern",
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+        },
+        data_type="XRD",
+        units={"temperature": "degree_2theta", "signal": "counts"},
+        original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+
+    pdf_bytes = generate_pdf_report(
+        results={record["id"]: record},
+        datasets={"synthetic_xrd": dataset},
+    )
+
+    extracted = "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(io.BytesIO(pdf_bytes)).pages)
+
+    assert "Primary Scientific Interpretation" in extracted
+    assert "Evidence Supporting This Interpretation" in extracted
+    assert "Alternative Explanations" in extracted
+    assert "Uncertainty and Methodological Limits" in extracted
+    assert "Recommended Follow-Up Experiments" in extracted
+    assert "qualitative phase screening" in extracted or "best-ranked XRD candidate" in extracted
+    assert "Scientific reasoning is not specialized for this analysis type yet." not in extracted
