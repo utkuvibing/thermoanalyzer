@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.data_io import ThermalDataset
+from ui.components import plot_builder
 from ui import xrd_page
 
 
@@ -350,7 +351,13 @@ def test_build_processed_plot_uses_humanized_overlay_name_and_hover_metadata():
     assert ("Source ID" in matched_trace.hovertext[0]) or ("Kaynak Kimliği" in matched_trace.hovertext[0])
     assert "MgB₂" in matched_trace.hovertext[0]
     assert "COD 1000026" in matched_trace.hovertext[0]
-    assert any("MgB₂ (#1)" in str(annotation.text) for annotation in fig.layout.annotations)
+    assert "MgB₂ (#1)" in str(fig.layout.title.text)
+    assert ("Selected candidate:" in str(fig.layout.title.text)) or ("Seçili aday:" in str(fig.layout.title.text))
+    assert not any("Candidate:" in str(annotation.text) or "Aday:" in str(annotation.text) for annotation in fig.layout.annotations)
+    assert fig.layout.paper_bgcolor == plot_builder.DEFAULT_LAYOUT["paper_bgcolor"]
+    assert fig.layout.plot_bgcolor == plot_builder.DEFAULT_LAYOUT["plot_bgcolor"]
+    assert fig.layout.legend.orientation == "v"
+    assert float(fig.layout.legend.x) >= 1.0
     assert any(text for text in peak_label_trace.text)
 
 

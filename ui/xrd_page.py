@@ -29,7 +29,13 @@ from core.xrd_display import (
 from ui.components.chrome import render_page_header
 from ui.components.history_tracker import _log_event
 from ui.components.preset_manager import render_processing_preset_panel, seed_pending_workflow_template
-from ui.components.plot_builder import PLOTLY_CONFIG, create_thermal_plot, fig_to_bytes
+from ui.components.plot_builder import (
+    PLOTLY_CONFIG,
+    THERMAL_COLORS,
+    apply_professional_plot_theme,
+    create_thermal_plot,
+    fig_to_bytes,
+)
 from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
@@ -450,10 +456,11 @@ def _build_processed_plot(
     raw_signal = np.asarray(dataset.data["signal"].values, dtype=float)
     settings = _normalize_xrd_plot_settings(plot_settings)
     line_width = float(settings.get("line_width", 2.0))
+    plot_title = tx("XRD Analizi - {dataset}", "XRD Analysis - {dataset}", dataset=dataset_key)
     fig = create_thermal_plot(
         axis,
         raw_signal,
-        title=tx("XRD Analizi - {dataset}", "XRD Analysis - {dataset}", dataset=dataset_key),
+        title=plot_title,
         x_label=_x_axis_label(dataset, lang),
         y_label=tx("Yoğunluk", "Intensity"),
         name=tx("Ham", "Raw"),
@@ -465,6 +472,7 @@ def _build_processed_plot(
     peak_x: list[float] = []
     peak_y: list[float] = []
     peak_text: list[str] = []
+    subtitle: str | None = None
 
     if smoothed is not None and smoothed.shape[0] == axis.shape[0]:
         fig.add_trace(
@@ -473,7 +481,7 @@ def _build_processed_plot(
                 y=smoothed,
                 mode="lines",
                 name=tx("Yumuşatılmış", "Smoothed"),
-                line=dict(color="#0EA5E9", width=max(0.8, line_width - 0.2)),
+                line=dict(color=THERMAL_COLORS[5], width=max(0.8, line_width - 0.2)),
             )
         )
     if corrected is not None and corrected.shape[0] == axis.shape[0]:
@@ -483,7 +491,7 @@ def _build_processed_plot(
                 y=corrected,
                 mode="lines",
                 name=tx("Arkaplan Düzeltilmiş", "Background Corrected"),
-                line=dict(color="#16A34A", width=line_width),
+                line=dict(color=THERMAL_COLORS[2], width=line_width),
             )
         )
     if peaks:
@@ -500,7 +508,7 @@ def _build_processed_plot(
                 y=peak_y,
                 mode="markers",
                 name=tx("Pikler", "Peaks"),
-                marker=dict(color="#DC2626", size=int(settings.get("marker_size", 8)), symbol="diamond"),
+                marker=dict(color=THERMAL_COLORS[1], size=int(settings.get("marker_size", 8)), symbol="diamond"),
                 hovertemplate="<b>2θ</b>: %{x:.4f}<br><b>Intensity</b>: %{y:.3f}<extra></extra>",
             )
         )
@@ -513,20 +521,10 @@ def _build_processed_plot(
         candidate_label = _xrd_selected_candidate_label(selected_match)
         observed_max = max([float(item.get("intensity", 0.0)) for item in peaks] + [1.0])
         hover_suffix = "".join(f"<br>{line}" for line in _xrd_candidate_hover_lines(selected_match))
-
-        fig.add_annotation(
-            x=0.995,
-            y=0.99,
-            xref="paper",
-            yref="paper",
-            xanchor="right",
-            yanchor="top",
-            text=f"{tx('Aday', 'Candidate')}: {_short_candidate_label(candidate_label, max_len=42)}",
-            showarrow=False,
-            bgcolor="rgba(15, 23, 42, 0.72)",
-            bordercolor="rgba(148, 163, 184, 0.4)",
-            borderwidth=1,
-            font=dict(size=11, color="#E2E8F0"),
+        subtitle = tx(
+            "Seçili aday: {label}",
+            "Selected candidate: {label}",
+            label=_short_candidate_label(candidate_label, max_len=52),
         )
 
         if settings.get("show_match_connectors", True):
@@ -583,13 +581,13 @@ def _build_processed_plot(
                     name=tx("Eşleşen Pikler", "Matched Peaks"),
                     marker=dict(
                         color=matched_obs_style["color"],
-                        size=int(settings.get("marker_size", 8)) + 2,
+                        size=int(settings.get("marker_size", 8)) + 1,
                         symbol=matched_obs_style["symbol"],
                         line=dict(width=1, color="#052E16"),
                     ),
                     text=matched_text,
                     textposition="top center",
-                    textfont=dict(size=10, color="#86EFAC"),
+                    textfont=dict(size=9.5, color="#3F5E4B"),
                     hovertext=matched_hover,
                     hoverinfo="text",
                 )
@@ -672,7 +670,7 @@ def _build_processed_plot(
                 mode="text",
                 text=peak_text,
                 textposition="top center",
-                textfont=dict(size=10, color="#F8FAFC"),
+                textfont=dict(size=10.5, color="#475569"),
                 hoverinfo="skip",
                 showlegend=False,
             )
@@ -701,6 +699,12 @@ def _build_processed_plot(
         if settings.get("y_range_enabled") and y_min is not None and y_max is not None:
             fig.update_yaxes(range=[float(y_min), float(y_max)])
 
+    apply_professional_plot_theme(
+        fig,
+        title=plot_title,
+        subtitle=subtitle,
+        legend_mode="compact" if selected_match else "auto",
+    )
     return fig
 
 
