@@ -305,6 +305,79 @@ def _make_xrd_no_match_result():
     )
 
 
+def _make_xrd_formula_result():
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [18.2, 27.5, 36.1], "signal": [130.0, 290.0, 175.0]}),
+        metadata={
+            "sample_name": "SyntheticXRDFormula",
+            "sample_mass": 1.0,
+            "instrument": "XRDBench",
+            "vendor": "TestVendor",
+            "display_name": "Synthetic XRD Formula Pattern",
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+            "xrd_wavelength_angstrom": 1.5406,
+        },
+        data_type="XRD",
+        units={"temperature": "degree_2theta", "signal": "counts"},
+        original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+    processing = ensure_processing_payload(
+        analysis_type="XRD",
+        workflow_template="xrd.general",
+        workflow_template_label="General XRD",
+    )
+    processing = update_method_context(
+        processing,
+        {
+            "xrd_match_metric": "peak_overlap_weighted",
+            "xrd_match_tolerance_deg": 0.28,
+            "xrd_match_minimum_score": 0.42,
+        },
+        analysis_type="XRD",
+    )
+    validation = validate_thermal_dataset(dataset, analysis_type="XRD", processing=processing)
+    record = serialize_xrd_result(
+        "synthetic_xrd_formula",
+        dataset,
+        summary={
+            "peak_count": 3,
+            "match_status": "matched",
+            "candidate_count": 1,
+            "top_phase": "COD 1000026",
+            "top_phase_id": "cod_1000026",
+            "top_phase_score": 0.91,
+            "confidence_band": "high",
+            "library_provider": "COD",
+        },
+        rows=[
+            {
+                "rank": 1,
+                "candidate_id": "cod_1000026",
+                "candidate_name": "COD 1000026",
+                "formula": "MgB2",
+                "source_id": "1000026",
+                "normalized_score": 0.91,
+                "confidence_band": "high",
+                "library_provider": "COD",
+                "evidence": {
+                    "shared_peak_count": 3,
+                    "weighted_overlap_score": 0.91,
+                    "coverage_ratio": 0.88,
+                    "mean_delta_position": 0.04,
+                    "unmatched_major_peak_count": 0,
+                    "matched_peak_pairs": [{"observed_index": 0, "reference_index": 0}],
+                },
+            }
+        ],
+        artifacts={"report_figure_key": "XRD Snapshot - synthetic_xrd_formula - r1_MgB2"},
+        processing=processing,
+        validation=validation,
+    )
+    return record, dataset
+
+
 def test_generate_csv_summary_with_normalized_records(thermal_dataset):
     dsc_result = _make_dsc_result(thermal_dataset)
     kissinger_result = serialize_kissinger_result(
@@ -457,7 +530,7 @@ def test_generate_docx_report_renders_xrd_caution_semantics():
     assert "XRD - synthetic_xrd" in xml
     assert "Accepted Match Status" in xml
     assert "no_match" in xml
-    assert "Best Candidate Name" in xml
+    assert "Best Candidate" in xml
     assert "Phase Alpha" in xml
     assert "Best Candidate Score" in xml
     assert "Shared Peaks" in xml
@@ -468,7 +541,7 @@ def test_generate_docx_report_renders_xrd_caution_semantics():
     assert "limited_fallback_cache" in xml
     assert "Library Access Mode" in xml
     assert "limited_cached_fallback" in xml
-    assert "Phase Matching Metric" in xml
+    assert "Match Metric" in xml
 
 
 def test_results_to_xlsx_writes_summary_and_detail_sheets(thermal_dataset, temperature_range, tga_signal):
@@ -603,6 +676,18 @@ def test_pdf_render_sections_suppresses_redundant_scientific_interpretation():
     assert "Scientific Interpretation" not in titles
     assert "Methodology" not in titles
     assert "Equations and Formulation" not in titles
+
+
+def test_pdf_abstract_layout_uses_scientific_xrd_candidate_names():
+    record, dataset = _make_xrd_formula_result()
+
+    abstract, bullets = _build_pdf_abstract_layout(
+        [record],
+        {"synthetic_xrd_formula": dataset},
+    )
+
+    assert "scientific synthesis" in abstract
+    assert any("MgB₂" in bullet for bullet in bullets)
 
 
 def test_experimental_block_uses_compact_prose_not_key_value_layout(thermal_dataset):
@@ -985,3 +1070,22 @@ def test_generate_pdf_report_uses_paper_structure_and_hides_executive_summary(th
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 1000
+
+
+def test_generate_pdf_report_uses_scientific_xrd_text_and_unicode_font():
+    pytest.importorskip("reportlab")
+    pypdf = pytest.importorskip("pypdf")
+    record, dataset = _make_xrd_formula_result()
+
+    pdf_bytes = generate_pdf_report(
+        results={record["id"]: record},
+        datasets={"synthetic_xrd_formula": dataset},
+    )
+
+    extracted = "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(io.BytesIO(pdf_bytes)).pages)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert "MgB₂" in extracted
+    assert b"DejaVuSans" in pdf_bytes
+    assert record["artifacts"]["report_figure_key"].endswith("r1_MgB2")
+    assert "MgB₂" not in record["artifacts"]["report_figure_key"]

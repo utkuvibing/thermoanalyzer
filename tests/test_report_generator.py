@@ -634,7 +634,7 @@ def test_generate_docx_report_renders_xrd_no_match_caution_fields():
     assert "XRD - synthetic_xrd" in xml
     assert "Accepted Match Status" in xml
     assert "no_match" in xml
-    assert "Best Candidate Name" in xml
+    assert "Best Candidate" in xml
     assert "Phase Alpha" in xml
     assert "Best Candidate Score" in xml
     assert "Shared Peaks" in xml
@@ -645,7 +645,7 @@ def test_generate_docx_report_renders_xrd_no_match_caution_fields():
     assert "cloud_search" in xml
     assert "Library Access Mode" in xml
     assert "cloud_full_access" in xml
-    assert "Phase Matching Metric" in xml
+    assert "Match Metric" in xml
     assert "Provider Candidate Counts" in xml
     assert "cod=4.0000" in xml
     assert "materials_project=2.0000" in xml
@@ -678,8 +678,68 @@ def test_record_key_results_uses_humanized_xrd_display_name():
         }
     )
 
-    assert payload["Top Phase"] == "MgB₂"
-    assert payload["Best Candidate Name"] == "MgB₂"
+    assert payload["Best Candidate"] == "MgB₂"
+
+
+def test_generate_docx_report_keeps_xrd_library_dump_out_of_main_body():
+    xrd_record, xrd_dataset = _make_xrd_no_match_record()
+    docx_bytes = generate_docx_report(
+        results={xrd_record["id"]: xrd_record},
+        datasets={"synthetic_xrd": xrd_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    appendix_index = xml.index("Appendix A")
+    main_xml = xml[:appendix_index]
+    appendix_xml = xml[appendix_index:]
+
+    assert "Best Candidate" in main_xml
+    assert "Confidence Band" in main_xml
+    assert "Shared Peaks" in main_xml
+    assert "Coverage Ratio" in main_xml
+    assert "Library Result Source" not in main_xml
+    assert "Library Access Mode" not in main_xml
+    assert "Provider Candidate Counts" not in main_xml
+    assert "Xrd Coverage Tier" not in main_xml
+    assert "Xrd Provenance State" not in main_xml
+    assert "Library Result Source" in appendix_xml
+    assert "Library Access Mode" in appendix_xml
+    assert "Provider Candidate Counts" in appendix_xml
+    assert "Xrd Coverage Tier" in appendix_xml
+    assert "Xrd Provenance State" in appendix_xml
+
+
+def test_generate_docx_report_uses_xrd_candidate_summary_table_and_keeps_evidence_detail_in_appendix():
+    xrd_record, xrd_dataset = _make_xrd_no_match_record()
+    xrd_record["rows"][0]["evidence"] = {
+        "shared_peak_count": 7,
+        "weighted_overlap_score": 0.31,
+        "coverage_ratio": 0.22,
+        "mean_delta_position": 0.14,
+        "unmatched_major_peak_count": 3,
+        "matched_peak_pairs": [{"observed_index": idx, "reference_index": idx} for idx in range(12)],
+        "unmatched_observed_peaks": [{"observed_index": idx} for idx in range(5)],
+        "unmatched_reference_peaks": [{"reference_index": idx} for idx in range(4)],
+    }
+    docx_bytes = generate_docx_report(
+        results={xrd_record["id"]: xrd_record},
+        datasets={"synthetic_xrd": xrd_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    appendix_index = xml.index("Appendix A")
+    main_xml = xml[:appendix_index]
+    appendix_xml = xml[appendix_index:]
+
+    assert "Top Candidates" in main_xml
+    assert "matched_peak_pairs" not in main_xml
+    assert "Candidate Evidence Summary" in appendix_xml
+    assert "Full Raw Data Table" in appendix_xml
+    assert "matched_peak_pairs=12" in appendix_xml
 
 
 def test_generate_docx_report_uses_scientific_xrd_candidate_names():

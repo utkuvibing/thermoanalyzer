@@ -26,6 +26,7 @@ from utils.reference_data import find_nearest_reference
 try:
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.section import WD_ORIENTATION, WD_SECTION_START
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.oxml.ns import qn
@@ -92,6 +93,58 @@ def _set_cell_bg(cell, hex_color: str) -> None:
     tc_pr.append(shd)
 
 
+def _set_repeat_table_header(row) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    for child in tr_pr.findall(qn("w:tblHeader")):
+        tr_pr.remove(child)
+    header = OxmlElement("w:tblHeader")
+    header.set(qn("w:val"), "true")
+    tr_pr.append(header)
+
+
+def _docx_section_text_width_inches(section) -> float:
+    width = float(section.page_width.inches) - float(section.left_margin.inches) - float(section.right_margin.inches)
+    return max(width, 1.0)
+
+
+def _estimate_docx_column_widths(headers: list[str], rows: list[list[Any]], *, total_width_inches: float) -> list[float]:
+    if not headers:
+        return []
+    max_lengths: list[int] = []
+    for column_index, header in enumerate(headers):
+        max_len = len(str(header or ""))
+        for row in rows[:40]:
+            if column_index >= len(row):
+                continue
+            max_len = max(max_len, len(_format_value(row[column_index])))
+        max_lengths.append(max_len)
+    weights = [max(1.0, min(6.0, length / 12.0)) for length in max_lengths]
+    weight_total = sum(weights) or float(len(weights))
+    return [total_width_inches * weight / weight_total for weight in weights]
+
+
+def _apply_docx_table_widths(table, widths: list[float]) -> None:
+    if not widths:
+        return
+    table.autofit = False
+    for row in table.rows:
+        for index, cell in enumerate(row.cells):
+            if index >= len(widths):
+                continue
+            cell.width = Inches(widths[index])
+
+
+def _set_docx_section_orientation(section, *, landscape: bool) -> None:
+    if landscape:
+        section.orientation = WD_ORIENTATION.LANDSCAPE
+        if section.page_width < section.page_height:
+            section.page_width, section.page_height = section.page_height, section.page_width
+    else:
+        section.orientation = WD_ORIENTATION.PORTRAIT
+        if section.page_width > section.page_height:
+            section.page_width, section.page_height = section.page_height, section.page_width
+
+
 def _add_heading(doc: Document, text: str, level: int = 1) -> None:
     doc.add_heading(normalize_report_text(text), level=level)
 
@@ -104,6 +157,7 @@ def _add_key_value_table(doc: Document, data: dict) -> None:
     hdr_cells = table.rows[0].cells
     hdr_cells[0].text = normalize_report_text("Parameter")
     hdr_cells[1].text = normalize_report_text("Value")
+    _set_repeat_table_header(table.rows[0])
     for cell in hdr_cells:
         _set_cell_bg(cell, "4472C4")
         for para in cell.paragraphs:
@@ -115,11 +169,14 @@ def _add_key_value_table(doc: Document, data: dict) -> None:
         row_cells = table.add_row().cells
         row_cells[0].text = normalize_report_text(key)
         row_cells[1].text = normalize_report_text(value)
+    text_width = _docx_section_text_width_inches(doc.sections[-1])
+    _apply_docx_table_widths(table, [text_width * 0.34, text_width * 0.66])
 
 
 def _add_results_table(doc: Document, headers: list[str], rows: list[list]) -> None:
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
 
     hdr_cells = table.rows[0].cells
     for i, header in enumerate(headers):
@@ -129,6 +186,7 @@ def _add_results_table(doc: Document, headers: list[str], rows: list[list]) -> N
             run = para.runs[0] if para.runs else para.add_run(hdr_cells[i].text)
             run.font.bold = True
             run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_repeat_table_header(table.rows[0])
 
     for row_idx, row_data in enumerate(rows):
         row_cells = table.add_row().cells
@@ -136,6 +194,14 @@ def _add_results_table(doc: Document, headers: list[str], rows: list[list]) -> N
             row_cells[i].text = normalize_report_text(value)
             if row_idx % 2 == 1:
                 _set_cell_bg(row_cells[i], "DCE6F1")
+    _apply_docx_table_widths(
+        table,
+        _estimate_docx_column_widths(
+            headers,
+            rows,
+            total_width_inches=_docx_section_text_width_inches(doc.sections[-1]),
+        ),
+    )
 
 
 def _format_value(value):
@@ -248,6 +314,15 @@ def _table_payload(payload: dict | None) -> dict[str, str]:
         if value in (None, "", [], {}):
             continue
         table_rows[_humanize_key(key)] = _format_value(value)
+    return table_rows
+
+
+def _compact_table_payload(payload: Mapping[str, Any] | None, *, max_chars: int = 220) -> dict[str, str]:
+    table_rows: dict[str, str] = {}
+    for key, value in (payload or {}).items():
+        if value in (None, "", [], {}):
+            continue
+        table_rows[_humanize_key(key)] = _compact_collection_value(value, max_chars=max_chars)
     return table_rows
 
 
@@ -443,43 +518,13 @@ def _record_key_results(record: dict) -> dict[str, str]:
         return _table_payload(
             {
                 "Accepted Match Status": summary.get("match_status"),
-                "Top Phase": _xrd_top_phase_name(summary),
-                "Top Phase Score": summary.get("top_phase_score"),
-                "Best Candidate Name": _xrd_best_candidate_name(summary),
+                "Best Candidate": _xrd_best_candidate_name(summary),
                 "Best Candidate Score": _xrd_best_candidate_score(summary),
-                "Best Candidate Provider": summary.get("top_candidate_provider") or summary.get("library_provider"),
-                "Best Candidate Package": summary.get("top_candidate_package") or summary.get("library_package"),
-                "Best Candidate Version": summary.get("top_candidate_version") or summary.get("library_version"),
-                "Shared Peaks": summary.get("top_candidate_shared_peak_count"),
-                "Weighted Overlap Score": summary.get("top_candidate_weighted_overlap_score"),
-                "Coverage Ratio": summary.get("top_candidate_coverage_ratio"),
-                "Mean Delta Position": summary.get("top_candidate_mean_delta_position"),
-                "Unmatched Major Peak Count": summary.get("top_candidate_unmatched_major_peak_count"),
-                "Best Candidate Reason Below Threshold": summary.get("top_candidate_reason_below_threshold"),
                 "Confidence Band": summary.get("confidence_band"),
-                "Candidate Count": summary.get("candidate_count"),
-                "Reference Candidate Count": summary.get("reference_candidate_count"),
-                "Provider Candidate Counts": summary.get("xrd_provider_candidate_counts"),
-                "XRD Coverage Tier": summary.get("xrd_coverage_tier"),
-                "XRD Coverage Warning": summary.get("xrd_coverage_warning_message"),
-                "XRD Provenance State": summary.get("xrd_provenance_state"),
-                "XRD Provenance Warning": summary.get("xrd_provenance_warning"),
-                "Match Tolerance (deg)": summary.get("match_tolerance_deg"),
-                "Library Provider": summary.get("library_provider"),
-                "Library Package": summary.get("library_package"),
-                "Library Version": summary.get("library_version"),
-                "Library Sync Mode": summary.get("library_sync_mode"),
-                "Library Cache Status": summary.get("library_cache_status"),
-                "Library Access Mode": summary.get("library_access_mode"),
-                "Library Request ID": summary.get("library_request_id"),
-                "Library Result Source": summary.get("library_result_source"),
-                "Library Provider Scope": summary.get("library_provider_scope"),
-                "Library Offline Limited Mode": summary.get("library_offline_limited_mode"),
+                "Shared Peaks": summary.get("top_candidate_shared_peak_count"),
+                "Coverage Ratio": summary.get("top_candidate_coverage_ratio"),
                 "Caution Code": summary.get("caution_code"),
-                "Caution Message": summary.get("caution_message"),
-                "Sample Name": summary.get("sample_name"),
-                "Sample Mass": summary.get("sample_mass"),
-                "Heating Rate": summary.get("heating_rate"),
+                "Best Candidate Reason Below Threshold": summary.get("top_candidate_reason_below_threshold"),
             }
         )
     else:
@@ -612,8 +657,11 @@ def _record_compact_rows(record: dict, *, max_rows: int = 5) -> tuple[list[str],
     rows = record.get("rows") or []
     if not rows:
         return None
-    if str(record.get("analysis_type") or "").upper() == "TGA":
+    analysis_type = str(record.get("analysis_type") or "").upper()
+    if analysis_type == "TGA":
         return None
+    if analysis_type == "XRD":
+        return _xrd_candidate_mini_table(record, max_rows=max_rows)
 
     headers = _record_headers(record)
     if not headers:
@@ -628,6 +676,32 @@ def _record_compact_rows(record: dict, *, max_rows: int = 5) -> tuple[list[str],
     top_headers = headers[: min(5, len(headers))]
     top_rows = [[_format_value(row.get(header)) for header in top_headers] for row in rows[:max_rows]]
     return top_headers, top_rows
+
+
+def _xrd_candidate_mini_table(record: dict, *, max_rows: int = 5) -> tuple[list[str], list[list[str]]] | None:
+    if str(record.get("analysis_type") or "").upper() != "XRD":
+        return None
+    rows = record.get("rows") or []
+    if not rows:
+        return None
+
+    summary = record.get("summary") or {}
+    matrix: list[list[str]] = []
+    for row in rows[:max_rows]:
+        evidence = dict(row.get("evidence") or {})
+        matrix.append(
+            [
+                _format_value(row.get("rank")),
+                xrd_candidate_display_name(row, target="unicode") or _format_value(row.get("candidate_name")),
+                _format_number(row.get("normalized_score"), digits=3),
+                _format_value(row.get("confidence_band") or summary.get("match_status")),
+                _format_value(evidence.get("shared_peak_count")),
+                _format_number(evidence.get("coverage_ratio"), digits=3),
+            ]
+        )
+    if not matrix:
+        return None
+    return ["Rank", "Candidate", "Score", "Status", "Shared Peaks", "Coverage"], matrix
 
 
 def _tga_major_events(record: dict, *, limit: int = 3) -> list[list[str]]:
@@ -1600,16 +1674,9 @@ def _domain_method_summary(record: dict) -> dict[str, str] | None:
             "Smoothing": _format_processing_step(_processing_step(processing, "smoothing")),
             "Baseline": _format_processing_step(_processing_step(processing, "baseline")),
             "Peak Detection": _format_processing_step(_processing_step(processing, "peak_detection")),
-            "Phase Matching Metric": method_context.get("xrd_match_metric") or "Not recorded",
-            "Phase Matching Tolerance (deg)": _format_value(method_context.get("xrd_match_tolerance_deg")),
-            "Phase Matching Minimum Score": _format_value(method_context.get("xrd_match_minimum_score")),
-            "Match Status": summary_payload.get("match_status") or "Not recorded",
-            "Best Candidate": _xrd_best_candidate_name(summary_payload),
-            "Best Candidate Score": _format_value(_xrd_best_candidate_score(summary_payload)),
-            "Best Candidate Reason": summary_payload.get("top_candidate_reason_below_threshold") or "Not recorded",
-            "Confidence Band": summary_payload.get("confidence_band") or "Not recorded",
-            "Caution Code": summary_payload.get("caution_code") or "None",
-            "Caution Note": _xrd_caution_note(summary_payload),
+            "Match Metric": method_context.get("xrd_match_metric") or "Not recorded",
+            "Tolerance (deg)": _format_value(method_context.get("xrd_match_tolerance_deg")),
+            "Minimum Score": _format_value(method_context.get("xrd_match_minimum_score")),
         }
         return _table_payload(summary)
 
@@ -1644,7 +1711,7 @@ def _processing_sections(processing: dict | None) -> list[tuple[str, dict[str, s
         return []
 
     sections: list[tuple[str, dict[str, str]]] = []
-    method_context = _table_payload(processing.get("method_context"))
+    method_context = _compact_table_payload(processing.get("method_context"))
     if method_context:
         sections.append(("Method Context", method_context))
 
@@ -1655,7 +1722,7 @@ def _processing_sections(processing: dict | None) -> list[tuple[str, dict[str, s
             for key in ("smoothing", "baseline")
             if isinstance(processing.get(key), dict)
         }
-    signal_payload = _table_payload(signal_pipeline)
+    signal_payload = _compact_table_payload(signal_pipeline)
     if signal_payload:
         sections.append(("Signal Pipeline", signal_payload))
 
@@ -1666,7 +1733,7 @@ def _processing_sections(processing: dict | None) -> list[tuple[str, dict[str, s
             for key in ("glass_transition", "peak_detection", "step_detection")
             if isinstance(processing.get(key), dict)
         }
-    step_payload = _table_payload(analysis_steps)
+    step_payload = _compact_table_payload(analysis_steps)
     if step_payload:
         sections.append(("Analysis Steps", step_payload))
 
@@ -1739,13 +1806,14 @@ def _provenance_sections(provenance: dict | None) -> list[tuple[str, dict[str, s
 
 def _record_main_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
     context_sections = scientific_context_to_report_sections(record.get("scientific_context"))
+    analysis_type = str(record.get("analysis_type") or "").upper()
 
     methodology_payload: dict[str, Any] = {}
     ordered_sections: list[tuple[str, dict[str, Any]]] = []
 
     for title, payload in context_sections:
         if title == "Methodology":
-            if isinstance(payload, dict):
+            if analysis_type != "XRD" and isinstance(payload, dict):
                 methodology_payload.update(payload)
             continue
         if title == "Warnings and Limitations":
@@ -1761,7 +1829,7 @@ def _record_main_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
     if methodology_payload:
         sections.append(("Methodology", _table_payload(methodology_payload)))
 
-    if str(record.get("analysis_type") or "").upper() == "TGA":
+    if analysis_type == "TGA":
         tga_narrative = build_tga_scientific_narrative(
             summary=record.get("summary") or {},
             rows=record.get("rows") or [],
@@ -1811,9 +1879,106 @@ def _record_main_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
     return sections
 
 
+def _xrd_appendix_summary_sections(record: dict) -> list[tuple[str, dict[str, str]]]:
+    if str(record.get("analysis_type") or "").upper() != "XRD":
+        return []
+    summary = record.get("summary") or {}
+    sections: list[tuple[str, dict[str, str]]] = []
+
+    library_payload = _table_payload(
+        {
+            "Reference Candidate Count": summary.get("reference_candidate_count"),
+            "Library Provider": summary.get("library_provider"),
+            "Library Package": summary.get("library_package"),
+            "Library Version": summary.get("library_version"),
+            "Library Sync Mode": summary.get("library_sync_mode"),
+            "Library Cache Status": summary.get("library_cache_status"),
+            "Library Access Mode": summary.get("library_access_mode"),
+            "Library Request ID": summary.get("library_request_id"),
+            "Library Result Source": summary.get("library_result_source"),
+            "Library Provider Scope": summary.get("library_provider_scope"),
+            "Library Offline Limited Mode": summary.get("library_offline_limited_mode"),
+            "Top Candidate Provider": summary.get("top_candidate_provider"),
+            "Top Candidate Package": summary.get("top_candidate_package"),
+            "Top Candidate Version": summary.get("top_candidate_version"),
+        }
+    )
+    if library_payload:
+        sections.append(("XRD Library and Access Context", library_payload))
+
+    provenance_payload = _table_payload(
+        {
+            "Provider Candidate Counts": summary.get("xrd_provider_candidate_counts"),
+            "XRD Coverage Tier": summary.get("xrd_coverage_tier"),
+            "XRD Coverage Warning": summary.get("xrd_coverage_warning_message"),
+            "XRD Provenance State": summary.get("xrd_provenance_state"),
+            "XRD Provenance Warning": summary.get("xrd_provenance_warning"),
+            "Match Tolerance (deg)": summary.get("match_tolerance_deg"),
+            "Weighted Overlap Score": summary.get("top_candidate_weighted_overlap_score"),
+            "Mean Delta Position": summary.get("top_candidate_mean_delta_position"),
+            "Unmatched Major Peak Count": summary.get("top_candidate_unmatched_major_peak_count"),
+            "Candidate Count": summary.get("candidate_count"),
+        }
+    )
+    if provenance_payload:
+        sections.append(("XRD Match and Provenance Context", provenance_payload))
+    return sections
+
+
+def _record_appendix_matrix_sections(record: dict) -> list[tuple[str, list[str], list[list[str]]]]:
+    if str(record.get("analysis_type") or "").upper() != "XRD":
+        return []
+    rows = record.get("rows") or []
+    if not rows:
+        return []
+
+    matrix: list[list[str]] = []
+    for row in rows[:5]:
+        evidence = dict(row.get("evidence") or {})
+        matrix.append(
+            [
+                _format_value(row.get("rank")),
+                xrd_candidate_display_name(row, target="unicode") or _format_value(row.get("candidate_name")),
+                _format_number(row.get("normalized_score"), digits=3),
+                _format_value(row.get("confidence_band")),
+                _format_value(evidence.get("shared_peak_count")),
+                _format_number(evidence.get("coverage_ratio"), digits=3),
+                _format_number(evidence.get("weighted_overlap_score"), digits=3),
+                _format_number(evidence.get("mean_delta_position"), digits=3),
+                _format_value(evidence.get("unmatched_major_peak_count")),
+                _format_value(len(evidence.get("matched_peak_pairs") or [])),
+                _format_value(len(evidence.get("unmatched_observed_peaks") or [])),
+                _format_value(len(evidence.get("unmatched_reference_peaks") or [])),
+            ]
+        )
+    if not matrix:
+        return []
+    return [
+        (
+            "Candidate Evidence Summary",
+            [
+                "Rank",
+                "Candidate",
+                "Score",
+                "Status",
+                "Shared Peaks",
+                "Coverage",
+                "Weighted Overlap",
+                "Mean ΔPos",
+                "Unmatched Major",
+                "Matched Pairs",
+                "Unmatched Obs",
+                "Unmatched Ref",
+            ],
+            matrix,
+        )
+    ]
+
+
 def _record_appendix_sections(record: dict) -> list[tuple[str, dict[str, str]]]:
     sections: list[tuple[str, dict[str, str]]] = []
     sections.extend(_processing_sections(record.get("processing")))
+    sections.extend(_xrd_appendix_summary_sections(record))
     sections.extend(_validation_sections(record.get("validation")))
     sections.extend(_provenance_sections(record.get("provenance")))
     metadata_payload = _appendix_dataset_metadata(record.get("metadata") or {})
@@ -1863,6 +2028,22 @@ def _render_record_mapping(doc: Document, title: str, payload: dict | None) -> N
     doc.add_paragraph()
 
 
+def _render_docx_matrix_section(doc: Document, title: str, headers: list[str], rows: list[list[Any]]) -> None:
+    if not headers or not rows:
+        return
+    portrait_width = _docx_section_text_width_inches(doc.sections[-1]) * 72.0
+    layout = _choose_portrait_or_landscape_table_layout(headers, rows, portrait_width=portrait_width)
+    if layout == "landscape":
+        landscape_section = doc.add_section(WD_SECTION_START.NEW_PAGE)
+        _set_docx_section_orientation(landscape_section, landscape=True)
+    doc.add_paragraph(normalize_report_text(title), style="Heading 3")
+    _add_results_table(doc, headers, rows)
+    doc.add_paragraph()
+    if layout == "landscape":
+        portrait_section = doc.add_section(WD_SECTION_START.NEW_PAGE)
+        _set_docx_section_orientation(portrait_section, landscape=False)
+
+
 def _render_main_record_docx(
     doc: Document,
     record: dict,
@@ -1894,16 +2075,18 @@ def _render_main_record_docx(
 
     major_events = _tga_major_events(record)
     if major_events:
-        doc.add_paragraph("Major Decomposition Events", style="Heading 3")
-        _add_results_table(doc, ["Event", "Midpoint Temperature (°C)", "Mass Loss (%)", "Final Residue (%)"], major_events)
-        doc.add_paragraph()
+        _render_docx_matrix_section(
+            doc,
+            "Major Decomposition Events",
+            ["Event", "Midpoint Temperature (°C)", "Mass Loss (%)", "Final Residue (%)"],
+            major_events,
+        )
     else:
         compact = _record_compact_rows(record)
         if compact:
             headers, rows = compact
-            doc.add_paragraph("Compact Key Table", style="Heading 3")
-            _add_results_table(doc, headers, rows)
-            doc.add_paragraph()
+            title = "Top Candidates" if str(record.get("analysis_type") or "").upper() == "XRD" else "Compact Key Table"
+            _render_docx_matrix_section(doc, title, headers, rows)
 
 
 def _render_appendix_docx(
@@ -1922,9 +2105,10 @@ def _render_appendix_docx(
     record_sections = []
     for record in records:
         sections = _record_appendix_sections(record)
+        matrix_sections = _record_appendix_matrix_sections(record)
         full_rows = _record_full_rows(record)
-        if sections or full_rows:
-            record_sections.append((record, sections, full_rows))
+        if sections or matrix_sections or full_rows:
+            record_sections.append((record, sections, matrix_sections, full_rows))
 
     comparison_has_content = bool(comparison_payload and (comparison_payload.get("appendix_overview") or comparison_payload.get("appendix_batch_rows")))
     if not (dataset_sections or record_sections or comparison_has_content):
@@ -1957,8 +2141,9 @@ def _render_appendix_docx(
                 },
             )
             doc.add_paragraph()
-            _add_results_table(
+            _render_docx_matrix_section(
                 doc,
+                "Batch Summary",
                 ["Run", "Sample", "Template", "Execution", "Validation", "Calibration", "Reference", "Result ID", "Error ID", "Reason"],
                 [
                     [
@@ -1976,17 +2161,16 @@ def _render_appendix_docx(
                     for row in batch_rows
                 ],
             )
-            doc.add_paragraph()
 
-    for record, sections, full_rows in record_sections:
+    for record, sections, matrix_sections, full_rows in record_sections:
         doc.add_paragraph(_record_title(record), style="Heading 2")
         for title, payload in sections:
             _render_record_mapping(doc, title, payload)
+        for title, headers, rows in matrix_sections:
+            _render_docx_matrix_section(doc, title, headers, rows)
         if full_rows:
             headers, rows = full_rows
-            doc.add_paragraph("Full Raw Data Table", style="Heading 3")
-            _add_results_table(doc, headers, rows)
-            doc.add_paragraph()
+            _render_docx_matrix_section(doc, "Full Raw Data Table", headers, rows)
 
 
 def _add_cover_page(doc: Document, branding: dict | None, license_state: dict | None) -> None:
@@ -2231,14 +2415,29 @@ def _configure_pdf_font(styles) -> str | None:
     except Exception:
         return None
 
-    candidates = [
-        ("DejaVuSans", os.path.join("C:\\", "Windows", "Fonts", "DejaVuSans.ttf")),
-        ("Arial", os.path.join("C:\\", "Windows", "Fonts", "arial.ttf")),
-        ("SegoeUI", os.path.join("C:\\", "Windows", "Fonts", "segoeui.ttf")),
-        ("Calibri", os.path.join("C:\\", "Windows", "Fonts", "calibri.ttf")),
-        ("NotoSans", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
-        ("DejaVuSans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-    ]
+    candidates: list[tuple[str, str]] = []
+    try:  # pragma: no cover - optional dependency path
+        import matplotlib
+
+        candidates.append(
+            (
+                "DejaVuSans",
+                os.path.join(matplotlib.get_data_path(), "fonts", "ttf", "DejaVuSans.ttf"),
+            )
+        )
+    except Exception:
+        pass
+
+    candidates.extend(
+        [
+            ("NotoSans", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
+            ("DejaVuSans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            ("DejaVuSans", os.path.join("C:\\", "Windows", "Fonts", "DejaVuSans.ttf")),
+            ("SegoeUI", os.path.join("C:\\", "Windows", "Fonts", "segoeui.ttf")),
+            ("Arial", os.path.join("C:\\", "Windows", "Fonts", "arial.ttf")),
+            ("Calibri", os.path.join("C:\\", "Windows", "Fonts", "calibri.ttf")),
+        ]
+    )
     for font_name, font_path in candidates:
         if not os.path.exists(font_path):
             continue
@@ -2719,9 +2918,10 @@ def generate_pdf_report(
     record_sections = []
     for record in all_records:
         sections = _record_appendix_sections(record)
+        matrix_sections = _record_appendix_matrix_sections(record)
         full_rows = _record_full_rows(record)
-        if sections or full_rows:
-            record_sections.append((record, sections, full_rows))
+        if sections or matrix_sections or full_rows:
+            record_sections.append((record, sections, matrix_sections, full_rows))
 
     comparison_has_content = bool(comparison_payload and (comparison_payload.get('appendix_overview') or comparison_payload.get('appendix_batch_rows')))
     if dataset_sections or record_sections or comparison_has_content:
@@ -2779,12 +2979,18 @@ def generate_pdf_report(
                 add_matrix_table(batch_headers, batch_matrix, width=landscape_width if batch_layout == 'landscape' else portrait_width, compact=True)
                 story.append(Spacer(1, 4))
 
-        for record, sections, full_rows in record_sections:
+        for record, sections, matrix_sections, full_rows in record_sections:
             ensure_template('Portrait')
             add_heading(_record_title(record), level=2)
             for title, payload in sections:
                 add_heading(title, level=3)
                 add_kv_table(payload, width=portrait_width, compact=True)
+                story.append(Spacer(1, 4))
+            for title, headers, rows in matrix_sections:
+                matrix_layout = _choose_portrait_or_landscape_table_layout(headers, rows, portrait_width=portrait_width)
+                ensure_template('Landscape' if matrix_layout == 'landscape' else 'Portrait')
+                add_heading(title, level=3)
+                add_matrix_table(headers, rows, width=landscape_width if matrix_layout == 'landscape' else portrait_width, compact=True)
                 story.append(Spacer(1, 4))
             if full_rows:
                 headers, rows = full_rows
