@@ -1,35 +1,23 @@
 # ThermoAnalyzer
 
-ThermoAnalyzer is an all-in-one desktop analysis application for thermal and materials characterization data. It combines DSC, TGA, DTA, FTIR, Raman, and XRD workflows with managed cloud library access, reproducible processing, report generation, and project archives inside a single product.
+ThermoAnalyzer is a desktop analysis platform for thermal and materials characterization workflows. It brings DSC, TGA, DTA, FTIR, Raman, and XRD into one product with reproducible processing, managed cloud-backed library search, publication-grade reporting, and project archives.
 
-The product is built as a thin client desktop app with a Python analysis/backend layer. End users work inside ThermoAnalyzer rather than switching between vendor tools, library viewers, and separate reporting software.
-
----
-
-## Product Shape
-
-- Thin client desktop application with bundled/backend-assisted runtime
-- Managed cloud-first library access for FTIR, Raman, and XRD
-- Limited local fallback cache for degraded operation
-- No full provider libraries delivered permanently to the client
-- Project-based workflow with reproducible processing context and report outputs
+The product is designed so users stay inside ThermoAnalyzer instead of switching between vendor software, spreadsheet cleanup, library viewers, and separate reporting tools.
 
 ---
 
-## Current Product Surface
+## What ThermoAnalyzer Covers
 
-### Primary workflows
-- Home / data import
-- DSC analysis
-- TGA analysis
-- DTA analysis
-- FTIR analysis
-- Raman analysis
-- XRD analysis
+### Stable workflows
+- DSC
+- TGA
+- DTA
+- FTIR
+- Raman
+- XRD
 - Compare workspace
-- Export and reporting
-- Library management
-- Project save/load (`.thermozip`)
+- Report/export center
+- Project save/load with `.thermozip`
 
 ### Preview workflows
 - Kinetics
@@ -37,51 +25,84 @@ The product is built as a thin client desktop app with a Python analysis/backend
 
 ---
 
-## Managed Library Architecture
+## Product Direction
 
-ThermoAnalyzer uses a managed cloud-library model:
+- Thin-client desktop application with a Python analysis and backend layer
+- Cloud-first library access for FTIR, Raman, and XRD
+- Limited local fallback cache for degraded operation
+- No full provider-scale libraries shipped permanently to the client
+- Reproducible result records with processing, validation, provenance, and report context preserved
 
-- Full library search comes from ThermoAnalyzer cloud endpoints
-- Local sync is reserved for small fallback packages only
-- `full_provider` local sync remains blocked by default
-- Fallback mode is explicitly reduced-capability, not equivalent to cloud full access
+---
+
+## Core Capabilities
+
+### Import and preprocessing
+- CSV, TXT, TSV, XLSX, and XLS import
+- Automatic delimiter, decimal, header-row, and column-role inference
+- Ambiguity-aware import confidence and review prompts
+- Manual correction for metadata and column mapping when needed
+- XRD-specific import handling for axis role, unit, and wavelength provenance
+
+### Analysis workflows
+- DSC: baseline correction, peak detection, Tg handling, enthalpy, sign-aware interpretation
+- TGA: DTG, step detection, residue and mass-loss interpretation, class-aware reasoning
+- DTA: stable report/export path aligned with the main product surface
+- FTIR and Raman: cloud-backed qualitative library search with provider provenance
+- XRD: qualitative phase screening with cloud-backed candidate ranking, scientific naming, reference dossiers, and caution-safe no-match handling
+
+### Reporting and traceability
+- DOCX, PDF, XLSX, and CSV outputs
+- Compact report-style main body with appendix-level technical evidence
+- Scientific reasoning sections by modality
+- Publication-grade figures for UI and export
+- Figure snapshots and report-primary figure selection
+- Preserved validation warnings, processing context, and provenance metadata
+
+### Project workflow
+- Compare workspace for cross-run review
+- Batch-oriented stable analysis flows
+- Session persistence plus `.thermozip` project archives
+
+---
+
+## Managed Library Model
+
+ThermoAnalyzer uses a managed cloud-library architecture:
+
+- full library search comes from ThermoAnalyzer cloud endpoints
+- local sync is reserved for small fallback packages only
+- `full_provider` local sync is blocked by default
+- fallback mode is explicitly reduced-capability and not equivalent to cloud full access
 
 ### Current provider direction
 - FTIR: OpenSpecy
 - Raman: OpenSpecy + ROD
 - XRD: COD + Materials Project
 
-This keeps the desktop app small while allowing broader qualitative search coverage without distributing raw provider-scale assets to clients.
+This keeps the desktop footprint small while still allowing broader qualitative search coverage and provider-backed provenance.
 
 ---
 
-## Key Capabilities
+## XRD Notes
 
-### Import and preprocessing
-- CSV, TXT, TSV, XLSX/XLS import
-- Automatic delimiter, decimal, header-row, and column-role inference
-- Ambiguity-aware import confidence and review prompts
-- Manual metadata and column correction when needed
-- XRD import contract fields such as axis role, unit, and wavelength handling
+XRD is handled as qualitative phase screening, not definitive phase confirmation.
 
-### Analysis workflows
-- DSC: baseline, peak detection, Tg, enthalpy, sign-aware interpretation
-- TGA: DTG, step detection, residue/mass-loss interpretation, class-aware reasoning
-- DTA: integrated into the main product surface
-- FTIR / Raman: cloud-backed qualitative library search with provider provenance
-- XRD: cloud-backed candidate ranking with caution-safe no-match behavior and wavelength-aware matching
+- cloud-backed ranked candidates
+- scientific display naming and formula rendering
+- reference-dossier appendix support in reports
+- explicit caution-safe `no_match` and low-confidence behavior
+- wavelength and provenance gaps surfaced in summaries and reports
 
-### Reporting and traceability
-- Compare workspace and batch-oriented evaluation flows
-- DOCX, PDF, XLSX, and CSV outputs
-- Processing payloads and method context persisted with results
-- Validation issues/warnings preserved in exported artifacts
-- Provenance fields for timestamps, context, and access-mode/library metadata
+`cloud_full_access` means the cloud path is active. It does not suppress coverage-quality warnings when hosted XRD coverage is still limited.
 
-### Runtime behavior
-- `cloud_full_access`: primary/full library mode
+---
+
+## Runtime Modes
+
+- `cloud_full_access`: primary managed-library mode
 - `limited_cached_fallback`: reduced fallback-only mode
-- `not_configured`: no usable cloud or fallback library path
+- `not_configured`: no usable cloud or fallback path
 
 ---
 
@@ -124,11 +145,13 @@ python -m backend.main
 
 Default URL: `http://localhost:8000`
 
-On local/dev runs, start the backend before opening the Library page if you expect `cloud_full_access`. The backend now logs both the startup target and the bound address so reachability problems are obvious.
+For local development, start the backend before using library-backed workflows if you expect `cloud_full_access`.
 
-### Local cloud-library dev config
+---
 
-Use the same repo-root `.env` for both Streamlit (`app.py`) and backend (`backend/app.py`).
+## Local Cloud-Library Development
+
+Use the same repo-root `.env` for both Streamlit (`app.py`) and the backend (`backend/app.py`).
 
 ```dotenv
 THERMOANALYZER_LIBRARY_CLOUD_URL=http://127.0.0.1:8000
@@ -139,34 +162,24 @@ THERMOANALYZER_LIBRARY_HOSTED_ROOT=C:\thermoanalyzer\build\reference_library_hos
 THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false
 ```
 
-`THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false` preserves the limited-fallback policy and blocks local full-provider sync by default.
-`THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=true` is a dev-only override. It lets the runtime cloud client generate a temporary local trial-style payload when no stored trial or activation exists; production entitlement checks remain strict by default.
+Notes:
+- `THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false` preserves the limited-fallback policy.
+- `THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=true` is a dev-only shortcut for local cloud testing.
+- hosted XRD coverage warnings remain visible even when the cloud path is healthy.
 
-### Publishing hosted library data locally
-
-After provider ingest normalization, publish hosted datasets with:
+### Publish hosted library data locally
 
 ```bash
 python tools/publish_hosted_library.py --output-root build/reference_library_hosted
 ```
 
-`tools/publish_hosted_library.py` auto-detects the most complete local/dev normalized root. In this repo that means `sample_data/reference_library_ingest_cloud_dev` is preferred over the tiny seed-sized `build/reference_library_ingest*` roots when it is present.
-When `THERMOANALYZER_LIBRARY_DEV_CLOUD_AUTH=true`, `python -m backend.main` also bootstraps `build/reference_library_hosted` automatically if the hosted manifest is missing but a sibling normalized ingest root is available.
-
-Local/dev XRD coverage notes:
-- Seed/dev hosted coverage is surfaced explicitly in the Library page and XRD summaries.
-- `cloud_full_access` means the cloud path is active; it does not hide coverage quality warnings.
-- Suspicious XRD axis mappings now require explicit 2theta/angle confirmation before stable qualitative matching.
-- Missing `xrd_wavelength_angstrom` is preserved as incomplete provenance in XRD summaries and reports.
-
-### Local cloud smoke helper
+### Local cloud smoke test
 
 ```bash
 python tools/library_cloud_smoke.py --base-url http://127.0.0.1:8000
 ```
 
-Expected local/dev result after `auth/token`, `providers`, and `coverage` succeed:
-
+Expected local/dev result:
 - `Library Mode = Cloud Full Access`
 - `Cloud Access = Enabled`
 
@@ -176,26 +189,26 @@ Expected local/dev result after `auth/token`, `providers`, and `coverage` succee
 
 1. Import one or more datasets from Home / Import.
 2. Review inferred modality, metadata, and validation prompts.
-3. Run the relevant analysis workflow: DSC, TGA, DTA, FTIR, Raman, or XRD.
+3. Run the relevant workflow: DSC, TGA, DTA, FTIR, Raman, or XRD.
 4. Use Compare Workspace for cross-run review when needed.
 5. Export results or generate a report.
 6. Save the session as a `.thermozip` project archive.
 
 ---
 
-## Project Structure
+## Repository Layout
 
 ```text
 thermoanalyzer/
 ├── app.py
-├── core/                    # analysis engine, runtime logic, hosted/fallback library handling
-├── ui/                      # Streamlit pages/components
+├── core/                    # analysis engine, scientific/report logic, library handling
+├── ui/                      # Streamlit pages and shared UI components
 ├── backend/                 # FastAPI backend and managed cloud-library routes
-├── desktop/                 # Electron wrapper and backend bundling assets
-├── tools/                   # ingest, mirror, publish, smoke, packaging helpers
+├── desktop/                 # desktop wrapper and bundling assets
+├── tools/                   # ingest, publish, smoke, packaging helpers
 ├── tests/                   # pytest suite
-├── sample_data/             # sample datasets and fallback fixtures
-├── packaging/windows/       # local release prep scripts/docs
+├── sample_data/             # sample datasets and library fixtures
+├── packaging/windows/       # local Windows release prep scripts/docs
 └── requirements.txt
 ```
 
