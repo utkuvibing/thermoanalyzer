@@ -9,6 +9,7 @@ from core.data_io import ThermalDataset, read_thermal_data
 from core.processing_schema import ensure_processing_payload, set_tga_unit_mode, update_method_context, update_processing_step
 from core.provenance import build_calibration_reference_context, classify_calibration_state
 from core.validation import enrich_spectral_result_validation, enrich_xrd_result_validation, validate_thermal_dataset
+from ui.home import _validate_import_stage
 from utils.validators import validate_thermal_dataset as legacy_validate_thermal_dataset
 
 
@@ -58,6 +59,31 @@ def _make_xrd_dataset():
         data_type="XRD",
         units={"temperature": "degree_2theta", "signal": "counts"},
         original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+
+
+def _make_spectral_dataset(*, analysis_type: str, axis_values: list[float], signal_values: list[float]):
+    metadata = {
+        "sample_name": f"Synthetic{analysis_type}",
+        "sample_mass": 1.0,
+        "heating_rate": 1.0,
+        "instrument": "SpectralBench",
+        "vendor": "TestVendor",
+        "display_name": f"Synthetic {analysis_type} Spectrum",
+        "import_confidence": "high",
+        "import_review_required": False,
+        "import_warnings": [],
+        "inferred_analysis_type": analysis_type,
+    }
+    unit = "cm^-1"
+    signal_unit = "absorbance" if analysis_type == "FTIR" else "counts"
+    return ThermalDataset(
+        data=pd.DataFrame({"temperature": axis_values, "signal": signal_values}),
+        metadata=metadata,
+        data_type=analysis_type,
+        units={"temperature": unit, "signal": signal_unit},
+        original_columns={"temperature": "axis", "signal": "signal"},
         file_path="",
     )
 
@@ -322,6 +348,83 @@ def test_validate_xrd_processing_fails_when_peak_controls_missing():
     assert any("peak-detection 'prominence' is required" in issue.lower() for issue in summary["issues"])
     assert any("peak-detection 'distance' is required" in issue.lower() for issue in summary["issues"])
     assert any("peak-detection 'width' is required" in issue.lower() for issue in summary["issues"])
+
+
+def test_validate_ftir_allows_descending_wavenumber_axis_outside_thermal_bounds():
+    dataset = _make_spectral_dataset(
+        analysis_type="FTIR",
+        axis_values=[3999.8, 3200.0, 1800.0, 900.0, 500.0],
+        signal_values=[0.02, 0.08, 0.31, 0.22, 0.12],
+    )
+    processing = ensure_processing_payload(
+        analysis_type="FTIR",
+        workflow_template="ftir.general",
+        workflow_template_label="General FTIR",
+    )
+    processing = update_processing_step(processing, "normalization", {"method": "vector"}, analysis_type="FTIR")
+    processing = update_processing_step(
+        processing,
+        "peak_detection",
+        {"prominence": 0.05, "min_distance": 6, "max_peaks": 12},
+        analysis_type="FTIR",
+    )
+    processing = update_processing_step(
+        processing,
+        "similarity_matching",
+        {"metric": "cosine", "top_n": 3, "minimum_score": 0.45},
+        analysis_type="FTIR",
+    )
+
+    summary = validate_thermal_dataset(dataset, analysis_type="FTIR", processing=processing)
+
+    assert summary["status"] in {"pass", "warn"}
+    assert not any("strictly increasing" in issue.lower() for issue in summary["issues"])
+    assert not any("thermal-analysis bounds" in issue.lower() for issue in summary["issues"])
+
+
+def test_validate_raman_allows_wide_monotonic_shift_axis_outside_thermal_bounds():
+    dataset = _make_spectral_dataset(
+        analysis_type="RAMAN",
+        axis_values=[50.4, 300.0, 800.0, 1600.0, 3400.2],
+        signal_values=[12.0, 25.0, 55.0, 32.0, 18.0],
+    )
+    processing = ensure_processing_payload(
+        analysis_type="RAMAN",
+        workflow_template="raman.general",
+        workflow_template_label="General Raman",
+    )
+    processing = update_processing_step(processing, "normalization", {"method": "snv"}, analysis_type="RAMAN")
+    processing = update_processing_step(
+        processing,
+        "peak_detection",
+        {"prominence": 0.04, "min_distance": 5, "max_peaks": 14},
+        analysis_type="RAMAN",
+    )
+    processing = update_processing_step(
+        processing,
+        "similarity_matching",
+        {"metric": "cosine", "top_n": 3, "minimum_score": 0.45},
+        analysis_type="RAMAN",
+    )
+
+    summary = validate_thermal_dataset(dataset, analysis_type="RAMAN", processing=processing)
+
+    assert summary["status"] in {"pass", "warn"}
+    assert not any("strictly increasing" in issue.lower() for issue in summary["issues"])
+    assert not any("thermal-analysis bounds" in issue.lower() for issue in summary["issues"])
+
+
+def test_validate_import_stage_uses_detected_spectral_modality():
+    dataset = _make_spectral_dataset(
+        analysis_type="FTIR",
+        axis_values=[3999.8, 3200.0, 1800.0, 900.0, 500.0],
+        signal_values=[0.02, 0.08, 0.31, 0.22, 0.12],
+    )
+
+    summary = _validate_import_stage(dataset)
+
+    assert summary["status"] in {"pass", "warn"}
+    assert not any("thermal-analysis bounds" in issue.lower() for issue in summary["issues"])
 
 
 def test_validate_xrd_processing_warns_when_wavelength_context_is_missing():

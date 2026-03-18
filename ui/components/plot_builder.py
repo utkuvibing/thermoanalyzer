@@ -1,5 +1,7 @@
 """Plotly chart builders for thermal analysis data."""
 
+from __future__ import annotations
+
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -27,6 +29,22 @@ _PLOT_AXIS_COLOR = "#AAB4C3"
 _PLOT_HOVER_BORDER = "#CBD5E1"
 _DEFAULT_EXPORT_WIDTH = 1400
 _DEFAULT_EXPORT_HEIGHT = 840
+_DEFAULT_DISPLAY_SETTINGS = {
+    "legend_mode": "auto",
+    "compact": False,
+    "show_grid": True,
+    "show_spikes": True,
+    "line_width_scale": 1.0,
+    "marker_size_scale": 1.0,
+    "export_scale": 2,
+    "reverse_x_axis": False,
+    "x_range_enabled": False,
+    "x_min": None,
+    "x_max": None,
+    "y_range_enabled": False,
+    "y_min": None,
+    "y_max": None,
+}
 
 PLOTLY_CONFIG = dict(
     displayModeBar=True,
@@ -110,6 +128,69 @@ DEFAULT_LAYOUT = dict(
     ),
 )
 
+
+def default_plot_display_settings(settings: dict | None = None, **overrides) -> dict:
+    payload = dict(_DEFAULT_DISPLAY_SETTINGS)
+    if isinstance(settings, dict):
+        payload.update(settings)
+    if overrides:
+        payload.update(overrides)
+
+    payload["legend_mode"] = str(payload.get("legend_mode") or "auto").lower()
+    if payload["legend_mode"] not in {"auto", "external", "compact", "hidden"}:
+        payload["legend_mode"] = "auto"
+    payload["compact"] = bool(payload.get("compact"))
+    payload["show_grid"] = bool(payload.get("show_grid", True))
+    payload["show_spikes"] = bool(payload.get("show_spikes", True))
+    payload["reverse_x_axis"] = bool(payload.get("reverse_x_axis"))
+    payload["x_range_enabled"] = bool(payload.get("x_range_enabled"))
+    payload["y_range_enabled"] = bool(payload.get("y_range_enabled"))
+
+    try:
+        payload["line_width_scale"] = float(payload.get("line_width_scale", 1.0))
+    except (TypeError, ValueError):
+        payload["line_width_scale"] = 1.0
+    payload["line_width_scale"] = min(max(payload["line_width_scale"], 0.6), 1.8)
+
+    try:
+        payload["marker_size_scale"] = float(payload.get("marker_size_scale", 1.0))
+    except (TypeError, ValueError):
+        payload["marker_size_scale"] = 1.0
+    payload["marker_size_scale"] = min(max(payload["marker_size_scale"], 0.6), 1.8)
+
+    try:
+        payload["export_scale"] = int(payload.get("export_scale", 2))
+    except (TypeError, ValueError):
+        payload["export_scale"] = 2
+    payload["export_scale"] = min(max(payload["export_scale"], 1), 4)
+
+    for key in ("x_min", "x_max", "y_min", "y_max"):
+        value = payload.get(key)
+        if value in (None, ""):
+            payload[key] = None
+            continue
+        try:
+            payload[key] = float(value)
+        except (TypeError, ValueError):
+            payload[key] = None
+
+    if payload["x_range_enabled"] and payload["x_min"] is not None and payload["x_max"] is not None and payload["x_min"] > payload["x_max"]:
+        payload["x_min"], payload["x_max"] = payload["x_max"], payload["x_min"]
+    if payload["y_range_enabled"] and payload["y_min"] is not None and payload["y_max"] is not None and payload["y_min"] > payload["y_max"]:
+        payload["y_min"], payload["y_max"] = payload["y_max"], payload["y_min"]
+    return payload
+
+
+def build_plotly_config(settings: dict | None = None, *, filename: str | None = None) -> dict:
+    resolved = default_plot_display_settings(settings)
+    export_options = dict(PLOTLY_CONFIG["toImageButtonOptions"])
+    export_options["scale"] = resolved["export_scale"]
+    if filename:
+        export_options["filename"] = filename
+    config = dict(PLOTLY_CONFIG)
+    config["toImageButtonOptions"] = export_options
+    return config
+
 def _legend_layout(trace_count: int, *, legend_mode: str, compact: bool) -> tuple[bool, dict]:
     if legend_mode == "hidden":
         return False, {}
@@ -190,6 +271,18 @@ def _style_trace_defaults(fig, *, compact: bool) -> None:
                 trace.marker.size = 7 if compact else 8
 
 
+def _scale_trace_styles(fig, *, line_width_scale: float, marker_size_scale: float) -> None:
+    for trace in fig.data:
+        if hasattr(trace, "line"):
+            current_width = getattr(trace.line, "width", None)
+            if isinstance(current_width, (int, float)):
+                trace.line.width = max(0.6, float(current_width) * line_width_scale)
+        if hasattr(trace, "marker"):
+            current_size = getattr(trace.marker, "size", None)
+            if isinstance(current_size, (int, float)):
+                trace.marker.size = max(4.0, float(current_size) * marker_size_scale)
+
+
 def apply_professional_plot_theme(
     fig,
     *,
@@ -264,6 +357,53 @@ def apply_professional_plot_theme(
     return fig
 
 
+def apply_plot_display_settings(
+    fig,
+    settings: dict | None = None,
+    *,
+    title: str | None = None,
+    subtitle: str | None = None,
+    for_export: bool = False,
+    scale_traces: bool = True,
+):
+    resolved = default_plot_display_settings(settings)
+    apply_professional_plot_theme(
+        fig,
+        compact=resolved["compact"] if not for_export else False,
+        for_export=for_export,
+        legend_mode=resolved["legend_mode"],
+        title=title,
+        subtitle=subtitle,
+    )
+    fig.update_xaxes(showgrid=resolved["show_grid"])
+    fig.update_yaxes(showgrid=resolved["show_grid"])
+    fig.update_xaxes(showspikes=resolved["show_spikes"])
+    fig.update_yaxes(showspikes=resolved["show_spikes"])
+    if resolved["x_range_enabled"] and resolved["x_min"] is not None and resolved["x_max"] is not None:
+        x_range = [resolved["x_min"], resolved["x_max"]]
+        if resolved["reverse_x_axis"]:
+            x_range = list(reversed(x_range))
+        fig.update_xaxes(range=x_range)
+    elif resolved["reverse_x_axis"]:
+        fig.update_xaxes(autorange="reversed")
+    if resolved["y_range_enabled"] and resolved["y_min"] is not None and resolved["y_max"] is not None:
+        fig.update_yaxes(range=[resolved["y_min"], resolved["y_max"]])
+    if scale_traces:
+        _scale_trace_styles(
+            fig,
+            line_width_scale=resolved["line_width_scale"],
+            marker_size_scale=resolved["marker_size_scale"],
+        )
+    meta = getattr(fig.layout, "meta", None)
+    if isinstance(meta, dict):
+        next_meta = dict(meta)
+    else:
+        next_meta = {}
+    next_meta["plot_display_settings"] = resolved
+    fig.update_layout(meta=next_meta)
+    return fig
+
+
 def apply_plotly_config(fig):
     """Apply shared crosshair and hover behavior without overriding layout composition."""
     fig.update_layout(hovermode="x unified", hoverdistance=80, spikedistance=1000)
@@ -299,7 +439,7 @@ def _add_exo_annotation(fig):
 
 def create_thermal_plot(
     x, y, title="", x_label="Temperature (°C)", y_label="Signal",
-    name="Signal", color=None, mode="lines",
+    name="Signal", color=None, mode="lines", display_settings: dict | None = None,
 ):
     """Create a basic thermal analysis plot."""
     fig = go.Figure()
@@ -308,14 +448,14 @@ def create_thermal_plot(
         line=dict(color=color or THERMAL_COLORS[0], width=2.6),
     ))
     fig.update_layout(xaxis_title=x_label, yaxis_title=y_label)
-    apply_professional_plot_theme(fig, title=title)
+    apply_plot_display_settings(fig, display_settings, title=title)
     apply_plotly_config(fig)
     return fig
 
 
 def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
                     y_label="Heat Flow (mW/mg)", baseline=None,
-                    peaks=None, smoothed=None):
+                    peaks=None, smoothed=None, display_settings: dict | None = None):
     """Create a DSC plot with optional baseline and peak markers."""
     fig = go.Figure()
 
@@ -375,7 +515,7 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
 
     fig.update_layout(xaxis_title="Temperature (°C)", yaxis_title=y_label)
     _add_exo_annotation(fig)
-    apply_professional_plot_theme(fig, title=title)
+    apply_plot_display_settings(fig, display_settings, title=title)
     apply_plotly_config(fig)
     return fig
 
@@ -392,6 +532,7 @@ def create_tga_plot(
     dtg_name="DTG",
     dtg_label="DTG (%/°C)",
     step_prefix="Step",
+    display_settings: dict | None = None,
 ):
     """Create a TGA plot with optional DTG overlay and step markers."""
     if dtg is not None:
@@ -423,24 +564,25 @@ def create_tga_plot(
             )
 
     fig.update_layout(xaxis_title=x_label, yaxis_title=y_label)
-    apply_professional_plot_theme(fig, title=title, legend_mode="auto")
+    apply_plot_display_settings(fig, display_settings, title=title)
     apply_plotly_config(fig)
     return fig
 
 
 def create_dta_plot(temperature, signal, title="DTA Curve",
-                    baseline=None, peaks=None, smoothed=None):
+                    baseline=None, peaks=None, smoothed=None, display_settings: dict | None = None):
     """Create a DTA plot."""
     fig = create_dsc_plot(
         temperature, signal, title=title,
         y_label="\u0394T (\u00b5V)", baseline=baseline,
         peaks=peaks, smoothed=smoothed,
+        display_settings=display_settings,
     )
     # exo annotation is already added by create_dsc_plot
     return fig
 
 
-def create_kissinger_plot(inv_tp, ln_beta_tp2, ea_kj, ln_a, r_squared):
+def create_kissinger_plot(inv_tp, ln_beta_tp2, ea_kj, ln_a, r_squared, display_settings: dict | None = None):
     """Create Kissinger plot: ln(β/Tp²) vs 1000/Tp."""
     fig = go.Figure()
 
@@ -460,13 +602,13 @@ def create_kissinger_plot(inv_tp, ln_beta_tp2, ea_kj, ln_a, r_squared):
     ))
 
     fig.update_layout(xaxis_title="1000/Tp (1/K)", yaxis_title="ln(β/Tp²)")
-    apply_professional_plot_theme(fig, title="Kissinger Plot")
+    apply_plot_display_settings(fig, display_settings, title="Kissinger Plot")
     apply_plotly_config(fig)
     return fig
 
 
 def create_multirate_overlay(temperature_list, signal_list, rate_labels,
-                              title="Multi-Rate Overlay"):
+                              title="Multi-Rate Overlay", display_settings: dict | None = None):
     """Overlay multiple heating rate curves."""
     fig = go.Figure()
     for i, (temp, sig, label) in enumerate(zip(temperature_list, signal_list, rate_labels)):
@@ -475,12 +617,12 @@ def create_multirate_overlay(temperature_list, signal_list, rate_labels,
             line=dict(color=THERMAL_COLORS[i % len(THERMAL_COLORS)], width=2.3),
         ))
     fig.update_layout(xaxis_title="Temperature (°C)", yaxis_title="Signal")
-    apply_professional_plot_theme(fig, title=title, legend_mode="auto")
+    apply_plot_display_settings(fig, display_settings, title=title)
     apply_plotly_config(fig)
     return fig
 
 
-def create_overlay_plot(series, title="Run Comparison", x_label="Temperature (°C)", y_label="Signal"):
+def create_overlay_plot(series, title="Run Comparison", x_label="Temperature (°C)", y_label="Signal", display_settings: dict | None = None):
     """Overlay multiple thermal runs on the same axes."""
     fig = go.Figure()
     for i, item in enumerate(series):
@@ -499,13 +641,13 @@ def create_overlay_plot(series, title="Run Comparison", x_label="Temperature (°
             )
         )
     fig.update_layout(xaxis_title=x_label, yaxis_title=y_label)
-    apply_professional_plot_theme(fig, title=title, legend_mode="auto")
+    apply_plot_display_settings(fig, display_settings, title=title)
     apply_plotly_config(fig)
     return fig
 
 
 def create_deconvolution_plot(temperature, signal, fitted, components,
-                               title="Peak Deconvolution"):
+                               title="Peak Deconvolution", display_settings: dict | None = None):
     """Plot original signal with fitted sum and individual peak components."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -524,7 +666,7 @@ def create_deconvolution_plot(temperature, signal, fitted, components,
             fill="tozeroy", opacity=0.18,
         ))
     fig.update_layout(xaxis_title="Temperature (°C)", yaxis_title="Signal")
-    apply_professional_plot_theme(fig, title=title, legend_mode="auto")
+    apply_plot_display_settings(fig, display_settings, title=title)
     apply_plotly_config(fig)
     return fig
 
@@ -532,7 +674,11 @@ def create_deconvolution_plot(temperature, signal, fitted, components,
 def fig_to_bytes(fig, format="png", width=1000, height=600):
     """Export a Plotly figure to bytes (PNG or SVG)."""
     export_fig = go.Figure(fig)
-    apply_professional_plot_theme(export_fig, for_export=True, compact=False, legend_mode="auto")
+    export_settings = {}
+    meta = getattr(fig.layout, "meta", None)
+    if isinstance(meta, dict):
+        export_settings = meta.get("plot_display_settings") or {}
+    apply_plot_display_settings(export_fig, export_settings, for_export=True, scale_traces=False)
     export_width = max(int(width), _DEFAULT_EXPORT_WIDTH)
     export_height = max(int(height), _DEFAULT_EXPORT_HEIGHT)
     return export_fig.to_image(format=format, width=export_width, height=export_height, engine="kaleido")

@@ -20,7 +20,19 @@ from utils.session_state import ensure_session_state
 
 def _validate_import_stage(dataset):
     """Run import-time safety checks without requiring analysis processing context."""
-    return validate_thermal_dataset(dataset, analysis_type="UNKNOWN")
+    metadata = getattr(dataset, "metadata", {}) or {}
+    inferred_type = str(
+        metadata.get("inferred_analysis_type")
+        or getattr(dataset, "data_type", "UNKNOWN")
+        or "UNKNOWN"
+    ).upper()
+    if inferred_type not in {"DSC", "TGA", "DTA", "FTIR", "RAMAN", "XRD"}:
+        inferred_type = str(getattr(dataset, "data_type", "UNKNOWN") or "UNKNOWN").upper()
+    return validate_thermal_dataset(
+        dataset,
+        analysis_type=inferred_type,
+        enforce_workflow_context=False,
+    )
 
 
 def render():
