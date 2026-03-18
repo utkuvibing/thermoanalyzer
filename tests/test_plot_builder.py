@@ -92,3 +92,82 @@ def test_fig_to_bytes_uses_report_safe_export_dimensions(monkeypatch):
     assert captured["width"] >= plot_builder.PLOTLY_CONFIG["toImageButtonOptions"]["width"]
     assert captured["height"] >= plot_builder.PLOTLY_CONFIG["toImageButtonOptions"]["height"]
     assert "Export Figure" in captured["title"]
+
+
+def test_apply_plot_display_settings_respects_user_layout_preferences():
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[4000, 3000, 2000], y=[0.1, 0.4, 0.2], mode="lines+markers", name="Spectrum"))
+
+    plot_builder.apply_plot_display_settings(
+        fig,
+        {
+            "legend_mode": "hidden",
+            "compact": True,
+            "show_grid": False,
+            "show_spikes": False,
+            "line_width_scale": 1.4,
+            "marker_size_scale": 1.5,
+            "reverse_x_axis": True,
+        },
+        title="Configured Spectrum",
+    )
+
+    assert fig.layout.showlegend is False
+    assert fig.layout.height == 520
+    assert fig.layout.xaxis.showgrid is False
+    assert fig.layout.yaxis.showgrid is False
+    assert fig.layout.xaxis.showspikes is False
+    assert fig.layout.yaxis.showspikes is False
+    assert fig.layout.xaxis.autorange == "reversed"
+    assert float(fig.data[0].line.width) > 2.0
+    assert float(fig.data[0].marker.size) >= 10.0
+
+
+def test_apply_plot_display_settings_supports_locked_axis_ranges():
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[50, 500, 1500, 3000], y=[5.0, 15.0, 9.0, 3.0], mode="lines", name="Spectrum"))
+
+    plot_builder.apply_plot_display_settings(
+        fig,
+        {
+            "x_range_enabled": True,
+            "x_min": 100.0,
+            "x_max": 1800.0,
+            "y_range_enabled": True,
+            "y_min": 2.0,
+            "y_max": 18.0,
+        },
+    )
+
+    assert list(fig.layout.xaxis.range) == [100.0, 1800.0]
+    assert list(fig.layout.yaxis.range) == [2.0, 18.0]
+
+
+def test_build_plotly_config_applies_export_scale_and_filename():
+    config = plot_builder.build_plotly_config(
+        {"export_scale": 4},
+        filename="materialscope_ftir_demo",
+    )
+
+    assert config["toImageButtonOptions"]["scale"] == 4
+    assert config["toImageButtonOptions"]["filename"] == "materialscope_ftir_demo"
+
+
+def test_create_thermal_plot_applies_display_settings_and_persists_them_for_export():
+    fig = plot_builder.create_thermal_plot(
+        [4000, 3000, 2000],
+        [0.1, 0.4, 0.2],
+        title="Configured Thermal",
+        display_settings={
+            "legend_mode": "hidden",
+            "show_grid": False,
+            "reverse_x_axis": True,
+            "line_width_scale": 1.3,
+        },
+    )
+
+    assert fig.layout.showlegend is False
+    assert fig.layout.xaxis.showgrid is False
+    assert fig.layout.xaxis.autorange == "reversed"
+    assert float(fig.data[0].line.width) > 3.0
+    assert fig.layout.meta["plot_display_settings"]["reverse_x_axis"] is True

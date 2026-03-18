@@ -21,7 +21,12 @@ from core.validation import validate_thermal_dataset
 from ui.components.chrome import render_page_header
 from ui.components.history_tracker import _log_event
 from ui.components.preset_manager import render_processing_preset_panel, seed_pending_workflow_template
-from ui.components.plot_builder import PLOTLY_CONFIG, create_thermal_plot
+from ui.components.plot_builder import (
+    apply_plot_display_settings,
+    build_plotly_config,
+    create_thermal_plot,
+    default_plot_display_settings,
+)
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 
@@ -97,7 +102,8 @@ def _to_array(value):
     return None
 
 
-def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
+def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str, plot_settings: dict | None = None):
+    plot_settings = default_plot_display_settings(plot_settings, reverse_x_axis=(analysis_type == "FTIR"))
     axis = np.asarray(dataset.data["temperature"].values, dtype=float)
     raw = np.asarray(dataset.data["signal"].values, dtype=float)
     fig = create_thermal_plot(
@@ -108,13 +114,15 @@ def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
         y_label=_y_axis_label(analysis_type, dataset),
         name=tx("Ham", "Raw"),
     )
+    if not plot_settings.get("show_raw", True):
+        fig.data = tuple()
 
     smoothed = _to_array((state or {}).get("smoothed"))
     corrected = _to_array((state or {}).get("corrected"))
     normalized = _to_array((state or {}).get("normalized"))
     peaks = (state or {}).get("peaks") or []
 
-    if smoothed is not None and smoothed.shape[0] == axis.shape[0]:
+    if plot_settings.get("show_smoothed", True) and smoothed is not None and smoothed.shape[0] == axis.shape[0]:
         fig.add_trace(
             go.Scatter(
                 x=axis,
@@ -124,7 +132,7 @@ def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
                 line=dict(color="#0EA5E9", width=1.7),
             )
         )
-    if corrected is not None and corrected.shape[0] == axis.shape[0]:
+    if plot_settings.get("show_corrected", True) and corrected is not None and corrected.shape[0] == axis.shape[0]:
         fig.add_trace(
             go.Scatter(
                 x=axis,
@@ -134,7 +142,7 @@ def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
                 line=dict(color="#16A34A", width=1.8),
             )
         )
-    if normalized is not None and normalized.shape[0] == axis.shape[0]:
+    if plot_settings.get("show_normalized", True) and normalized is not None and normalized.shape[0] == axis.shape[0]:
         fig.add_trace(
             go.Scatter(
                 x=axis,
@@ -144,7 +152,7 @@ def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
                 line=dict(color="#7C3AED", width=1.6, dash="dot"),
             )
         )
-    if peaks:
+    if plot_settings.get("show_peaks", True) and peaks:
         fig.add_trace(
             go.Scatter(
                 x=[float(item.get("position", 0.0)) for item in peaks],
@@ -154,6 +162,7 @@ def _build_plot(dataset_key: str, dataset, state: dict, analysis_type: str):
                 marker=dict(color="#DC2626", size=8, symbol="diamond"),
             )
         )
+    apply_plot_display_settings(fig, plot_settings)
     return fig
 
 
@@ -162,6 +171,182 @@ def _merge_with_defaults(existing, defaults):
     if isinstance(existing, dict):
         payload.update(existing)
     return payload
+
+
+def _spectral_plot_settings_key(page_slug: str, dataset_key: str) -> str:
+    return f"{page_slug}_plot_settings_{dataset_key}"
+
+
+def _resolve_spectral_plot_settings(page_slug: str, dataset_key: str, analysis_type: str) -> dict:
+    settings_key = _spectral_plot_settings_key(page_slug, dataset_key)
+    current = st.session_state.get(settings_key)
+    defaults = default_plot_display_settings(current, reverse_x_axis=(analysis_type == "FTIR"))
+    st.session_state[settings_key] = defaults
+    return defaults
+
+
+def _render_spectral_plot_settings(page_slug: str, dataset_key: str, analysis_type: str) -> dict:
+    current = _resolve_spectral_plot_settings(page_slug, dataset_key, analysis_type)
+    legend_labels = {
+        "auto": tx("Otomatik", "Auto"),
+        "external": tx("Dış Sağ", "External Right"),
+        "compact": tx("Kompakt", "Compact"),
+        "hidden": tx("Gizli", "Hidden"),
+    }
+    with st.expander(tx("Grafik Ayarları", "Plot Settings"), expanded=False):
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            legend_mode = st.selectbox(
+                tx("Lejant", "Legend"),
+                ["auto", "external", "compact", "hidden"],
+                index=["auto", "external", "compact", "hidden"].index(current["legend_mode"]),
+                format_func=lambda key: legend_labels.get(key, key),
+                key=f"{page_slug}_legend_mode_{dataset_key}",
+            )
+            compact = st.checkbox(
+                tx("Kompakt görünüm", "Compact layout"),
+                value=bool(current["compact"]),
+                key=f"{page_slug}_plot_compact_{dataset_key}",
+            )
+            show_grid = st.checkbox(
+                tx("Izgarayı göster", "Show grid"),
+                value=bool(current["show_grid"]),
+                key=f"{page_slug}_plot_grid_{dataset_key}",
+            )
+        with col_b:
+            line_width_scale = st.slider(
+                tx("Çizgi kalınlığı", "Line width"),
+                min_value=0.6,
+                max_value=1.8,
+                value=float(current["line_width_scale"]),
+                step=0.1,
+                key=f"{page_slug}_plot_line_scale_{dataset_key}",
+            )
+            marker_size_scale = st.slider(
+                tx("İşaretçi boyutu", "Marker size"),
+                min_value=0.6,
+                max_value=1.8,
+                value=float(current["marker_size_scale"]),
+                step=0.1,
+                key=f"{page_slug}_plot_marker_scale_{dataset_key}",
+            )
+            export_scale = st.select_slider(
+                tx("Export ölçeği", "Export scale"),
+                options=[1, 2, 3, 4],
+                value=int(current["export_scale"]),
+                key=f"{page_slug}_plot_export_scale_{dataset_key}",
+            )
+            show_spikes = st.checkbox(
+                tx("Crosshair çizgilerini göster", "Show crosshair spikes"),
+                value=bool(current.get("show_spikes", True)),
+                key=f"{page_slug}_plot_show_spikes_{dataset_key}",
+            )
+        with col_c:
+            reverse_x_axis = st.checkbox(
+                tx("X eksenini ters çevir", "Reverse x-axis"),
+                value=bool(current["reverse_x_axis"]),
+                key=f"{page_slug}_plot_reverse_x_{dataset_key}",
+                help=tx(
+                    "FTIR için yüksek dalgasayısını solda göstermek üzere faydalıdır.",
+                    "Useful for showing high wavenumber on the left in FTIR views.",
+                ),
+            )
+            show_smoothed = st.checkbox(
+                tx("Yumuşatılmış izi göster", "Show smoothed trace"),
+                value=bool(current.get("show_smoothed", True)),
+                key=f"{page_slug}_plot_show_smoothed_{dataset_key}",
+            )
+            show_corrected = st.checkbox(
+                tx("Düzeltilmiş izi göster", "Show corrected trace"),
+                value=bool(current.get("show_corrected", True)),
+                key=f"{page_slug}_plot_show_corrected_{dataset_key}",
+            )
+            show_normalized = st.checkbox(
+                tx("Normalize izi göster", "Show normalized trace"),
+                value=bool(current.get("show_normalized", True)),
+                key=f"{page_slug}_plot_show_normalized_{dataset_key}",
+            )
+            show_raw = st.checkbox(
+                tx("Ham izi göster", "Show raw trace"),
+                value=bool(current.get("show_raw", True)),
+                key=f"{page_slug}_plot_show_raw_{dataset_key}",
+            )
+            show_peaks = st.checkbox(
+                tx("Pik işaretçilerini göster", "Show peak markers"),
+                value=bool(current.get("show_peaks", True)),
+                key=f"{page_slug}_plot_show_peaks_{dataset_key}",
+            )
+
+        axis = np.asarray(st.session_state.datasets[dataset_key].data["temperature"].values, dtype=float)
+        signal = np.asarray(st.session_state.datasets[dataset_key].data["signal"].values, dtype=float)
+        range_col_a, range_col_b, range_col_c = st.columns(3)
+        with range_col_a:
+            x_range_enabled = st.checkbox(
+                tx("X aralığını sabitle", "Lock X range"),
+                value=bool(current.get("x_range_enabled", False)),
+                key=f"{page_slug}_plot_x_range_enabled_{dataset_key}",
+            )
+            y_range_enabled = st.checkbox(
+                tx("Y aralığını sabitle", "Lock Y range"),
+                value=bool(current.get("y_range_enabled", False)),
+                key=f"{page_slug}_plot_y_range_enabled_{dataset_key}",
+            )
+        with range_col_b:
+            x_min = st.number_input(
+                tx("X min", "X min"),
+                value=float(current.get("x_min") if current.get("x_min") is not None else np.nanmin(axis)),
+                format="%.3f",
+                disabled=not x_range_enabled,
+                key=f"{page_slug}_plot_x_min_{dataset_key}",
+            )
+            y_min = st.number_input(
+                tx("Y min", "Y min"),
+                value=float(current.get("y_min") if current.get("y_min") is not None else np.nanmin(signal)),
+                format="%.6f",
+                disabled=not y_range_enabled,
+                key=f"{page_slug}_plot_y_min_{dataset_key}",
+            )
+        with range_col_c:
+            x_max = st.number_input(
+                tx("X max", "X max"),
+                value=float(current.get("x_max") if current.get("x_max") is not None else np.nanmax(axis)),
+                format="%.3f",
+                disabled=not x_range_enabled,
+                key=f"{page_slug}_plot_x_max_{dataset_key}",
+            )
+            y_max = st.number_input(
+                tx("Y max", "Y max"),
+                value=float(current.get("y_max") if current.get("y_max") is not None else np.nanmax(signal)),
+                format="%.6f",
+                disabled=not y_range_enabled,
+                key=f"{page_slug}_plot_y_max_{dataset_key}",
+            )
+
+    settings = default_plot_display_settings(
+        {
+            "legend_mode": legend_mode,
+            "compact": compact,
+            "show_grid": show_grid,
+            "show_spikes": show_spikes,
+            "line_width_scale": line_width_scale,
+            "marker_size_scale": marker_size_scale,
+            "export_scale": export_scale,
+            "reverse_x_axis": reverse_x_axis,
+            "x_range_enabled": x_range_enabled,
+            "x_min": x_min if x_range_enabled else None,
+            "x_max": x_max if x_range_enabled else None,
+            "y_range_enabled": y_range_enabled,
+            "y_min": y_min if y_range_enabled else None,
+            "y_max": y_max if y_range_enabled else None,
+            "show_raw": show_raw,
+            "show_smoothed": show_smoothed,
+            "show_corrected": show_corrected,
+            "show_normalized": show_normalized,
+            "show_peaks": show_peaks,
+        }
+    )
+    st.session_state[_spectral_plot_settings_key(page_slug, dataset_key)] = settings
+    return settings
 
 
 def _seed_spectral_processing_defaults(token: str, processing, workflow_template_id: str, dataset):
@@ -273,6 +458,9 @@ def render_spectral_page(
             for warning in dataset_validation["warnings"]:
                 st.warning(warning)
 
+    plot_settings = _render_spectral_plot_settings(page_slug, selected_key, token)
+    plot_config = build_plotly_config(plot_settings, filename=f"materialscope_{page_slug}_{selected_key}")
+
     tab_raw, tab_pipeline, tab_processed, tab_matches, tab_results = st.tabs(
         [
             tx("Ham Veri", "Raw Data"),
@@ -284,16 +472,18 @@ def render_spectral_page(
     )
 
     with tab_raw:
+        raw_fig = create_thermal_plot(
+            dataset.data["temperature"].values,
+            dataset.data["signal"].values,
+            title=tx("Ham {analysis_type} - {dataset}", "Raw {analysis_type} - {dataset}", analysis_type=token, dataset=selected_key),
+            x_label=_x_axis_label(token, dataset),
+            y_label=_y_axis_label(token, dataset),
+        )
+        apply_plot_display_settings(raw_fig, plot_settings)
         st.plotly_chart(
-            create_thermal_plot(
-                dataset.data["temperature"].values,
-                dataset.data["signal"].values,
-                title=tx("Ham {analysis_type} - {dataset}", "Raw {analysis_type} - {dataset}", analysis_type=token, dataset=selected_key),
-                x_label=_x_axis_label(token, dataset),
-                y_label=_y_axis_label(token, dataset),
-            ),
+            raw_fig,
             width="stretch",
-            config=PLOTLY_CONFIG,
+            config=plot_config,
             key=f"{page_slug}_raw_chart_{selected_key}",
         )
 
@@ -495,18 +685,18 @@ def render_spectral_page(
                 )
             )
             st.plotly_chart(
-                _build_plot(selected_key, dataset, st.session_state.get(state_key, {}), token),
+                _build_plot(selected_key, dataset, st.session_state.get(state_key, {}), token, plot_settings),
                 width="stretch",
-                config=PLOTLY_CONFIG,
+                config=plot_config,
                 key=f"{page_slug}_pipeline_plot_{selected_key}",
             )
 
     with tab_processed:
         current = st.session_state.get(state_key, {})
         st.plotly_chart(
-            _build_plot(selected_key, dataset, current, token),
+            _build_plot(selected_key, dataset, current, token, plot_settings),
             width="stretch",
-            config=PLOTLY_CONFIG,
+            config=plot_config,
             key=f"{page_slug}_processed_plot_{selected_key}",
         )
         peaks = current.get("peaks") or []

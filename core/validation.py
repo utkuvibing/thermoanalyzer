@@ -14,6 +14,8 @@ from core.tga_processor import resolve_tga_unit_interpretation
 
 
 SUPPORTED_ANALYSIS_TYPES = {"DSC", "TGA", "DTA", "FTIR", "RAMAN", "XRD", "UNKNOWN", "unknown"}
+_THERMAL_ANALYSIS_TYPES = {"DSC", "TGA", "DTA"}
+_SPECTRAL_ANALYSIS_TYPES = {"FTIR", "RAMAN"}
 TEMPERATURE_MIN_C = -200.0
 TEMPERATURE_MAX_C = 2000.0
 TEMPERATURE_UNITS = {"°C", "degC", "K"}
@@ -118,6 +120,52 @@ def _processing_section(processing: dict[str, Any] | None, key: str) -> dict[str
 
     value = processing.get(key)
     return value if isinstance(value, dict) else {}
+
+
+def _check_dataset_axis(
+    *,
+    temperature: pd.Series,
+    analysis_type: str,
+    checks: dict[str, Any],
+    issues: list[str],
+) -> None:
+    if temperature.isna().any():
+        if analysis_type in _SPECTRAL_ANALYSIS_TYPES or analysis_type == "XRD":
+            issues.append("Axis column contains non-numeric or missing values.")
+        else:
+            issues.append("Temperature column contains non-numeric or missing values.")
+        return
+
+    diffs = temperature.diff().dropna()
+    axis_min = float(temperature.min())
+    axis_max = float(temperature.max())
+    checks["temperature_min"] = axis_min
+    checks["temperature_max"] = axis_max
+
+    increasing = bool(not diffs.empty and (diffs > 0).all())
+    decreasing = bool(not diffs.empty and (diffs < 0).all())
+    if diffs.empty:
+        checks["axis_direction"] = "single_point"
+        return
+
+    if analysis_type in _SPECTRAL_ANALYSIS_TYPES:
+        checks["axis_direction"] = "increasing" if increasing else "decreasing" if decreasing else "mixed"
+        if not increasing and not decreasing:
+            issues.append(f"{analysis_type} spectral axis must be strictly monotonic.")
+        return
+
+    checks["axis_direction"] = "increasing" if increasing else "mixed"
+    if not increasing:
+        if analysis_type == "XRD":
+            issues.append("XRD axis must be strictly increasing.")
+        else:
+            issues.append("Temperature column must be strictly increasing.")
+
+    if analysis_type in _THERMAL_ANALYSIS_TYPES or analysis_type in {"UNKNOWN", "unknown"}:
+        if axis_min < TEMPERATURE_MIN_C or axis_max > TEMPERATURE_MAX_C:
+            issues.append(
+                f"Temperature range {axis_min:.1f} to {axis_max:.1f} is outside the supported thermal-analysis bounds."
+            )
 
 
 def _check_import_context(
@@ -950,6 +998,7 @@ def validate_thermal_dataset(
     require_sample_mass: bool = False,
     require_heating_rate: bool = False,
     processing: dict[str, Any] | None = None,
+    enforce_workflow_context: bool = True,
 ) -> dict[str, Any]:
     """Return a structured validation summary for a ThermalDataset-like object."""
     issues: list[str] = []
@@ -970,6 +1019,7 @@ def validate_thermal_dataset(
     metadata = getattr(dataset, "metadata", {}) or {}
     units = getattr(dataset, "units", {}) or {}
     dataset_type = getattr(dataset, "data_type", "unknown")
+    normalized_analysis_type = (analysis_type or dataset_type or "unknown").upper()
 
     checks["dataset_type"] = dataset_type
 
@@ -998,21 +1048,12 @@ def validate_thermal_dataset(
 
     temperature = pd.to_numeric(data["temperature"], errors="coerce")
     signal = pd.to_numeric(data["signal"], errors="coerce")
-
-    if temperature.isna().any():
-        issues.append("Temperature column contains non-numeric or missing values.")
-    else:
-        diffs = temperature.diff().dropna()
-        if (diffs <= 0).any():
-            issues.append("Temperature column must be strictly increasing.")
-        temp_min = float(temperature.min())
-        temp_max = float(temperature.max())
-        checks["temperature_min"] = temp_min
-        checks["temperature_max"] = temp_max
-        if temp_min < TEMPERATURE_MIN_C or temp_max > TEMPERATURE_MAX_C:
-            issues.append(
-                f"Temperature range {temp_min:.1f} to {temp_max:.1f} is outside the supported thermal-analysis bounds."
-            )
+    _check_dataset_axis(
+        temperature=temperature,
+        analysis_type=normalized_analysis_type,
+        checks=checks,
+        issues=issues,
+    )
 
     if signal.isna().all():
         issues.append("Signal column contains no usable numeric values.")
@@ -1020,7 +1061,6 @@ def validate_thermal_dataset(
         warnings.append("Signal column contains missing values; affected rows were dropped during import.")
     checks["data_points"] = int(len(data))
 
-    normalized_analysis_type = (analysis_type or dataset_type or "unknown").upper()
     if normalized_analysis_type not in SUPPORTED_ANALYSIS_TYPES:
         warnings.append(f"Dataset type '{normalized_analysis_type}' is not part of the stable workflow.")
     normalized_processing = None
@@ -1058,7 +1098,7 @@ def validate_thermal_dataset(
     if sample_mass is None:
         if require_sample_mass:
             issues.append("Sample mass is required for this workflow.")
-        else:
+        elif normalized_analysis_type in _THERMAL_ANALYSIS_TYPES:
             warnings.append("Sample mass is not recorded; mass-normalized workflows may be limited.")
     elif sample_mass <= 0:
         issues.append("Sample mass must be positive.")
@@ -1068,10 +1108,20 @@ def validate_thermal_dataset(
     if heating_rate is None:
         if require_heating_rate:
             issues.append("Heating rate is required for this workflow.")
-        else:
+        elif normalized_analysis_type in _THERMAL_ANALYSIS_TYPES:
             warnings.append("Heating rate is not recorded; kinetic and comparison workflows may be limited.")
     elif heating_rate <= 0:
         issues.append("Heating rate must be positive.")
+
+    if not enforce_workflow_context:
+        return {
+            "status": _validation_status(issues=issues, warnings=warnings),
+            "issues": issues,
+            "warnings": warnings,
+            "checks": checks,
+            "required_metadata": list(RECOMMENDED_METADATA_FIELDS),
+            "optional_metadata": list(OPTIONAL_METADATA_FIELDS),
+        }
 
     if normalized_analysis_type == "DSC":
         _check_dsc_workflow(
@@ -1100,7 +1150,7 @@ def validate_thermal_dataset(
             issues=issues,
             warnings=warnings,
         )
-    elif normalized_analysis_type in {"FTIR", "RAMAN"}:
+    elif normalized_analysis_type in _SPECTRAL_ANALYSIS_TYPES:
         _check_spectral_workflow(
             analysis_type=normalized_analysis_type,
             metadata=metadata,
