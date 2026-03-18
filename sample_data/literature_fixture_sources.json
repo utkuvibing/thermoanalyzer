@@ -1,0 +1,124 @@
+{
+  "sources": [
+    {
+      "source_id": "fixture_xrd_phase_alpha_oa",
+      "title": "Open-access qualitative XRD screening of Phase Alpha analogues",
+      "authors": ["A. Demir", "B. Kaya"],
+      "journal": "Journal of Synthetic Diffraction",
+      "year": 2024,
+      "doi": "10.1000/phasealpha.2024.001",
+      "url": "https://example.test/literature/phase-alpha-oa",
+      "access_class": "open_access_full_text",
+      "available_fields": ["metadata", "abstract", "oa_full_text"],
+      "abstract_text": "Open-access screening literature reports agreement with Phase Alpha under Cu K-alpha conditions.",
+      "oa_full_text": "Phase Alpha shows strong agreement with observed peak positions when multiple shared peaks are retained and major reference peaks remain matched. The report supports qualitative follow-up verification rather than definitive identification.",
+      "source_license_note": "Open-access article used for fixture comparison.",
+      "citation_text": "",
+      "provenance": {
+        "modalities": ["XRD"],
+        "keywords": ["phase alpha", "xrd", "qualitative screening", "shared peaks"],
+        "comparison_hint": "supports"
+      }
+    },
+    {
+      "source_id": "fixture_xrd_phase_alpha_partial",
+      "title": "Abstract-only note on partial XRD overlap for Phase Alpha",
+      "authors": ["C. Yildiz"],
+      "journal": "Powder Notes",
+      "year": 2023,
+      "doi": "10.1000/phasealpha.2023.014",
+      "url": "https://example.test/literature/phase-alpha-partial",
+      "access_class": "abstract_only",
+      "available_fields": ["metadata", "abstract"],
+      "abstract_text": "The reported pattern gives partial overlap with Phase Alpha and remains tentative in mixed or low-coverage datasets.",
+      "oa_full_text": "",
+      "source_license_note": "Abstract-level accessible metadata.",
+      "citation_text": "",
+      "provenance": {
+        "modalities": ["XRD"],
+        "keywords": ["phase alpha", "partial overlap", "xrd", "tentative"],
+        "comparison_hint": "partially_supports"
+      }
+    },
+    {
+      "source_id": "fixture_xrd_phase_beta_alt",
+      "title": "Alternative XRD interpretation toward Phase Beta",
+      "authors": ["D. Arslan", "E. Sen"],
+      "journal": "Materials Screening Letters",
+      "year": 2025,
+      "doi": "10.1000/phasebeta.2025.009",
+      "url": "https://example.test/literature/phase-beta-alt",
+      "access_class": "abstract_only",
+      "available_fields": ["metadata", "abstract"],
+      "abstract_text": "When major reference peaks for Phase Alpha are absent, the literature favors an alternative Phase Beta interpretation and contradicts a retained Phase Alpha call.",
+      "oa_full_text": "",
+      "source_license_note": "Abstract-level accessible metadata.",
+      "citation_text": "",
+      "provenance": {
+        "modalities": ["XRD"],
+        "keywords": ["phase beta", "phase alpha", "alternative phase", "xrd"],
+        "comparison_hint": "contradicts"
+      }
+    },
+    {
+      "source_id": "fixture_ftir_related",
+      "title": "Related FTIR observations for polymer matrices",
+      "authors": ["F. Tas"],
+      "journal": "Applied Polymer Notes",
+      "year": 2022,
+      "doi": "10.1000/ftir.2022.021",
+      "url": "https://example.test/literature/ftir-related",
+      "access_class": "metadata_only",
+      "available_fields": ["metadata", "abstract"],
+      "abstract_text": "Related FTIR literature discusses polymer matrices but remains inconclusive for specific match assignment.",
+      "oa_full_text": "",
+      "source_license_note": "Metadata/short abstract fixture.",
+      "citation_text": "",
+      "provenance": {
+        "modalities": ["FTIR", "RAMAN"],
+        "keywords": ["ftir", "polymer", "related"],
+        "comparison_hint": "related_but_inconclusive"
+      }
+    },
+    {
+      "source_id": "fixture_restricted_phase_alpha",
+      "title": "Restricted external monograph on Phase Alpha",
+      "authors": ["G. Restricted"],
+      "journal": "Closed Database",
+      "year": 2021,
+      "doi": "10.1000/restricted.2021.001",
+      "url": "https://example.test/literature/restricted-phase-alpha",
+      "access_class": "restricted_external",
+      "available_fields": ["metadata"],
+      "abstract_text": "",
+      "oa_full_text": "",
+      "source_license_note": "Restricted external reference. Do not fetch full text.",
+      "citation_text": "",
+      "provenance": {
+        "modalities": ["XRD"],
+        "keywords": ["phase alpha", "restricted", "xrd"],
+        "comparison_hint": "supports"
+      }
+    },
+    {
+      "source_id": "fixture_user_doc_alpha",
+      "title": "User-supplied lab note on Phase Alpha screening",
+      "authors": ["Internal Lab"],
+      "journal": "User Document",
+      "year": 2026,
+      "doi": "",
+      "url": "local://user-docs/phase-alpha-note",
+      "access_class": "user_provided_document",
+      "available_fields": ["metadata", "user_document"],
+      "abstract_text": "User document notes partial consistency with Phase Alpha.",
+      "oa_full_text": "The uploaded laboratory note is consistent with Phase Alpha only at a qualitative screening level, and additional confirmatory experiments may be required.",
+      "source_license_note": "User-provided document.",
+      "citation_text": "",
+      "provenance": {
+        "modalities": ["XRD"],
+        "keywords": ["phase alpha", "user document", "qualitative screening"],
+        "comparison_hint": "partially_supports"
+      }
+    }
+  ]
+}

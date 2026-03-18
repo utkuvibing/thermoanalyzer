@@ -55,6 +55,8 @@ from backend.models import (
     LibraryStatusResponse,
     LibrarySyncRequest,
     LibrarySyncResponse,
+    LiteratureCompareRequest,
+    LiteratureCompareResponse,
     ProjectLoadRequest,
     ProjectLoadResponse,
     ProjectSaveRequest,
@@ -82,6 +84,8 @@ from backend.workspace_context import build_workspace_context, set_active_datase
 from core.data_io import read_thermal_data
 from core.execution_engine import run_batch_analysis, run_single_analysis
 from core.modalities import stable_analysis_types
+from core.literature_compare import attach_literature_package, compare_result_to_literature
+from core.literature_provider import FixtureLiteratureProvider
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
 from core.reference_library import ReferenceLibraryManager, get_reference_library_manager
 from core.result_serialization import split_valid_results
@@ -489,6 +493,56 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return ResultDetailResponse(project_id=project_id, **payload)
+
+    @app.post("/workspace/{project_id}/results/{result_id}/literature/compare", response_model=LiteratureCompareResponse)
+    def result_literature_compare(
+        project_id: str,
+        result_id: str,
+        request: LiteratureCompareRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> LiteratureCompareResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        valid_results, issues = split_valid_results(state.get("results", {}))
+        record = valid_results.get(result_id)
+        if record is None:
+            if result_id in (state.get("results", {}) or {}):
+                issue_text = "; ".join([issue for issue in issues if issue.startswith(f"{result_id}:")]) or "invalid result record"
+                raise HTTPException(status_code=400, detail=f"Result '{result_id}' is present but invalid: {issue_text}")
+            raise HTTPException(status_code=404, detail=f"Unknown result_id: {result_id}")
+
+        provider_ids = [str(item).strip() for item in (request.provider_ids or []) if str(item).strip()]
+        if provider_ids and provider_ids != ["fixture_provider"]:
+            raise HTTPException(status_code=400, detail="Only fixture_provider is available in this MVP.")
+
+        package = compare_result_to_literature(
+            record,
+            provider=FixtureLiteratureProvider(),
+            provider_scope=provider_ids or None,
+        )
+
+        if request.persist:
+            state.setdefault("results", {})[result_id] = attach_literature_package(
+                state.get("results", {}).get(result_id) or record,
+                package,
+            )
+            add_history_event(
+                state,
+                action="Literature Compared",
+                details=f"Literature comparison persisted for {result_id}",
+                dataset_key=record.get("dataset_key"),
+                result_id=result_id,
+            )
+            project_store.set(project_id, state)
+
+        return LiteratureCompareResponse(
+            project_id=project_id,
+            result_id=result_id,
+            literature_context=package.get("literature_context") or {},
+            literature_claims=package.get("literature_claims") or [],
+            literature_comparisons=package.get("literature_comparisons") or [],
+            citations=package.get("citations") or [],
+        )
 
     @app.get("/workspace/{project_id}/compare", response_model=CompareWorkspaceResponse)
     def compare_workspace_get(

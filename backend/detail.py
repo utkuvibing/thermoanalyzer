@@ -84,6 +84,10 @@ def build_result_detail(state: dict[str, Any], result_id: str) -> dict[str, Any]
         "provenance": copy.deepcopy(record.get("provenance") or {}),
         "validation": copy.deepcopy(record.get("validation") or {}),
         "review": copy.deepcopy(record.get("review") or {}),
+        "literature_context": copy.deepcopy(record.get("literature_context") or {}),
+        "literature_claims": copy.deepcopy(record.get("literature_claims") or []),
+        "literature_comparisons": copy.deepcopy(record.get("literature_comparisons") or []),
+        "citations": copy.deepcopy(record.get("citations") or []),
         "rows_preview": _records_preview(frame) if not frame.empty else [],
         "row_count": len(rows),
     }

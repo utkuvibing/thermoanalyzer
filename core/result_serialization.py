@@ -8,6 +8,12 @@ import math
 from typing import Any, Iterable, Mapping
 
 from core.dsc_processor import GlassTransition
+from core.literature_models import (
+    normalize_citations,
+    normalize_literature_claims,
+    normalize_literature_comparisons,
+    normalize_literature_context,
+)
 from core.peak_analysis import ThermalPeak
 from core.xrd_reference_dossier import (
     XRD_REFERENCE_DOSSIER_LIMIT,
@@ -49,6 +55,12 @@ OPTIONAL_RESULT_KEYS = {
     "review",
     "scientific_context",
     "report_payload",
+    "literature_context",
+}
+OPTIONAL_RESULT_LIST_KEYS = {
+    "literature_claims",
+    "literature_comparisons",
+    "citations",
 }
 
 VALID_STATUSES = {"stable", "experimental"}
@@ -100,6 +112,10 @@ def make_result_record(
     review: dict[str, Any] | None = None,
     scientific_context: dict[str, Any] | None = None,
     report_payload: dict[str, Any] | None = None,
+    literature_context: dict[str, Any] | None = None,
+    literature_claims: list[dict[str, Any]] | None = None,
+    literature_comparisons: list[dict[str, Any]] | None = None,
+    citations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Create a normalized result record."""
     if status not in VALID_STATUSES:
@@ -120,6 +136,10 @@ def make_result_record(
         "review": copy.deepcopy(review or {}),
         "scientific_context": normalize_scientific_context(scientific_context),
         "report_payload": copy.deepcopy(report_payload or {}),
+        "literature_context": normalize_literature_context(literature_context),
+        "literature_claims": normalize_literature_claims(literature_claims),
+        "literature_comparisons": normalize_literature_comparisons(literature_comparisons),
+        "citations": normalize_citations(citations),
     }
     record["report_payload"] = _normalize_xrd_report_payload(record)
     return record
@@ -1689,6 +1709,9 @@ def validate_result_record(result_id: str, record: Any) -> list[str]:
     for optional_key in OPTIONAL_RESULT_KEYS:
         if optional_key in record and not isinstance(record.get(optional_key), dict):
             issues.append(f"{result_id}: {optional_key} must be a dict")
+    for optional_key in OPTIONAL_RESULT_LIST_KEYS:
+        if optional_key in record and not isinstance(record.get(optional_key), list):
+            issues.append(f"{result_id}: {optional_key} must be a list")
 
     return issues
 
@@ -1709,9 +1732,25 @@ def split_valid_results(results: dict[str, Any]) -> tuple[dict[str, dict[str, An
         normalized.setdefault("validation", {})
         normalized.setdefault("review", {})
         normalized.setdefault("report_payload", {})
+        normalized.setdefault("literature_context", {})
+        normalized.setdefault("literature_claims", [])
+        normalized.setdefault("literature_comparisons", [])
+        normalized.setdefault("citations", [])
         normalized["report_payload"] = _normalize_xrd_report_payload(normalized)
         normalized["scientific_context"] = normalize_scientific_context(
             normalized.get("scientific_context")
+        )
+        normalized["literature_context"] = normalize_literature_context(
+            normalized.get("literature_context")
+        )
+        normalized["literature_claims"] = normalize_literature_claims(
+            normalized.get("literature_claims")
+        )
+        normalized["literature_comparisons"] = normalize_literature_comparisons(
+            normalized.get("literature_comparisons")
+        )
+        normalized["citations"] = normalize_citations(
+            normalized.get("citations")
         )
         valid[result_id] = normalized
     return valid, issues
@@ -1750,9 +1789,40 @@ def flatten_result_records(results: dict[str, dict[str, Any]]) -> list[dict[str,
             rows.append({**base, "section": "metadata", "row_index": "", "field": key, "value": _flat_value(value)})
         for key, value in record.get("summary", {}).items():
             rows.append({**base, "section": "summary", "row_index": "", "field": key, "value": _flat_value(value)})
-        for section_name in ("processing", "provenance", "validation", "review", "scientific_context", "report_payload"):
+        for section_name in (
+            "processing",
+            "provenance",
+            "validation",
+            "review",
+            "scientific_context",
+            "report_payload",
+            "literature_context",
+        ):
             for key, value in record.get(section_name, {}).items():
                 rows.append({**base, "section": section_name, "row_index": "", "field": key, "value": _flat_value(value)})
+        for section_name in ("literature_claims", "literature_comparisons", "citations"):
+            for index, item in enumerate(record.get(section_name, []), start=1):
+                if isinstance(item, Mapping):
+                    for key, value in item.items():
+                        rows.append(
+                            {
+                                **base,
+                                "section": section_name,
+                                "row_index": index,
+                                "field": key,
+                                "value": _flat_value(value),
+                            }
+                        )
+                else:
+                    rows.append(
+                        {
+                            **base,
+                            "section": section_name,
+                            "row_index": index,
+                            "field": "value",
+                            "value": _flat_value(item),
+                        }
+                    )
         for index, row in enumerate(record.get("rows", []), start=1):
             for key, value in row.items():
                 rows.append({**base, "section": "row", "row_index": index, "field": key, "value": _flat_value(value)})

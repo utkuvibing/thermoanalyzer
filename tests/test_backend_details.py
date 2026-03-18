@@ -5,7 +5,10 @@ import base64
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from backend.store import ProjectStore
 from core.modalities import stable_analysis_types
+from core.result_serialization import make_result_record
+from backend.workspace import normalize_workspace_state
 
 
 def _headers() -> dict[str, str]:
@@ -169,3 +172,49 @@ def test_compare_workspace_rejects_invalid_analysis_type():
     assert "analysis_type must be one of:" in detail
     for token in stable_analysis_types():
         assert token in detail
+
+
+def test_result_literature_compare_endpoint_persists_payload():
+    store = ProjectStore()
+    record = make_result_record(
+        result_id="xrd_demo",
+        analysis_type="XRD",
+        status="stable",
+        dataset_key="xrd_demo",
+        metadata={"sample_name": "Phase Alpha Sample"},
+        summary={"top_candidate_name": "Phase Alpha", "match_status": "matched"},
+        rows=[{"rank": 1, "candidate_name": "Phase Alpha", "normalized_score": 0.82}],
+        scientific_context={
+            "scientific_claims": [
+                {
+                    "id": "C1",
+                    "strength": "mechanistic",
+                    "claim": "Phase Alpha remains a qualitative XRD follow-up candidate rather than a confirmed phase call.",
+                    "evidence": ["Shared peaks remain consistent with the retained candidate."],
+                }
+            ],
+            "uncertainty_assessment": {"overall_confidence": "moderate", "items": ["Interpretation remains qualitative."]},
+        },
+        validation={"status": "pass", "warnings": [], "issues": []},
+    )
+    project_id = store.put(normalize_workspace_state({"results": {record["id"]: record}}))
+    client = TestClient(create_app(api_token="details-token", store=store))
+
+    response = client.post(
+        f"/workspace/{project_id}/results/{record['id']}/literature/compare",
+        headers=_headers(),
+        json={"persist": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result_id"] == record["id"]
+    assert payload["literature_context"]["mode"] == "metadata_abstract_oa_only"
+    assert payload["literature_claims"]
+    assert "support_label" in payload["literature_comparisons"][0]
+
+    detail = client.get(f"/workspace/{project_id}/results/{record['id']}", headers=_headers())
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["literature_context"]["mode"] == "metadata_abstract_oa_only"
+    assert detail_payload["literature_claims"]

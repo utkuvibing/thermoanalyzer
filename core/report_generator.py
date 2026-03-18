@@ -81,6 +81,10 @@ _BULLET_SECTION_TITLES = {
     "Alternative Explanations",
     "Uncertainty and Methodological Limits",
     "Recommended Follow-Up Experiments",
+    "Literature Comparison",
+    "Supporting References",
+    "Contradictory or Alternative References",
+    "Recommended Follow-Up Literature Checks",
 }
 
 
@@ -1855,12 +1859,17 @@ def _record_main_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
         "Equations and Formulation": 10,
         "Primary Scientific Interpretation": 20,
         "Evidence Supporting This Interpretation": 30,
+        "Literature Comparison": 35,
+        "Supporting References": 36,
+        "Contradictory or Alternative References": 37,
         "Alternative Explanations": 40,
         "Uncertainty and Methodological Limits": 50,
+        "Recommended Follow-Up Literature Checks": 55,
         "Recommended Follow-Up Experiments": 60,
         "Scientific Interpretation": 70,
         "Fit Quality": 80,
     }
+    ordered_sections.extend(_literature_main_sections(record))
     ordered_sections.sort(key=lambda item: section_priority.get(item[0], 999))
     sections.extend(ordered_sections)
 
@@ -1877,6 +1886,140 @@ def _record_main_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
         warning_payload["Methodological Limitations"] = grouped["methodological_limitations"]
     if warning_payload:
         sections.append(("Warnings and Limitations", warning_payload))
+    return sections
+
+
+def _citation_lookup(record: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    for item in record.get("citations") or []:
+        if not isinstance(item, Mapping):
+            continue
+        citation_id = normalize_report_text(item.get("citation_id") or "")
+        if not citation_id:
+            continue
+        lookup[citation_id] = dict(item)
+    return lookup
+
+
+def _citation_report_line(citation: Mapping[str, Any]) -> str:
+    citation_text = normalize_report_text(citation.get("citation_text") or citation.get("title") or "Citation not recorded")
+    access_class = normalize_report_text(citation.get("access_class") or "metadata_only")
+    return normalize_report_text(f"{citation_text} Access class: {access_class}.")
+
+
+def _literature_main_sections(record: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    comparisons = [dict(item) for item in (record.get("literature_comparisons") or []) if isinstance(item, Mapping)]
+    context = dict(record.get("literature_context") or {})
+    citations_by_id = _citation_lookup(record)
+    if not comparisons and not citations_by_id:
+        return []
+
+    sections: list[tuple[str, dict[str, Any]]] = []
+    comparison_payload: dict[str, Any] = {}
+    supporting_ids: list[str] = []
+    alternative_ids: list[str] = []
+
+    for item in comparisons:
+        claim_id = normalize_report_text(item.get("claim_id") or f"C{len(comparison_payload) + 1}")
+        label = normalize_report_text(item.get("support_label") or "related_but_inconclusive")
+        confidence = normalize_report_text(item.get("confidence") or "low")
+        rationale = normalize_report_text(item.get("rationale") or "No literature rationale recorded.")
+        citation_ids = [normalize_report_text(token) for token in (item.get("citation_ids") or []) if normalize_report_text(token)]
+        citation_note = f" Citations: {', '.join(citation_ids)}." if citation_ids else " No accessible citation was retained for this claim."
+        comparison_payload[f"{claim_id} ({label}, {confidence})"] = normalize_report_text(f"{rationale}{citation_note}")
+        if label in {"supports", "partially_supports"}:
+            for citation_id in citation_ids:
+                if citation_id not in supporting_ids:
+                    supporting_ids.append(citation_id)
+        else:
+            for citation_id in citation_ids:
+                if citation_id not in alternative_ids:
+                    alternative_ids.append(citation_id)
+
+    if comparison_payload:
+        sections.append(("Literature Comparison", comparison_payload))
+
+    supporting_payload = {
+        citation_id: _citation_report_line(citations_by_id[citation_id])
+        for citation_id in supporting_ids
+        if citation_id in citations_by_id
+    }
+    if not supporting_payload and comparisons:
+        supporting_payload["Note"] = (
+            "No supporting accessible references were retained for this run; evidence is limited and remains non-definitive."
+        )
+    if supporting_payload:
+        sections.append(("Supporting References", supporting_payload))
+
+    alternative_payload = {
+        citation_id: _citation_report_line(citations_by_id[citation_id])
+        for citation_id in alternative_ids
+        if citation_id in citations_by_id
+    }
+    if not alternative_payload and comparisons:
+        alternative_payload["Note"] = (
+            "No contradictory accessible references were retained, but the current comparison still remains qualitative and cautionary."
+        )
+    if alternative_payload:
+        sections.append(("Contradictory or Alternative References", alternative_payload))
+
+    follow_up_checks: dict[str, Any] = {}
+    if any(not (item.get("citation_ids") or []) for item in comparisons):
+        follow_up_checks["Check 1"] = (
+            "At least one claim remained citation-limited; additional confirmatory experiments may be required before stronger literature alignment is inferred."
+        )
+    if any(str(item.get("confidence") or "").lower() == "low" for item in comparisons):
+        follow_up_checks["Check 2"] = (
+            "Low-confidence literature outcomes should be treated as screening context only, not as confirmation."
+        )
+    citation_access_classes = {
+        normalize_report_text(item.get("access_class") or "")
+        for item in citations_by_id.values()
+    }
+    if citation_access_classes & {"abstract_only", "metadata_only"}:
+        follow_up_checks["Check 3"] = (
+            "Some literature reasoning relies on metadata or abstract-level evidence only; broader open-access or user-provided documents could refine the comparison."
+        )
+    if context.get("restricted_content_used") is False:
+        follow_up_checks["Check 4"] = (
+            "Closed-access full text was intentionally excluded from reasoning; the system remains legal-safe by design."
+        )
+    if follow_up_checks:
+        sections.append(("Recommended Follow-Up Literature Checks", follow_up_checks))
+
+    return sections
+
+
+def _literature_appendix_sections(record: Mapping[str, Any]) -> list[tuple[str, dict[str, str]]]:
+    sections: list[tuple[str, dict[str, str]]] = []
+    context = dict(record.get("literature_context") or {})
+    if context:
+        sections.append(("Literature Comparison Context", _table_payload(context)))
+
+    comparisons_payload = {}
+    for item in record.get("literature_comparisons") or []:
+        if not isinstance(item, Mapping):
+            continue
+        claim_id = normalize_report_text(item.get("claim_id") or f"C{len(comparisons_payload) + 1}")
+        label = normalize_report_text(item.get("support_label") or "related_but_inconclusive")
+        confidence = normalize_report_text(item.get("confidence") or "low")
+        rationale = normalize_report_text(item.get("rationale") or "No literature rationale recorded.")
+        citations = ", ".join(
+            normalize_report_text(token)
+            for token in (item.get("citation_ids") or [])
+            if normalize_report_text(token)
+        )
+        comparisons_payload[f"{claim_id} ({label})"] = normalize_report_text(
+            f"confidence={confidence}; citations={citations or 'none'}; {rationale}"
+        )
+    if comparisons_payload:
+        sections.append(("Literature Comparison Outcomes", comparisons_payload))
+
+    citations_payload = {}
+    for citation_id, citation in _citation_lookup(record).items():
+        citations_payload[citation_id] = _citation_report_line(citation)
+    if citations_payload:
+        sections.append(("Literature Citations", citations_payload))
     return sections
 
 
@@ -1988,6 +2131,7 @@ def _record_appendix_sections(record: dict) -> list[tuple[str, dict[str, str]]]:
     review_payload = _table_payload(record.get("review"))
     if review_payload:
         sections.append(("Internal Review Context", review_payload))
+    sections.extend(_literature_appendix_sections(record))
 
     context = normalize_scientific_context(record.get("scientific_context"))
     context_warnings = {f"Warning {idx}": normalize_report_text(item) for idx, item in enumerate(context.get("warnings") or [], start=1)}
@@ -2968,8 +3112,12 @@ def _pdf_render_sections(record: dict) -> list[tuple[str, dict[str, Any]]]:
     allowed_titles = {
         "Primary Scientific Interpretation",
         "Evidence Supporting This Interpretation",
+        "Literature Comparison",
+        "Supporting References",
+        "Contradictory or Alternative References",
         "Alternative Explanations",
         "Uncertainty and Methodological Limits",
+        "Recommended Follow-Up Literature Checks",
         "Recommended Follow-Up Experiments",
     }
     output = []
@@ -3143,7 +3291,14 @@ def generate_pdf_report(
             add_heading(title, level=3)
             for key, value in payload.items():
                 text = normalize_report_text(value)
-                if title in {"Evidence Supporting This Interpretation", "Uncertainty and Methodological Limits"}:
+                if title in {
+                    "Evidence Supporting This Interpretation",
+                    "Uncertainty and Methodological Limits",
+                    "Literature Comparison",
+                    "Supporting References",
+                    "Contradictory or Alternative References",
+                    "Recommended Follow-Up Literature Checks",
+                }:
                     text = normalize_report_text(f"{key}: {value}")
                 story.append(Paragraph(normalize_report_text(f"• {text}"), body_style))
             story.append(Spacer(1, 3))

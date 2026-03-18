@@ -317,8 +317,26 @@ class ResultDetailResponse(BaseModel):
     provenance: dict[str, Any]
     validation: dict[str, Any]
     review: dict[str, Any]
+    literature_context: dict[str, Any] = Field(default_factory=dict)
+    literature_claims: list[dict[str, Any]] = Field(default_factory=list)
+    literature_comparisons: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     rows_preview: list[dict[str, Any]]
     row_count: int
+
+
+class LiteratureCompareRequest(BaseModel):
+    provider_ids: list[str] | None = None
+    persist: bool = True
+
+
+class LiteratureCompareResponse(BaseModel):
+    project_id: str
+    result_id: str
+    literature_context: dict[str, Any] = Field(default_factory=dict)
+    literature_claims: list[dict[str, Any]] = Field(default_factory=list)
+    literature_comparisons: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CompareWorkspacePayload(BaseModel):
