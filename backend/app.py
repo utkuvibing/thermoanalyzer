@@ -90,7 +90,6 @@ from core.literature_provider import (
     LiteratureProvider,
     MultiLiteratureProviderAggregator,
     default_literature_provider_registry,
-    resolve_literature_provider,
     resolve_literature_providers,
 )
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
