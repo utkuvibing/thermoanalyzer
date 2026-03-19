@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 
 import pandas as pd
@@ -9,7 +10,7 @@ import pytest
 from core.data_io import ThermalDataset
 from core.literature_claims import extract_literature_claims
 from core.literature_compare import attach_literature_package, compare_result_to_literature
-from core.literature_provider import FixtureLiteratureProvider
+from core.literature_provider import FixtureLiteratureProvider, default_literature_provider_registry, resolve_literature_provider
 from core.report_generator import generate_docx_report, generate_pdf_report
 from core.result_serialization import flatten_result_records, make_result_record, split_valid_results
 
@@ -76,6 +77,42 @@ def _base_record() -> dict:
     )
 
 
+def _multi_claim_record() -> dict:
+    record = _base_record()
+    record["scientific_context"] = {
+        "scientific_claims": [
+            {
+                "id": "C1",
+                "strength": "mechanistic",
+                "claim": "Phase Alpha remains a qualitative XRD follow-up candidate rather than a confirmed phase call.",
+                "evidence": ["Shared peaks remain consistent with the retained candidate."],
+            },
+            {
+                "id": "C2",
+                "strength": "comparative",
+                "claim": "Phase Alpha remains more consistent than Phase Beta in the retained XRD ranking.",
+                "evidence": ["The top-ranked candidate remains Phase Alpha."],
+            },
+            {
+                "id": "C3",
+                "strength": "descriptive",
+                "claim": "The observed pattern still shows the strongest overlap with the leading qualitative candidate.",
+                "evidence": ["The normalized score remains highest for the leading candidate."],
+            },
+        ],
+        "evidence_map": {
+            "C1": ["Shared peaks remain consistent with the retained candidate."],
+            "C2": ["The top-ranked candidate remains Phase Alpha."],
+            "C3": ["The normalized score remains highest for the leading candidate."],
+        },
+        "uncertainty_assessment": {
+            "overall_confidence": "moderate",
+            "items": ["Interpretation remains qualitative and cautionary."],
+        },
+    }
+    return record
+
+
 def _source(*, source_id: str, access_class: str, text: str, hint: str) -> dict:
     return {
         "source_id": source_id,
@@ -123,6 +160,26 @@ def test_fixture_provider_search_returns_ranked_candidates():
     assert results[0]["access_class"] == "open_access_full_text"
     assert results[0]["provenance"]["provider_id"] == "fixture_provider"
     assert results[0]["provenance"]["request_id"].startswith("litreq_fixture_provider_")
+
+
+def test_compare_result_to_literature_limits_max_claims():
+    package = compare_result_to_literature(
+        _multi_claim_record(),
+        provider=StubProvider(
+            [
+                _source(
+                    source_id="fixture_support",
+                    access_class="open_access_full_text",
+                    text="This accessible note supports the Phase Alpha qualitative XRD interpretation.",
+                    hint="supports",
+                )
+            ]
+        ),
+        max_claims=2,
+    )
+
+    assert [claim["claim_id"] for claim in package["literature_claims"]] == ["C1", "C2"]
+    assert len(package["literature_comparisons"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -180,6 +237,78 @@ def test_restricted_content_guardrail_excludes_closed_access_reasoning():
     assert comparison["support_label"] == "related_but_inconclusive"
     assert comparison["citation_ids"] == []
     assert "Closed-access full text was not used" in comparison["rationale"]
+
+
+def test_user_provided_document_is_compared_and_cited():
+    package = compare_result_to_literature(
+        _base_record(),
+        provider=StubProvider([]),
+        user_documents=[
+            {
+                "document_id": "lab_note_alpha",
+                "title": "Lab note alpha",
+                "authors": ["U. Analyst"],
+                "year": 2026,
+                "text": "This lab note supports the Phase Alpha qualitative XRD interpretation and aligns with the retained candidate.",
+                "comparison_hint": "supports",
+            }
+        ],
+    )
+
+    comparison = package["literature_comparisons"][0]
+
+    assert comparison["support_label"] == "supports"
+    assert comparison["sources_considered"] == 1
+    assert package["citations"][0]["access_class"] == "user_provided_document"
+    assert package["citations"][0]["title"] == "Lab note alpha"
+    assert package["citations"][0]["provenance"]["result_source"] == "user_provided_document"
+
+
+def test_provider_registry_resolves_fixture_by_default():
+    provider, provider_scope = resolve_literature_provider(
+        registry=default_literature_provider_registry(),
+    )
+
+    assert isinstance(provider, FixtureLiteratureProvider)
+    assert provider_scope == ["fixture_provider"]
+
+
+def test_provider_registry_resolves_requested_provider_from_registry():
+    registry = {"stub_provider": lambda: StubProvider([])}
+
+    provider, provider_scope = resolve_literature_provider(
+        ["stub_provider"],
+        registry=registry,
+    )
+
+    assert isinstance(provider, StubProvider)
+    assert provider_scope == ["stub_provider"]
+
+
+def test_long_accessible_text_is_not_persisted_in_normalized_result_records():
+    long_text = "USER_DOCUMENT_TEXT_BLOCK " * 80
+    package = compare_result_to_literature(
+        _base_record(),
+        provider=StubProvider([]),
+        user_documents=[
+            {
+                "document_id": "lab_note_alpha",
+                "title": "Lab note alpha",
+                "authors": ["U. Analyst"],
+                "text": f"{long_text} supports the Phase Alpha qualitative XRD interpretation.",
+                "comparison_hint": "supports",
+            },
+        ],
+    )
+    record = attach_literature_package(_base_record(), package)
+
+    valid, issues = split_valid_results({record["id"]: record})
+    assert issues == []
+
+    persisted = valid[record["id"]]
+    assert long_text not in json.dumps(persisted)
+    assert all("oa_full_text" not in citation for citation in persisted["citations"])
+    assert all("abstract_text" not in citation for citation in persisted["citations"])
 
 
 def test_result_serialization_includes_literature_payload_sections():

@@ -85,7 +85,7 @@ from core.data_io import read_thermal_data
 from core.execution_engine import run_batch_analysis, run_single_analysis
 from core.modalities import stable_analysis_types
 from core.literature_compare import attach_literature_package, compare_result_to_literature
-from core.literature_provider import FixtureLiteratureProvider
+from core.literature_provider import default_literature_provider_registry, resolve_literature_provider
 from core.project_io import PROJECT_EXTENSION, load_project_archive, save_project_archive
 from core.reference_library import ReferenceLibraryManager, get_reference_library_manager
 from core.result_serialization import split_valid_results
@@ -173,6 +173,7 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
     project_store = store or ProjectStore()
     global_library_manager = library_manager or get_reference_library_manager()
     cloud_library_service = ManagedLibraryCloudService(global_library_manager)
+    literature_provider_registry = default_literature_provider_registry()
     app.state.cloud_library_bootstrap_status = dict(cloud_library_service.bootstrap_status or {})
 
     def _record_cloud_lookup_success(payload: dict[str, Any]) -> None:
@@ -512,15 +513,24 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             raise HTTPException(status_code=404, detail=f"Unknown result_id: {result_id}")
 
         provider_ids = [str(item).strip() for item in (request.provider_ids or []) if str(item).strip()]
-        if provider_ids and provider_ids != ["fixture_provider"]:
-            raise HTTPException(status_code=400, detail="Only fixture_provider is available in this MVP.")
+        try:
+            provider, provider_scope = resolve_literature_provider(
+                provider_ids,
+                registry=literature_provider_registry,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         package = compare_result_to_literature(
             record,
-            provider=FixtureLiteratureProvider(),
-            provider_scope=provider_ids or None,
+            provider=provider,
+            provider_scope=provider_scope,
+            max_claims=request.max_claims,
+            filters=request.filters,
+            user_documents=request.user_documents,
         )
 
+        detail_payload: dict[str, Any] | None = None
         if request.persist:
             state.setdefault("results", {})[result_id] = attach_literature_package(
                 state.get("results", {}).get(result_id) or record,
@@ -534,6 +544,7 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
                 result_id=result_id,
             )
             project_store.set(project_id, state)
+            detail_payload = build_result_detail(state, result_id)
 
         return LiteratureCompareResponse(
             project_id=project_id,
@@ -542,6 +553,7 @@ def create_app(*, api_token: str | None = None, store: ProjectStore | None = Non
             literature_claims=package.get("literature_claims") or [],
             literature_comparisons=package.get("literature_comparisons") or [],
             citations=package.get("citations") or [],
+            detail=ResultDetailResponse(project_id=project_id, **detail_payload) if detail_payload else None,
         )
 
     @app.get("/workspace/{project_id}/compare", response_model=CompareWorkspaceResponse)

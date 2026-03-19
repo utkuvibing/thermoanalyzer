@@ -327,6 +327,9 @@ class ResultDetailResponse(BaseModel):
 
 class LiteratureCompareRequest(BaseModel):
     provider_ids: list[str] | None = None
+    max_claims: int = Field(default=3, ge=1)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    user_documents: list[dict[str, Any]] = Field(default_factory=list)
     persist: bool = True
 
 
@@ -337,6 +340,7 @@ class LiteratureCompareResponse(BaseModel):
     literature_claims: list[dict[str, Any]] = Field(default_factory=list)
     literature_comparisons: list[dict[str, Any]] = Field(default_factory=list)
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    detail: ResultDetailResponse | None = None
 
 
 class CompareWorkspacePayload(BaseModel):

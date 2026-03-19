@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -133,3 +134,42 @@ class FixtureLiteratureProvider:
             return None
 
         return None
+
+
+def default_literature_provider_registry() -> dict[str, Callable[[], LiteratureProvider]]:
+    return {
+        "fixture_provider": FixtureLiteratureProvider,
+    }
+
+
+def available_literature_provider_ids(
+    *,
+    registry: Mapping[str, Callable[[], LiteratureProvider]] | None = None,
+) -> list[str]:
+    return sorted(str(provider_id).strip() for provider_id in (registry or default_literature_provider_registry()) if str(provider_id).strip())
+
+
+def resolve_literature_provider(
+    provider_ids: list[str] | None = None,
+    *,
+    registry: Mapping[str, Callable[[], LiteratureProvider]] | None = None,
+) -> tuple[LiteratureProvider, list[str]]:
+    registry_map = dict(registry or default_literature_provider_registry())
+    requested_ids: list[str] = []
+    for item in provider_ids or []:
+        token = str(item).strip()
+        if token and token not in requested_ids:
+            requested_ids.append(token)
+
+    selected_ids = requested_ids or ["fixture_provider"]
+    if len(selected_ids) > 1:
+        raise ValueError("Only one literature provider can be selected in this MVP.")
+
+    provider_id = selected_ids[0]
+    factory = registry_map.get(provider_id)
+    if factory is None:
+        available = ", ".join(available_literature_provider_ids(registry=registry_map)) or "none"
+        raise ValueError(f"Unknown literature provider '{provider_id}'. Available providers: {available}.")
+
+    provider = factory()
+    return provider, [provider_id]

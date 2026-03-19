@@ -212,6 +212,9 @@ def test_result_literature_compare_endpoint_persists_payload():
     assert payload["literature_context"]["mode"] == "metadata_abstract_oa_only"
     assert payload["literature_claims"]
     assert "support_label" in payload["literature_comparisons"][0]
+    assert payload["detail"]["project_id"] == project_id
+    assert payload["detail"]["result"]["id"] == record["id"]
+    assert payload["detail"]["literature_context"]["mode"] == "metadata_abstract_oa_only"
 
     detail = client.get(f"/workspace/{project_id}/results/{record['id']}", headers=_headers())
     assert detail.status_code == 200
