@@ -136,6 +136,175 @@ def test_render_literature_sections_renders_compact_payload(monkeypatch):
     assert warnings == []
 
 
+def test_build_literature_sections_marks_xrd_candidate_mode_and_paper_cards():
+    sections = literature_compare_panel.build_literature_sections(
+        {
+            "analysis_type": "XRD",
+            "summary": {
+                "match_status": "matched",
+                "top_candidate_name": "Phase Alpha",
+                "top_candidate_score": 0.78,
+            },
+            "literature_context": {
+                "query_text": "\"Phase Alpha\" XRD powder diffraction",
+                "candidate_name": "Phase Alpha",
+                "real_literature_available": True,
+            },
+            "literature_claims": [{"claim_id": "C1", "claim_text": "Phase Alpha remains qualitative."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "Phase Alpha remains qualitative.",
+                    "paper_title": "Phase Alpha XRD characterization",
+                    "paper_year": 2024,
+                    "paper_journal": "Journal of XRD",
+                    "paper_url": "https://example.test/real-alpha",
+                    "provider_id": "openalex_like_provider",
+                    "access_class": "abstract_only",
+                    "comparison_note": "This paper discusses XRD characterization of Phase Alpha.",
+                    "validation_posture": "non_validating",
+                    "support_label": "related_but_inconclusive",
+                    "confidence": "low",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [{"citation_id": "ref1", "title": "Phase Alpha XRD characterization", "access_class": "abstract_only"}],
+        }
+    )
+
+    assert sections["xrd_candidate_mode"] is True
+    assert sections["candidate_summary"]["best_ranked_candidate"] == "Phase Alpha"
+    assert sections["paper_cards"][0]["paper_title"] == "Phase Alpha XRD characterization"
+
+
+def test_default_compare_request_uses_real_xrd_provider():
+    payload = literature_compare_panel._default_compare_request(current_record={"analysis_type": "XRD"})
+
+    assert payload["provider_ids"] == ["openalex_like_provider"]
+    assert payload["filters"]["analysis_type"] == "XRD"
+    assert payload["filters"]["allow_fixture_fallback"] is False
+
+
+def test_render_literature_sections_renders_xrd_candidate_summary_before_paper_cards(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+    warnings: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: warnings.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "analysis_type": "XRD",
+            "summary": {
+                "match_status": "no_match",
+                "confidence_band": "no_match",
+                "top_candidate_name": "Phase Alpha",
+                "top_candidate_score": 0.33,
+                "top_candidate_shared_peak_count": 2,
+            },
+            "literature_context": {
+                "query_text": "\"Phase Alpha\" XRD powder diffraction",
+                "query_rationale": "The literature search is centered on the top-ranked XRD candidate 'Phase Alpha'.",
+                "candidate_name": "Phase Alpha",
+                "candidate_display_name": "Phase Alpha",
+                "match_status_snapshot": "no_match",
+                "confidence_band_snapshot": "no_match",
+                "real_literature_available": True,
+            },
+            "literature_claims": [{"claim_id": "C1", "claim_text": "The current XRD result remains a no_match screening outcome."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "The current XRD result remains a no_match screening outcome.",
+                    "paper_title": "Phase Alpha XRD characterization",
+                    "paper_year": 2024,
+                    "paper_journal": "Journal of XRD",
+                    "paper_url": "https://example.test/real-alpha",
+                    "provider_id": "openalex_like_provider",
+                    "access_class": "abstract_only",
+                    "comparison_note": "This paper discusses XRD characterization of Phase Alpha. The current result remains a no_match screening outcome and the paper does not validate a phase call for the present sample.",
+                    "validation_posture": "contextual_only",
+                    "support_label": "related_but_inconclusive",
+                    "confidence": "low",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [{"citation_id": "ref1", "title": "Phase Alpha XRD characterization", "access_class": "abstract_only"}],
+        },
+        lang="en",
+    )
+
+    assert warnings == []
+    assert markdowns[0] == "**XRD Candidate Evidence Summary**"
+    assert any("Literature Check For Top-Ranked Candidate" in item for item in markdowns)
+    assert any("Phase Alpha XRD characterization" in item for item in markdowns)
+    assert any("do not validate a phase call" in item for item in captions)
+
+
+def test_render_literature_sections_localizes_xrd_note_in_turkish(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: captions.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "analysis_type": "XRD",
+            "summary": {
+                "match_status": "matched",
+                "confidence_band": "medium",
+                "top_candidate_name": "MgB2",
+            },
+            "literature_context": {
+                "query_text": "\"MgB2\" XRD powder diffraction",
+                "candidate_name": "MgB2",
+                "candidate_display_name": "MgB₂",
+                "match_status_snapshot": "matched",
+                "confidence_band_snapshot": "medium",
+                "real_literature_available": True,
+            },
+            "literature_claims": [{"claim_id": "C1", "claim_text": "MgB₂ remains qualitative."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "MgB₂ remains qualitative.",
+                    "candidate_name": "MgB₂",
+                    "paper_title": "MgB2 XRD characterization",
+                    "paper_year": 2024,
+                    "paper_journal": "Journal of XRD",
+                    "paper_url": "https://example.test/mgb2",
+                    "provider_id": "openalex_like_provider",
+                    "access_class": "abstract_only",
+                    "comparison_note": "This paper discusses XRD characterization of MgB2.",
+                    "validation_posture": "related_support",
+                    "match_status_snapshot": "matched",
+                    "confidence_band_snapshot": "medium",
+                    "support_label": "partially_supports",
+                    "confidence": "low",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [{"citation_id": "ref1", "title": "MgB2 XRD characterization", "access_class": "abstract_only"}],
+        },
+        lang="tr",
+    )
+
+    assert any("literatürde benzer XRD tartışmaları bulundu" in item for item in markdowns)
+    assert not any("Secondary metadata: claim" in item for item in captions)
+
+
 def test_render_literature_sections_shows_fixture_banner_and_demo_citation_guardrail(monkeypatch):
     captions: list[str] = []
     markdowns: list[str] = []

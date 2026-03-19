@@ -89,7 +89,21 @@ def _seed_xrd_result_store() -> tuple[ProjectStore, str, str]:
         status="stable",
         dataset_key="xrd_demo",
         metadata={"sample_name": "Phase Alpha Sample"},
-        summary={"top_candidate_name": "Phase Alpha", "match_status": "matched"},
+        summary={
+            "top_candidate_name": "Phase Alpha",
+            "top_candidate_display_name_unicode": "Phase Alpha",
+            "top_candidate_formula": "Al2O3",
+            "top_candidate_id": "phase_alpha_001",
+            "top_candidate_score": 0.82,
+            "top_candidate_shared_peak_count": 6,
+            "top_candidate_coverage_ratio": 0.71,
+            "top_candidate_weighted_overlap_score": 0.74,
+            "top_candidate_provider": "COD",
+            "library_result_source": "xrd_cloud_search",
+            "library_provider_scope": ["cod"],
+            "match_status": "matched",
+            "confidence_band": "medium",
+        },
         rows=[{"rank": 1, "candidate_name": "Phase Alpha", "normalized_score": 0.82}],
         scientific_context={
             "scientific_claims": [
@@ -295,11 +309,14 @@ def test_result_literature_compare_endpoint_persists_payload():
     payload = response.json()
     assert payload["result_id"] == result_id
     assert payload["literature_context"]["mode"] == "metadata_abstract_oa_only"
-    assert payload["literature_context"]["provider_scope"] == ["fixture_provider"]
+    assert payload["literature_context"]["provider_scope"] == ["openalex_like_provider"]
     assert payload["literature_context"]["provider_request_ids"]
+    assert payload["literature_context"]["query_text"]
+    assert payload["literature_context"]["candidate_name"] == "Phase Alpha"
     assert payload["literature_context"]["citation_count"] >= 1
     assert payload["literature_claims"]
-    assert "support_label" in payload["literature_comparisons"][0]
+    assert payload["literature_comparisons"][0]["candidate_name"] == "Phase Alpha"
+    assert payload["literature_comparisons"][0]["validation_posture"] in {"non_validating", "contextual_only", "related_support", "alternative_interpretation"}
     assert payload["detail"]["project_id"] == project_id
     assert payload["detail"]["result"]["id"] == result_id
     assert payload["detail"]["literature_context"]["mode"] == "metadata_abstract_oa_only"
@@ -310,6 +327,24 @@ def test_result_literature_compare_endpoint_persists_payload():
     detail_payload = detail.json()
     assert detail_payload["literature_context"]["mode"] == "metadata_abstract_oa_only"
     assert detail_payload["literature_claims"]
+
+
+def test_result_literature_compare_endpoint_persists_safe_context_when_no_real_results_exist():
+    store, project_id, result_id = _seed_xrd_result_store()
+    client = TestClient(create_app(api_token="details-token", store=store))
+
+    response = client.post(
+        f"/workspace/{project_id}/results/{result_id}/literature/compare",
+        headers=_headers(),
+        json={"persist": True, "provider_ids": ["openalex_like_provider"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["detail"] is not None
+    assert payload["literature_context"]["provider_scope"] == ["openalex_like_provider"]
+    assert payload["literature_context"]["query_text"]
+    assert payload["literature_context"]["real_literature_available"] is False
 
 
 def test_result_literature_compare_endpoint_validates_typed_user_documents():

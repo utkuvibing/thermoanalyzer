@@ -15,6 +15,7 @@ from core.literature_provider import (
     FixtureLiteratureProvider,
     MetadataAPILiteratureProvider,
     MultiLiteratureProviderAggregator,
+    OpenAlexLikeLiteratureProvider,
     default_literature_provider_registry,
     resolve_literature_provider,
     resolve_literature_providers,
@@ -77,11 +78,19 @@ def _base_record() -> dict:
         metadata={"sample_name": "Phase Alpha Sample", "display_name": "Synthetic XRD Pattern"},
         summary={
             "top_candidate_name": "Phase Alpha",
+            "top_candidate_display_name_unicode": "Phase Alpha",
+            "top_candidate_formula": "Al2O3",
+            "top_candidate_id": "phase_alpha_001",
             "match_status": "matched",
             "confidence_band": "medium",
+            "top_candidate_score": 0.78,
+            "top_candidate_shared_peak_count": 5,
+            "top_candidate_coverage_ratio": 0.64,
+            "top_candidate_weighted_overlap_score": 0.71,
+            "top_candidate_provider": "COD",
             "library_request_id": "libreq_demo_xrd_001",
-            "library_result_source": "fixture_search",
-            "library_provider_scope": ["fixture_provider"],
+            "library_result_source": "xrd_cloud_search",
+            "library_provider_scope": ["cod"],
         },
         rows=[{"rank": 1, "candidate_name": "Phase Alpha", "normalized_score": 0.78}],
         scientific_context={
@@ -191,8 +200,10 @@ def test_fixture_provider_search_returns_ranked_candidates():
 
 
 def test_compare_result_to_literature_limits_max_claims():
+    record = _multi_claim_record()
+    record["analysis_type"] = "FTIR"
     package = compare_result_to_literature(
-        _multi_claim_record(),
+        record,
         provider=StubProvider(
             [
                 _source(
@@ -222,8 +233,10 @@ def test_compare_result_to_literature_limits_max_claims():
     ],
 )
 def test_comparison_engine_assigns_expected_labels(hint: str, access_class: str, expected_label: str):
+    record = _base_record()
+    record["analysis_type"] = "FTIR"
     package = compare_result_to_literature(
-        _base_record(),
+        record,
         provider=StubProvider(
             [
                 _source(
@@ -247,8 +260,10 @@ def test_comparison_engine_assigns_expected_labels(hint: str, access_class: str,
 
 
 def test_restricted_content_guardrail_excludes_closed_access_reasoning():
+    record = _base_record()
+    record["analysis_type"] = "FTIR"
     package = compare_result_to_literature(
-        _base_record(),
+        record,
         provider=StubProvider(
             [
                 _source(
@@ -270,8 +285,10 @@ def test_restricted_content_guardrail_excludes_closed_access_reasoning():
 
 
 def test_user_provided_document_is_compared_and_cited():
+    record = _base_record()
+    record["analysis_type"] = "FTIR"
     package = compare_result_to_literature(
-        _base_record(),
+        record,
         provider=StubProvider([]),
         user_documents=[
             {
@@ -331,28 +348,104 @@ def test_provider_registry_resolves_requested_provider_from_registry():
     assert provider_scope == ["stub_provider"]
 
 
-def test_metadata_provider_can_return_metadata_only_candidate():
-    provider = MetadataAPILiteratureProvider(
+def test_openalex_like_provider_normalizes_metadata_results():
+    provider = OpenAlexLikeLiteratureProvider(
         search_client=lambda query, filters: {
-            "request_id": "meta_req_001",
-            "result_source": "open_metadata_api",
+            "request_id": "openalex_req_001",
+            "result_source": "openalex_api",
             "results": [
-                _source(
-                    source_id="metadata_alpha",
-                    access_class="metadata_only",
-                    text="Abstract-level metadata supports the Phase Alpha qualitative interpretation.",
-                    hint="supports",
-                )
+                {
+                    "source_id": "openalex_alpha",
+                    "title": "MgB2 XRD phase analysis",
+                    "authors": ["A. Author"],
+                    "journal": "Journal of XRD",
+                    "year": 2024,
+                    "doi": "10.1000/openalex-alpha",
+                    "url": "https://example.test/openalex-alpha",
+                    "access_class": "abstract_only",
+                    "abstract_text": "This paper discusses XRD characterization of MgB2 and a hexagonal phase assignment.",
+                    "source_license_note": "provider_abstract",
+                }
             ],
         }
     )
 
-    package = compare_result_to_literature(_base_record(), provider=provider, provider_scope=["metadata_api_provider"])
+    package = compare_result_to_literature(_base_record(), provider=provider, provider_scope=["openalex_like_provider"])
 
-    assert package["literature_context"]["provider_request_ids"] == ["meta_req_001"]
-    assert package["literature_context"]["provider_result_source"] == "open_metadata_api"
+    assert package["literature_context"]["provider_request_ids"] == ["openalex_req_001"]
+    assert package["literature_context"]["provider_result_source"] == "openalex_api"
+    assert package["literature_context"]["query_text"]
+    assert package["literature_context"]["candidate_name"] == "Phase Alpha"
     assert package["literature_context"]["metadata_only_evidence"] is True
-    assert package["citations"][0]["provenance"]["provider_id"] == "metadata_api_provider"
+    assert package["citations"][0]["provenance"]["provider_id"] == "openalex_like_provider"
+    assert package["literature_comparisons"][0]["paper_title"] == "MgB2 XRD phase analysis"
+    assert package["literature_comparisons"][0]["validation_posture"] in {"non_validating", "related_support"}
+
+
+def test_xrd_compare_builds_candidate_centered_comparison_note():
+    provider = OpenAlexLikeLiteratureProvider(
+        search_client=lambda query, filters: {
+            "request_id": "openalex_req_002",
+            "result_source": "openalex_api",
+            "results": [
+                {
+                    "source_id": "paper_alpha",
+                    "title": "Phase Alpha powder diffraction and crystal structure",
+                    "authors": ["A. Author"],
+                    "journal": "Powder Diffraction Letters",
+                    "year": 2025,
+                    "doi": "10.1000/paper-alpha",
+                    "url": "https://example.test/paper-alpha",
+                    "access_class": "abstract_only",
+                    "abstract_text": "Phase Alpha XRD powder diffraction data and crystal structure are discussed.",
+                    "source_license_note": "provider_abstract",
+                }
+            ],
+        }
+    )
+
+    package = compare_result_to_literature(_base_record(), provider=provider, provider_scope=["openalex_like_provider"])
+
+    comparison = package["literature_comparisons"][0]
+    assert comparison["candidate_name"] == "Phase Alpha"
+    assert comparison["paper_title"] == "Phase Alpha powder diffraction and crystal structure"
+    assert comparison["comparison_note"]
+    assert "Phase Alpha" in comparison["comparison_note"]
+    assert comparison["support_label"] in {"partially_supports", "related_but_inconclusive"}
+
+
+def test_xrd_no_match_remains_non_validating_under_literature():
+    record = _base_record()
+    record["summary"]["match_status"] = "no_match"
+    record["summary"]["confidence_band"] = "no_match"
+    record["summary"]["top_candidate_reason_below_threshold"] = "Weighted overlap remained below the configured acceptance threshold."
+
+    provider = OpenAlexLikeLiteratureProvider(
+        search_client=lambda query, filters: {
+            "request_id": "openalex_req_003",
+            "result_source": "openalex_api",
+            "results": [
+                {
+                    "source_id": "paper_contextual",
+                    "title": "Phase Alpha XRD characterization",
+                    "authors": ["B. Author"],
+                    "journal": "Journal of Phase Studies",
+                    "year": 2023,
+                    "doi": "10.1000/paper-contextual",
+                    "url": "https://example.test/paper-contextual",
+                    "access_class": "abstract_only",
+                    "abstract_text": "The paper reports XRD characterization of Phase Alpha.",
+                }
+            ],
+        }
+    )
+
+    package = compare_result_to_literature(record, provider=provider, provider_scope=["openalex_like_provider"])
+
+    comparison = package["literature_comparisons"][0]
+    assert comparison["validation_posture"] == "contextual_only"
+    assert comparison["support_label"] == "related_but_inconclusive"
+    assert "no_match screening outcome" in comparison["comparison_note"]
 
 
 def test_multi_provider_aggregation_dedupes_by_doi_and_tracks_scope():
@@ -427,17 +520,26 @@ def test_multi_provider_aggregation_dedupes_by_doi_and_tracks_scope():
 def test_literature_context_traceability_fields_persist_after_normalization():
     package = compare_result_to_literature(
         _base_record(),
-        provider=StubProvider(
-            [
-                _source(
-                    source_id="support_a",
-                    access_class="open_access_full_text",
-                    text="This source supports the Phase Alpha XRD interpretation.",
-                    hint="supports",
-                )
-            ]
+        provider=OpenAlexLikeLiteratureProvider(
+            search_client=lambda query, filters: {
+                "request_id": "openalex_req_004",
+                "result_source": "openalex_api",
+                "results": [
+                    {
+                        "source_id": "support_a",
+                        "title": "Phase Alpha XRD note",
+                        "authors": ["A. Author"],
+                        "journal": "Journal of XRD",
+                        "year": 2024,
+                        "doi": "10.1000/support-a",
+                        "url": "https://example.test/support-a",
+                        "access_class": "open_access_full_text",
+                        "oa_full_text": "This source discusses Phase Alpha XRD characterization.",
+                    }
+                ],
+            }
         ),
-        provider_scope=["stub_provider"],
+        provider_scope=["openalex_like_provider"],
     )
     record = attach_literature_package(_base_record(), package)
 
@@ -447,13 +549,17 @@ def test_literature_context_traceability_fields_persist_after_normalization():
     context = valid[record["id"]]["literature_context"]
     assert context["result_id"] == "xrd_demo"
     assert context["analysis_type"] == "XRD"
-    assert context["provider_result_source"] == "stub_search"
-    assert context["provider_request_ids"]
+    assert context["provider_result_source"] == "openalex_api"
+    assert context["provider_request_ids"] == ["openalex_req_004"]
     assert context["source_count"] == 1
     assert context["accessible_source_count"] == 1
     assert context["restricted_source_count"] == 0
     assert context["citation_count"] == 1
     assert context["generated_at_utc"]
+    assert context["query_text"]
+    assert context["candidate_name"] == "Phase Alpha"
+    assert context["match_status_snapshot"] == "matched"
+    assert context["top_candidate_score_snapshot"] == 0.78
 
 
 def test_long_accessible_text_is_not_persisted_in_normalized_result_records():
@@ -608,3 +714,228 @@ def test_docx_and_pdf_reports_exclude_fixture_only_literature_by_default():
     assert "Development / Demo Literature Output" in extracted
     assert "excluded from the report by default" in extracted
     assert "Supporting References" not in extracted
+
+
+def test_docx_report_renders_real_xrd_candidate_literature_sections():
+    record = attach_literature_package(
+        _base_record(),
+        {
+            "literature_context": {
+                "mode": "metadata_abstract_oa_only",
+                "comparison_run_id": "litcmp_real_001",
+                "provider_scope": ["openalex_like_provider"],
+                "provider_request_ids": ["openalex_req_010"],
+                "provider_result_source": "openalex_api",
+                "query_text": "\"Phase Alpha\" XRD powder diffraction phase identification crystal structure",
+                "candidate_name": "Phase Alpha",
+                "candidate_display_name": "Phase Alpha",
+                "match_status_snapshot": "no_match",
+                "confidence_band_snapshot": "no_match",
+                "real_literature_available": True,
+            },
+            "literature_claims": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "The current XRD result remains a no_match screening outcome; literature can only provide context around the top-ranked candidate Phase Alpha.",
+                    "claim_type": "cautionary_interpretation",
+                    "modality": "XRD",
+                    "strength": "low",
+                }
+            ],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "The current XRD result remains a no_match screening outcome; literature can only provide context around the top-ranked candidate Phase Alpha.",
+                    "candidate_name": "Phase Alpha",
+                    "paper_title": "Phase Alpha XRD characterization",
+                    "paper_year": 2024,
+                    "paper_journal": "Journal of XRD",
+                    "paper_doi": "10.1000/real-alpha",
+                    "paper_url": "https://example.test/real-alpha",
+                    "provider_id": "openalex_like_provider",
+                    "access_class": "abstract_only",
+                    "comparison_note": "This paper discusses XRD characterization of Phase Alpha. The current result remains a no_match screening outcome and the paper does not validate a phase call for the present sample.",
+                    "validation_posture": "contextual_only",
+                    "query_text": "\"Phase Alpha\" XRD powder diffraction phase identification crystal structure",
+                    "match_status_snapshot": "no_match",
+                    "confidence_band_snapshot": "no_match",
+                    "support_label": "related_but_inconclusive",
+                    "rationale": "This paper discusses XRD characterization of Phase Alpha. The current result remains a no_match screening outcome and the paper does not validate a phase call for the present sample.",
+                    "citation_ids": ["ref1"],
+                    "confidence": "low",
+                    "sources_considered": 1,
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref1",
+                    "title": "Phase Alpha XRD characterization",
+                    "authors": ["A. Author"],
+                    "year": 2024,
+                    "journal": "Journal of XRD",
+                    "doi": "10.1000/real-alpha",
+                    "url": "https://example.test/real-alpha",
+                    "access_class": "abstract_only",
+                    "citation_text": "A. Author (2024). Phase Alpha XRD characterization. Journal of XRD. DOI: 10.1000/real-alpha.",
+                    "source_license_note": "provider_abstract",
+                    "provenance": {
+                        "provider_id": "openalex_like_provider",
+                        "result_source": "openalex_api",
+                        "provider_scope": ["openalex_like_provider"],
+                        "provider_request_ids": ["openalex_req_010"],
+                    },
+                }
+            ],
+        },
+    )
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [18.2, 27.5, 36.1], "signal": [130.0, 290.0, 175.0]}),
+        metadata={
+            "sample_name": "Phase Alpha Sample",
+            "display_name": "Synthetic XRD Pattern",
+            "instrument": "XRDBench",
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+        },
+        data_type="XRD",
+        units={"temperature": "degree_2theta", "signal": "counts"},
+        original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+
+    docx_bytes = generate_docx_report(results={record["id"]: record}, datasets={"xrd_demo": dataset})
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "XRD Candidate Literature Check" in xml
+    assert "Relevant Papers" in xml
+    assert "Alternative or Non-Validating Papers" in xml
+    assert "Literature provides contextual evidence around the top-ranked candidate and does not override XRD screening." in xml
+    assert "Phase Alpha XRD characterization" in xml
+
+
+def test_docx_report_excludes_fixture_xrd_rows_when_real_and_fixture_results_mix():
+    record = attach_literature_package(
+        _base_record(),
+        {
+            "literature_context": {
+                "mode": "metadata_abstract_oa_only",
+                "comparison_run_id": "litcmp_real_fixture_001",
+                "provider_scope": ["openalex_like_provider", "fixture_provider"],
+                "provider_request_ids": ["openalex_req_011", "litreq_fixture_provider_demo"],
+                "provider_result_source": "multi_provider_search",
+                "query_text": "\"Phase Alpha\" XRD powder diffraction phase identification crystal structure",
+                "candidate_name": "Phase Alpha",
+                "candidate_display_name": "Phase Alpha",
+                "match_status_snapshot": "matched",
+                "confidence_band_snapshot": "medium",
+                "real_literature_available": True,
+            },
+            "literature_claims": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "The top-ranked XRD candidate is Phase Alpha, but the result remains qualitative and requires cautious interpretation.",
+                    "claim_type": "interpretation",
+                    "modality": "XRD",
+                    "strength": "moderate",
+                }
+            ],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "The top-ranked XRD candidate is Phase Alpha, but the result remains qualitative and requires cautious interpretation.",
+                    "candidate_name": "Phase Alpha",
+                    "paper_title": "Phase Alpha XRD characterization",
+                    "paper_year": 2024,
+                    "paper_journal": "Journal of XRD",
+                    "paper_doi": "10.1000/real-alpha",
+                    "paper_url": "https://example.test/real-alpha",
+                    "provider_id": "openalex_like_provider",
+                    "access_class": "abstract_only",
+                    "comparison_note": "This source is relevant to the top-ranked candidate, but the current XRD evidence remains limited and non-validating.",
+                    "validation_posture": "non_validating",
+                    "citation_ids": ["ref1"],
+                    "confidence": "low",
+                    "sources_considered": 2,
+                },
+                {
+                    "claim_id": "C1",
+                    "claim_text": "The top-ranked XRD candidate is Phase Alpha, but the result remains qualitative and requires cautious interpretation.",
+                    "candidate_name": "Phase Alpha",
+                    "paper_title": "Fixture-only paper",
+                    "paper_year": 2025,
+                    "paper_journal": "Fixture Journal",
+                    "paper_doi": "10.1000/fixture-alpha",
+                    "paper_url": "https://example.test/fixture-alpha",
+                    "provider_id": "fixture_provider",
+                    "access_class": "open_access_full_text",
+                    "comparison_note": "Fixture/demo output only.",
+                    "validation_posture": "non_validating",
+                    "citation_ids": ["ref2"],
+                    "confidence": "low",
+                    "sources_considered": 2,
+                },
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref1",
+                    "title": "Phase Alpha XRD characterization",
+                    "authors": ["A. Author"],
+                    "year": 2024,
+                    "journal": "Journal of XRD",
+                    "doi": "10.1000/real-alpha",
+                    "url": "https://example.test/real-alpha",
+                    "access_class": "abstract_only",
+                    "citation_text": "A. Author (2024). Phase Alpha XRD characterization. Journal of XRD. DOI: 10.1000/real-alpha.",
+                    "source_license_note": "provider_abstract",
+                    "provenance": {
+                        "provider_id": "openalex_like_provider",
+                        "result_source": "openalex_api",
+                        "provider_scope": ["openalex_like_provider"],
+                        "provider_request_ids": ["openalex_req_011"],
+                    },
+                },
+                {
+                    "citation_id": "ref2",
+                    "title": "Fixture-only paper",
+                    "authors": ["Fixture Author"],
+                    "year": 2025,
+                    "journal": "Fixture Journal",
+                    "doi": "10.1000/fixture-alpha",
+                    "url": "https://example.test/fixture-alpha",
+                    "access_class": "open_access_full_text",
+                    "citation_text": "Fixture Author (2025). Fixture-only paper. Fixture Journal. DOI: 10.1000/fixture-alpha.",
+                    "source_license_note": "fixture",
+                    "provenance": {
+                        "provider_id": "fixture_provider",
+                        "result_source": "fixture_search",
+                        "provider_scope": ["fixture_provider"],
+                        "provider_request_ids": ["litreq_fixture_provider_demo"],
+                    },
+                },
+            ],
+        },
+    )
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [18.2, 27.5, 36.1], "signal": [130.0, 290.0, 175.0]}),
+        metadata={
+            "sample_name": "Phase Alpha Sample",
+            "display_name": "Synthetic XRD Pattern",
+            "instrument": "XRDBench",
+            "xrd_axis_role": "two_theta",
+            "xrd_axis_unit": "degree_2theta",
+        },
+        data_type="XRD",
+        units={"temperature": "degree_2theta", "signal": "counts"},
+        original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+
+    docx_bytes = generate_docx_report(results={record["id"]: record}, datasets={"xrd_demo": dataset})
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Phase Alpha XRD characterization" in xml
+    assert "10.1000/real-alpha" in xml
+    assert "Fixture-only paper" not in xml
+    assert "10.1000/fixture-alpha" not in xml

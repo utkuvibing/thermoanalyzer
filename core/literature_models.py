@@ -23,6 +23,12 @@ ALLOWED_SUPPORT_LABELS = {
 }
 
 ALLOWED_CONFIDENCE_LABELS = {"low", "moderate", "high"}
+ALLOWED_VALIDATION_POSTURES = {
+    "contextual_only",
+    "related_support",
+    "alternative_interpretation",
+    "non_validating",
+}
 
 
 def _clean_text(value: Any) -> str:
@@ -68,6 +74,13 @@ def _normalize_support_label(value: Any) -> str:
     token = _clean_text(value).lower() or "related_but_inconclusive"
     if token not in ALLOWED_SUPPORT_LABELS:
         return "related_but_inconclusive"
+    return token
+
+
+def _normalize_validation_posture(value: Any) -> str:
+    token = _clean_text(value).lower() or "non_validating"
+    if token not in ALLOWED_VALIDATION_POSTURES:
+        return "non_validating"
     return token
 
 
@@ -133,6 +146,21 @@ class LiteratureSource:
 @dataclass(slots=True)
 class LiteratureComparison:
     claim_id: str
+    claim_text: str = ""
+    candidate_name: str = ""
+    candidate_formula: str = ""
+    paper_title: str = ""
+    paper_year: int | None = None
+    paper_journal: str = ""
+    paper_doi: str = ""
+    paper_url: str = ""
+    provider_id: str = ""
+    access_class: str = "metadata_only"
+    comparison_note: str = ""
+    validation_posture: str = "non_validating"
+    query_text: str = ""
+    match_status_snapshot: str = ""
+    confidence_band_snapshot: str = ""
     retrieved_sources: list[str] = field(default_factory=list)
     support_label: str = "related_but_inconclusive"
     rationale: str = ""
@@ -144,12 +172,30 @@ class LiteratureComparison:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["claim_id"] = _clean_text(payload.get("claim_id")) or "C1"
+        payload["claim_text"] = _clean_text(payload.get("claim_text"))
+        payload["candidate_name"] = _clean_text(payload.get("candidate_name"))
+        payload["candidate_formula"] = _clean_text(payload.get("candidate_formula"))
+        payload["paper_title"] = _clean_text(payload.get("paper_title"))
+        payload["paper_journal"] = _clean_text(payload.get("paper_journal"))
+        payload["paper_doi"] = _clean_text(payload.get("paper_doi"))
+        payload["paper_url"] = _clean_text(payload.get("paper_url"))
+        payload["provider_id"] = _clean_text(payload.get("provider_id"))
+        payload["access_class"] = _normalize_access_class(payload.get("access_class"))
+        payload["comparison_note"] = _clean_text(payload.get("comparison_note"))
+        payload["validation_posture"] = _normalize_validation_posture(payload.get("validation_posture"))
+        payload["query_text"] = _clean_text(payload.get("query_text"))
+        payload["match_status_snapshot"] = _clean_text(payload.get("match_status_snapshot")).lower()
+        payload["confidence_band_snapshot"] = _clean_text(payload.get("confidence_band_snapshot")).lower()
         payload["retrieved_sources"] = _to_str_list(payload.get("retrieved_sources"))
         payload["support_label"] = _normalize_support_label(payload.get("support_label"))
         payload["rationale"] = _clean_text(payload.get("rationale"))
         payload["evidence_used"] = _to_str_list(payload.get("evidence_used"))
         payload["citation_ids"] = _to_str_list(payload.get("citation_ids"))
         payload["confidence"] = _normalize_confidence(payload.get("confidence"), default="low")
+        try:
+            payload["paper_year"] = int(payload.get("paper_year")) if payload.get("paper_year") not in (None, "") else None
+        except (TypeError, ValueError):
+            payload["paper_year"] = None
         try:
             payload["sources_considered"] = int(payload.get("sources_considered") or 0)
         except (TypeError, ValueError):
@@ -203,6 +249,22 @@ class LiteratureContext:
     metadata_only_evidence: bool = False
     restricted_content_used: bool = False
     generated_at_utc: str = ""
+    query_text: str = ""
+    candidate_name: str = ""
+    candidate_formula: str = ""
+    candidate_id: str = ""
+    candidate_display_name: str = ""
+    match_status_snapshot: str = ""
+    confidence_band_snapshot: str = ""
+    top_candidate_score_snapshot: float | None = None
+    shared_peak_count_snapshot: int | None = None
+    coverage_ratio_snapshot: float | None = None
+    weighted_overlap_score_snapshot: float | None = None
+    candidate_provider_snapshot: str = ""
+    candidate_result_source_snapshot: str = ""
+    real_literature_available: bool = False
+    fixture_fallback_used: bool = False
+    query_rationale: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -225,6 +287,31 @@ class LiteratureContext:
         payload["metadata_only_evidence"] = bool(payload.get("metadata_only_evidence"))
         payload["restricted_content_used"] = bool(payload.get("restricted_content_used"))
         payload["generated_at_utc"] = _clean_text(payload.get("generated_at_utc"))
+        payload["query_text"] = _clean_text(payload.get("query_text"))
+        payload["candidate_name"] = _clean_text(payload.get("candidate_name"))
+        payload["candidate_formula"] = _clean_text(payload.get("candidate_formula"))
+        payload["candidate_id"] = _clean_text(payload.get("candidate_id"))
+        payload["candidate_display_name"] = _clean_text(payload.get("candidate_display_name"))
+        payload["match_status_snapshot"] = _clean_text(payload.get("match_status_snapshot")).lower()
+        payload["confidence_band_snapshot"] = _clean_text(payload.get("confidence_band_snapshot")).lower()
+        for key in ("top_candidate_score_snapshot", "coverage_ratio_snapshot", "weighted_overlap_score_snapshot"):
+            try:
+                payload[key] = float(payload.get(key)) if payload.get(key) not in (None, "") else None
+            except (TypeError, ValueError):
+                payload[key] = None
+        try:
+            payload["shared_peak_count_snapshot"] = (
+                int(payload.get("shared_peak_count_snapshot"))
+                if payload.get("shared_peak_count_snapshot") not in (None, "")
+                else None
+            )
+        except (TypeError, ValueError):
+            payload["shared_peak_count_snapshot"] = None
+        payload["candidate_provider_snapshot"] = _clean_text(payload.get("candidate_provider_snapshot"))
+        payload["candidate_result_source_snapshot"] = _clean_text(payload.get("candidate_result_source_snapshot"))
+        payload["real_literature_available"] = bool(payload.get("real_literature_available"))
+        payload["fixture_fallback_used"] = bool(payload.get("fixture_fallback_used"))
+        payload["query_rationale"] = _clean_text(payload.get("query_rationale"))
         return payload
 
 
@@ -248,6 +335,22 @@ def normalize_literature_context(value: Any) -> dict[str, Any]:
         metadata_only_evidence=source.get("metadata_only_evidence", False),
         restricted_content_used=source.get("restricted_content_used", False),
         generated_at_utc=source.get("generated_at_utc", ""),
+        query_text=source.get("query_text", ""),
+        candidate_name=source.get("candidate_name", ""),
+        candidate_formula=source.get("candidate_formula", ""),
+        candidate_id=source.get("candidate_id", ""),
+        candidate_display_name=source.get("candidate_display_name", ""),
+        match_status_snapshot=source.get("match_status_snapshot", ""),
+        confidence_band_snapshot=source.get("confidence_band_snapshot", ""),
+        top_candidate_score_snapshot=source.get("top_candidate_score_snapshot"),
+        shared_peak_count_snapshot=source.get("shared_peak_count_snapshot"),
+        coverage_ratio_snapshot=source.get("coverage_ratio_snapshot"),
+        weighted_overlap_score_snapshot=source.get("weighted_overlap_score_snapshot"),
+        candidate_provider_snapshot=source.get("candidate_provider_snapshot", ""),
+        candidate_result_source_snapshot=source.get("candidate_result_source_snapshot", ""),
+        real_literature_available=source.get("real_literature_available", False),
+        fixture_fallback_used=source.get("fixture_fallback_used", False),
+        query_rationale=source.get("query_rationale", ""),
     ).to_dict()
 
 
@@ -303,6 +406,21 @@ def normalize_literature_comparisons(value: Any) -> list[dict[str, Any]]:
         output.append(
             LiteratureComparison(
                 claim_id=source.get("claim_id") or f"C{index}",
+                claim_text=source.get("claim_text") or "",
+                candidate_name=source.get("candidate_name") or "",
+                candidate_formula=source.get("candidate_formula") or "",
+                paper_title=source.get("paper_title") or "",
+                paper_year=source.get("paper_year"),
+                paper_journal=source.get("paper_journal") or "",
+                paper_doi=source.get("paper_doi") or "",
+                paper_url=source.get("paper_url") or "",
+                provider_id=source.get("provider_id") or "",
+                access_class=source.get("access_class") or "metadata_only",
+                comparison_note=source.get("comparison_note") or "",
+                validation_posture=source.get("validation_posture") or "non_validating",
+                query_text=source.get("query_text") or "",
+                match_status_snapshot=source.get("match_status_snapshot") or "",
+                confidence_band_snapshot=source.get("confidence_band_snapshot") or "",
                 retrieved_sources=_to_str_list(source.get("retrieved_sources")),
                 support_label=source.get("support_label") or "related_but_inconclusive",
                 rationale=source.get("rationale") or "",

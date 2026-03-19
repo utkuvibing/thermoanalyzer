@@ -19,10 +19,10 @@ DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 DEMO_PROVIDER_IDS = {"fixture_provider"}
 DEMO_RESULT_SOURCES = {"fixture_search"}
 DEFAULT_LITERATURE_COMPARE_REQUEST = {
-    "provider_ids": ["fixture_provider"],
+    "provider_ids": ["openalex_like_provider"],
     "persist": True,
-    "max_claims": 3,
-    "filters": {},
+    "max_claims": 2,
+    "filters": {"analysis_type": "XRD", "allow_fixture_fallback": False},
     "user_documents": [],
 }
 
@@ -90,6 +90,18 @@ def _citation_is_fixture(citation: Mapping[str, Any]) -> bool:
     provider_id = _clean_text(provenance.get("provider_id"))
     result_source = _clean_text(provenance.get("result_source"))
     return any(_is_fixture_marker(token) for token in providers + [provider_id, result_source])
+
+
+def _comparison_is_fixture(
+    comparison: Mapping[str, Any],
+    *,
+    citations: list[dict[str, Any]],
+    provider_badges: list[str],
+) -> bool:
+    if citations:
+        return all(_citation_is_fixture(citation) for citation in citations)
+    tokens = [_clean_text(comparison.get("provider_id"))] + provider_badges
+    return any(_is_fixture_marker(token) for token in tokens)
 
 
 def _record_literature_flags(record: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -246,6 +258,66 @@ def _evidence_badge_text(lang: str, key: str) -> str:
     return _ui_text(lang, tr, en)
 
 
+def _validation_posture_text(lang: str, value: str) -> str:
+    labels = {
+        "contextual_only": ("yalnızca bağlamsal", "contextual only"),
+        "related_support": ("aday fazla ilişkili", "related support"),
+        "alternative_interpretation": ("alternatif yorum", "alternative interpretation"),
+        "non_validating": ("doğrulayıcı değil", "non-validating"),
+    }
+    tr, en = labels.get(_clean_text(value).lower(), ("doğrulayıcı değil", "non-validating"))
+    return _ui_text(lang, tr, en)
+
+
+def _match_status_text(lang: str, value: str) -> str:
+    labels = {
+        "matched": ("matched", "matched"),
+        "no_match": ("no_match", "no_match"),
+        "not_run": ("not_run", "not_run"),
+    }
+    tr, en = labels.get(_clean_text(value).lower(), (value or "n/a", value or "n/a"))
+    return _ui_text(lang, tr, en)
+
+
+def _xrd_comparison_note_text(row: Mapping[str, Any], *, lang: str) -> str:
+    candidate = _clean_text(row.get("candidate_name")) or _ui_text(lang, "aday faz", "the candidate phase")
+    match_status = _clean_text(row.get("match_status_snapshot")).lower()
+    confidence_band = _clean_text(row.get("confidence_band_snapshot")).lower()
+    posture = _clean_text(row.get("validation_posture")).lower()
+
+    if match_status == "no_match":
+        return _ui_text(
+            lang,
+            "{candidate} için XRD karakterizasyonu tartışılır; mevcut örnek için faz doğrulaması sağlamaz ve sonuç no_match olarak kalır.",
+            "This paper discusses XRD characterization of {candidate}; it does not validate a phase call for the current sample, and the result remains no_match.",
+            candidate=candidate,
+        )
+    if posture == "alternative_interpretation":
+        return _ui_text(
+            lang,
+            "Kaynak aday fazla ilişkilidir ancak mevcut desen için doğrulayıcı destek sağlamaz; alternatif bir yorum olasılığına işaret edebilir.",
+            "This source is related to the candidate context, but it does not provide validating support for the current pattern and may indicate an alternative interpretation.",
+        )
+    if posture == "related_support" and confidence_band not in {"low", "no_match", "not_run"}:
+        return _ui_text(
+            lang,
+            "{candidate} için literatürde benzer XRD tartışmaları bulundu; yine de mevcut sonuç yalnızca nitel faz taraması bağlamında yorumlanmalıdır.",
+            "This paper is relevant to {candidate}, but the present result should still be interpreted within qualitative phase-screening limits.",
+            candidate=candidate,
+        )
+    if posture == "contextual_only":
+        return _ui_text(
+            lang,
+            "Bu kaynak yalnızca aday faz bağlamı sunar; mevcut örnek için faz doğrulaması sağlamaz.",
+            "This source provides candidate-phase context only and does not validate the current sample as that phase.",
+        )
+    return _ui_text(
+        lang,
+        "Kaynak en iyi adayla ilişkilidir, ancak mevcut XRD kanıtı sınırlıdır ve faz doğrulaması sağlamaz.",
+        "This source is relevant to the top-ranked candidate, but the current XRD evidence remains limited and non-validating.",
+    )
+
+
 def _comparison_display_label(
     row: Mapping[str, Any],
     *,
@@ -370,8 +442,20 @@ def _project_archive_base64(session_state: Mapping[str, Any]) -> str:
     return base64.b64encode(archive_bytes).decode("ascii")
 
 
-def _default_compare_request(overrides: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def _default_compare_request(
+    overrides: Mapping[str, Any] | None = None,
+    *,
+    current_record: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     payload = copy.deepcopy(DEFAULT_LITERATURE_COMPARE_REQUEST)
+    if _clean_text((current_record or {}).get("analysis_type")).upper() != "XRD":
+        payload = {
+            "provider_ids": ["fixture_provider"],
+            "persist": True,
+            "max_claims": 3,
+            "filters": {},
+            "user_documents": [],
+        }
     for key, value in dict(overrides or {}).items():
         payload[key] = copy.deepcopy(value)
     return payload
@@ -480,7 +564,7 @@ def call_literature_compare(
         "POST",
         f"{_backend_base_url(base_url)}/workspace/{project_id}/results/{result_id}/literature/compare",
         headers=_backend_headers(api_token),
-        json_payload=_default_compare_request(request_payload),
+        json_payload=_default_compare_request(request_payload, current_record=current_record),
         timeout_seconds=timeout_seconds,
     )
     detail_payload = compare_response.get("detail")
@@ -525,6 +609,13 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
     summary = dict(source.get("summary") or {})
     claim_lookup = _comparison_claim_lookup(source)
     flags = _record_literature_flags(source)
+    xrd_candidate_mode = bool(
+        _clean_text(source.get("analysis_type")).upper() == "XRD"
+        and (
+            _clean_text(context.get("query_text"))
+            or any(_clean_text(item.get("paper_title")) for item in comparisons if isinstance(item, Mapping))
+        )
+    )
 
     if not comparisons and not citations_by_id and not context:
         return {
@@ -537,6 +628,9 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
             "fixture_detected": False,
             "fixture_only": False,
             "provider_scope": [],
+            "xrd_candidate_mode": False,
+            "paper_cards": [],
+            "candidate_summary": {},
         }
 
     supporting_ids: list[str] = []
@@ -558,12 +652,33 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
         claim = claim_lookup.get(_clean_text(item.get("claim_id")))
         provider_badges = _provider_badges_for_citations(citation_items, provider_scope=flags["provider_scope"])
         evidence_badges = _evidence_badges_for_citations(citation_items)
+        paper_title = _clean_text(item.get("paper_title")) or _clean_text((citation_items[0] if citation_items else {}).get("title"))
+        paper_year = item.get("paper_year") if item.get("paper_year") not in (None, "") else (citation_items[0].get("year") if citation_items else None)
+        paper_journal = _clean_text(item.get("paper_journal")) or _clean_text((citation_items[0] if citation_items else {}).get("journal"))
+        paper_doi = _clean_text(item.get("paper_doi")) or _clean_text((citation_items[0] if citation_items else {}).get("doi"))
+        paper_url = _clean_text(item.get("paper_url")) or _clean_text((citation_items[0] if citation_items else {}).get("url"))
+        provider_id = _clean_text(item.get("provider_id")) or ", ".join(provider_badges)
+        fixture_row = _comparison_is_fixture(item, citations=citation_items, provider_badges=provider_badges)
         comparison_rows.append(
             {
                 "claim_id": _clean_text(item.get("claim_id")) or "C1",
                 "claim_text": _clean_text((claim or {}).get("claim_text"))
                 or _clean_text(item.get("claim_text"))
                 or "No human-readable scientific claim was recorded.",
+                "candidate_name": _clean_text(item.get("candidate_name")) or _clean_text(context.get("candidate_display_name") or context.get("candidate_name")),
+                "candidate_formula": _clean_text(item.get("candidate_formula")) or _clean_text(context.get("candidate_formula")),
+                "paper_title": paper_title,
+                "paper_year": paper_year,
+                "paper_journal": paper_journal,
+                "paper_doi": paper_doi,
+                "paper_url": paper_url,
+                "provider_id": provider_id,
+                "access_class": _clean_text(item.get("access_class")) or _clean_text((citation_items[0] if citation_items else {}).get("access_class")) or "metadata_only",
+                "comparison_note": _clean_text(item.get("comparison_note")) or _clean_text(item.get("rationale")),
+                "validation_posture": _clean_text(item.get("validation_posture")) or "non_validating",
+                "query_text": _clean_text(item.get("query_text")) or _clean_text(context.get("query_text")),
+                "match_status_snapshot": _clean_text(item.get("match_status_snapshot")) or _clean_text(context.get("match_status_snapshot") or summary.get("match_status")),
+                "confidence_band_snapshot": _clean_text(item.get("confidence_band_snapshot")) or _clean_text(context.get("confidence_band_snapshot") or summary.get("confidence_band")),
                 "support_label": _clean_text(item.get("support_label")) or "related_but_inconclusive",
                 "display_label_key": display_label_key,
                 "confidence": _clean_text(item.get("confidence")) or "low",
@@ -571,6 +686,7 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
                 "citation_ids": citation_ids,
                 "provider_badges": provider_badges,
                 "evidence_badges": evidence_badges,
+                "fixture": fixture_row,
             }
         )
         if display_label_key in {"supports", "partially_supports"}:
@@ -599,6 +715,33 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
     if flags["fixture_detected"]:
         follow_up_checks.append("demo_fixture")
 
+    paper_cards = [
+        row
+        for row in comparison_rows
+        if not row.get("fixture") and (row.get("paper_title") or row.get("paper_doi") or row.get("paper_url"))
+    ]
+    candidate_summary = {
+        "accepted_match_status": _clean_text(summary.get("match_status") or context.get("match_status_snapshot")),
+        "best_ranked_candidate": _clean_text(
+            context.get("candidate_display_name")
+            or context.get("candidate_name")
+            or summary.get("top_candidate_display_name_unicode")
+            or summary.get("top_candidate_display_name")
+            or summary.get("top_candidate_name")
+        ),
+        "formula": _clean_text(context.get("candidate_formula") or summary.get("top_candidate_formula")),
+        "score": summary.get("top_candidate_score") if summary.get("top_candidate_score") not in (None, "") else context.get("top_candidate_score_snapshot"),
+        "shared_peaks": summary.get("top_candidate_shared_peak_count") if summary.get("top_candidate_shared_peak_count") not in (None, "") else context.get("shared_peak_count_snapshot"),
+        "coverage": summary.get("top_candidate_coverage_ratio") if summary.get("top_candidate_coverage_ratio") not in (None, "") else context.get("coverage_ratio_snapshot"),
+        "weighted_overlap": summary.get("top_candidate_weighted_overlap_score") if summary.get("top_candidate_weighted_overlap_score") not in (None, "") else context.get("weighted_overlap_score_snapshot"),
+        "provider": _clean_text(summary.get("top_candidate_provider") or context.get("candidate_provider_snapshot")),
+        "result_source": _clean_text(summary.get("library_result_source") or context.get("candidate_result_source_snapshot")),
+        "query_text": _clean_text(context.get("query_text")),
+        "query_rationale": _clean_text(context.get("query_rationale")),
+        "real_literature_available": bool(context.get("real_literature_available")),
+        "fixture_only": flags["fixture_only"],
+    }
+
     return {
         "has_payload": True,
         "comparisons": comparison_rows,
@@ -610,6 +753,9 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
         "fixture_only": flags["fixture_only"],
         "provider_scope": flags["provider_scope"],
         "summary": summary,
+        "xrd_candidate_mode": xrd_candidate_mode,
+        "paper_cards": paper_cards,
+        "candidate_summary": candidate_summary,
     }
 
 
@@ -664,6 +810,63 @@ def _render_citation_item(citation: Mapping[str, Any], *, lang: str, provider_sc
             st.markdown(url)
 
 
+def _render_xrd_candidate_summary(candidate_summary: Mapping[str, Any], *, lang: str) -> None:
+    st.markdown(f"**{_ui_text(lang, 'XRD Aday Kanıt Özeti', 'XRD Candidate Evidence Summary')}**")
+    with _streamlit_block():
+        st.caption(
+            _ui_text(
+                lang,
+                "Kabul durumu: {status} | En iyi aday: {candidate}",
+                "Accepted match status: {status} | Best-ranked candidate: {candidate}",
+                status=_match_status_text(lang, _clean_text(candidate_summary.get("accepted_match_status")) or "n/a"),
+                candidate=_clean_text(candidate_summary.get("best_ranked_candidate")) or _ui_text(lang, "kayıt yok", "not recorded"),
+            )
+        )
+        st.caption(
+            _ui_text(
+                lang,
+                "Formül: {formula} | Skor: {score} | Ortak pik: {shared_peaks}",
+                "Formula: {formula} | Score: {score} | Shared peaks: {shared_peaks}",
+                formula=_clean_text(candidate_summary.get("formula")) or _ui_text(lang, "kayıt yok", "not recorded"),
+                score=str(candidate_summary.get("score") if candidate_summary.get("score") not in (None, "") else _ui_text(lang, "kayıt yok", "not recorded")),
+                shared_peaks=str(candidate_summary.get("shared_peaks") if candidate_summary.get("shared_peaks") not in (None, "") else _ui_text(lang, "kayıt yok", "not recorded")),
+            )
+        )
+        st.caption(
+            _ui_text(
+                lang,
+                "Kapsama: {coverage} | Ağırlıklı örtüşme: {weighted} | Sağlayıcı/kaynak: {provider} / {result_source}",
+                "Coverage: {coverage} | Weighted overlap: {weighted} | Provider/result source: {provider} / {result_source}",
+                coverage=str(candidate_summary.get("coverage") if candidate_summary.get("coverage") not in (None, "") else _ui_text(lang, "kayıt yok", "not recorded")),
+                weighted=str(candidate_summary.get("weighted_overlap") if candidate_summary.get("weighted_overlap") not in (None, "") else _ui_text(lang, "kayıt yok", "not recorded")),
+                provider=_clean_text(candidate_summary.get("provider")) or _ui_text(lang, "kayıt yok", "not recorded"),
+                result_source=_clean_text(candidate_summary.get("result_source")) or _ui_text(lang, "kayıt yok", "not recorded"),
+            )
+        )
+
+
+def _render_xrd_paper_card(row: Mapping[str, Any], *, lang: str) -> None:
+    with _streamlit_block():
+        st.markdown(f"**{_clean_text(row.get('paper_title')) or _ui_text(lang, 'Başlık kaydedilmedi', 'Title not recorded')}**")
+        st.caption(
+            _ui_text(
+                lang,
+                "Yıl: {year} | Dergi: {journal} | Sağlayıcı: {provider} | Erişim: {access} | Duruş: {posture}",
+                "Year: {year} | Journal: {journal} | Provider: {provider} | Access: {access} | Posture: {posture}",
+                year=str(row.get("paper_year") if row.get("paper_year") not in (None, "") else "n.d."),
+                journal=_clean_text(row.get("paper_journal")) or _ui_text(lang, "kayıt yok", "not recorded"),
+                provider=_clean_text(row.get("provider_id")) or _ui_text(lang, "kayıt yok", "not recorded"),
+                access=_evidence_badge_text(lang, _access_basis_key(access_class=_clean_text(row.get("access_class")), fixture=False)),
+                posture=_validation_posture_text(lang, _clean_text(row.get("validation_posture"))),
+            )
+        )
+        st.markdown(_xrd_comparison_note_text(row, lang=lang))
+        if _clean_text(row.get("paper_doi")):
+            st.markdown(f"DOI: `{_clean_text(row.get('paper_doi'))}`")
+        elif _clean_text(row.get("paper_url")):
+            st.markdown(_clean_text(row.get("paper_url")))
+
+
 def render_literature_sections(record: Mapping[str, Any] | None, *, lang: str) -> None:
     sections = build_literature_sections(record)
     if not sections["has_payload"]:
@@ -674,6 +877,78 @@ def render_literature_sections(record: Mapping[str, Any] | None, *, lang: str) -
                 "No literature comparison has been run yet. Trigger compare from the saved result to populate this panel.",
             )
         )
+        return
+
+    if sections.get("xrd_candidate_mode"):
+        if sections["fixture_detected"]:
+            st.warning(
+                _ui_text(
+                    lang,
+                    "Demo literature fixture output — gerçek bibliyografik kaynak değildir",
+                    "Demo literature fixture output — not a real bibliographic source",
+                )
+            )
+        _render_xrd_candidate_summary(sections.get("candidate_summary") or {}, lang=lang)
+        st.markdown(f"**{_ui_text(lang, 'En İyi Aday İçin Literatür Taraması', 'Literature Check For Top-Ranked Candidate')}**")
+        if _clean_text((sections.get("candidate_summary") or {}).get("query_text")):
+            st.caption(
+                _ui_text(
+                    lang,
+                    "Sorgu: {query}",
+                    "Query: {query}",
+                    query=_clean_text((sections.get("candidate_summary") or {}).get("query_text")),
+                )
+            )
+        if _clean_text((sections.get("candidate_summary") or {}).get("query_rationale")):
+            st.caption(_clean_text((sections.get("candidate_summary") or {}).get("query_rationale")))
+        if _clean_text((sections.get("candidate_summary") or {}).get("accepted_match_status")).lower() == "no_match":
+            st.caption(
+                _ui_text(
+                    lang,
+                    "Literatürde benzer XRD tartışmaları bulunsa bile mevcut örnek için faz doğrulaması sağlamaz; sonuç no_match olarak kalır.",
+                    "Even if related XRD papers are found, they do not validate a phase call for the current sample; the result remains no_match.",
+                )
+            )
+        elif sections["fixture_detected"] and not (sections.get("candidate_summary") or {}).get("real_literature_available"):
+            st.caption(
+                _ui_text(
+                    lang,
+                    "Gerçek bibliyografik sonuç bulunamadı; varsa fixture/demo çıktıları yetkili yayın kartı olarak gösterilmez.",
+                    "No real bibliographic papers were found; any fixture/demo output is not shown as authoritative paper cards.",
+                )
+            )
+        elif not (sections.get("candidate_summary") or {}).get("real_literature_available") and not sections["fixture_detected"]:
+            st.caption(
+                _ui_text(
+                    lang,
+                    "Bu aday için gerçek bibliyografik sonuç bulunamadı veya gerçek literatür araması şu anda kullanılamıyor.",
+                    "No real bibliographic papers were found for this candidate, or real literature search is currently unavailable.",
+                )
+            )
+
+        if sections.get("paper_cards"):
+            for row in sections["paper_cards"]:
+                _render_xrd_paper_card(row, lang=lang)
+        else:
+            st.caption(
+                _ui_text(
+                    lang,
+                    "Bu aday için görüntülenecek yayın kartı bulunamadı.",
+                    "No paper cards are available for this candidate.",
+                )
+            )
+
+        st.markdown(f"**{_ui_text(lang, 'Önerilen Takip Literatür Kontrolleri', 'Recommended Follow-Up Literature Checks')}**")
+        for item in sections["follow_up_checks"]:
+            st.markdown(f"- {_follow_up_check_text(lang, item)}")
+        if not sections["follow_up_checks"]:
+            st.caption(
+                _ui_text(
+                    lang,
+                    "Ek takip kontrolü kaydedilmedi; yine de literatür mevcut XRD sonucunun yerine geçmez.",
+                    "No additional follow-up checks were recorded; literature still does not replace the current XRD result.",
+                )
+            )
         return
 
     if sections["fixture_detected"]:

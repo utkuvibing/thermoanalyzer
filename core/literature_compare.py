@@ -10,15 +10,18 @@ from typing import Any, Mapping
 from core.citation_formatter import build_citation_entry
 from core.literature_claims import build_claim_queries, extract_literature_claims
 from core.literature_models import (
+    LiteratureClaim,
     LiteratureComparison,
     LiteratureContext,
     normalize_citations,
+    normalize_literature_claims,
     normalize_literature_comparisons,
     normalize_literature_context,
     normalize_literature_sources,
 )
 from core.literature_provider import FixtureLiteratureProvider, LiteratureProvider
 from core.literature_provider import citation_identity_key, merge_literature_candidates
+from core.xrd_literature_query_builder import build_xrd_literature_query
 
 
 HINT_TO_LABEL = {
@@ -31,10 +34,10 @@ HINT_TO_LABEL = {
     "related": "related_but_inconclusive",
     "related_but_inconclusive": "related_but_inconclusive",
 }
-
 SUPPORT_PHRASES = ("supports", "consistent with", "agreement", "aligned with")
 PARTIAL_PHRASES = ("partial", "tentative", "limited support", "follow-up verification")
-CONTRADICT_PHRASES = ("contradicts", "inconsistent", "not consistent", "alternative phase")
+CONTRADICT_PHRASES = ("contradicts", "inconsistent", "not consistent", "alternative phase", "secondary phase")
+REAL_BIBLIOGRAPHIC_PROVIDERS = {"metadata_api_provider", "openalex_like_provider"}
 
 
 def _clean_text(value: Any) -> str:
@@ -44,6 +47,15 @@ def _clean_text(value: Any) -> str:
 def _clean_int(value: Any) -> int | None:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_float(value: Any) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -93,10 +105,7 @@ def _user_document_provenance(document: Mapping[str, Any], *, index: int) -> dic
         normalized["comparison_hint"] = comparison_hint
     keywords = [
         _clean_text(item)
-        for item in (
-            _as_list(document.get("keywords"))
-            + _as_list(provenance.get("keywords"))
-        )
+        for item in (_as_list(document.get("keywords")) + _as_list(provenance.get("keywords")))
         if _clean_text(item)
     ]
     if keywords:
@@ -107,10 +116,7 @@ def _user_document_provenance(document: Mapping[str, Any], *, index: int) -> dic
         normalized["keywords"] = deduped_keywords[:12]
     modalities = [
         _clean_text(item).upper()
-        for item in (
-            _as_list(document.get("modalities"))
-            + _as_list(provenance.get("modalities"))
-        )
+        for item in (_as_list(document.get("modalities")) + _as_list(provenance.get("modalities")))
         if _clean_text(item)
     ]
     if modalities:
@@ -186,11 +192,7 @@ def _search_filters_for_claim(claim: Mapping[str, Any], filters: Mapping[str, An
     return search_filters
 
 
-def _fetch_accessible_text(
-    source: Mapping[str, Any],
-    *,
-    provider: LiteratureProvider,
-) -> dict[str, Any] | None:
+def _fetch_accessible_text(source: Mapping[str, Any], *, provider: LiteratureProvider) -> dict[str, Any] | None:
     access_class = _clean_text(source.get("access_class")).lower()
     if access_class == "restricted_external":
         return None
@@ -198,12 +200,7 @@ def _fetch_accessible_text(
         text = _clean_text(source.get("oa_full_text") or source.get("abstract_text"))
         if not text:
             return None
-        return {
-            "source_id": source.get("source_id"),
-            "text": text,
-            "field": "user_provided_document",
-            "access_class": access_class,
-        }
+        return {"source_id": source.get("source_id"), "text": text, "field": "user_provided_document", "access_class": access_class}
     return provider.fetch_accessible_text(dict(source))
 
 
@@ -259,12 +256,11 @@ def _evaluate_source(claim: Mapping[str, Any], source: Mapping[str, Any], access
     label = HINT_TO_LABEL.get(hint) if hint and overlap >= 1 else None
     if not label:
         label = _fallback_label(overlap=overlap, text=text)
-    evidence = _brief_evidence(text)
     return {
         "source_id": source.get("source_id"),
         "label": label,
         "score": overlap + {"supports": 6, "partially_supports": 4, "contradicts": 5, "related_but_inconclusive": 1}[label],
-        "evidence": evidence,
+        "evidence": _brief_evidence(text),
         "access_field": accessible.get("field") or "abstract_text",
     }
 
@@ -279,11 +275,7 @@ def _search_result_identity(source: Mapping[str, Any]) -> str:
 
 
 def _provider_request_ids(provider: LiteratureProvider) -> list[str]:
-    request_ids = [
-        _clean_text(item)
-        for item in getattr(provider, "last_request_ids", [])
-        if _clean_text(item)
-    ]
+    request_ids = [_clean_text(item) for item in getattr(provider, "last_request_ids", []) if _clean_text(item)]
     if request_ids:
         return request_ids
     request_id = _clean_text(getattr(provider, "last_request_id", ""))
@@ -297,25 +289,22 @@ def _provider_result_source(provider: LiteratureProvider, *, provider_scope: lis
     return token or "metadata_abstract_oa_only"
 
 
-def compare_result_to_literature(
+def _compare_generic_result_to_literature(
     record: Mapping[str, Any],
     *,
-    provider: LiteratureProvider | None = None,
-    provider_scope: list[str] | None = None,
-    max_claims: int = 3,
-    filters: Mapping[str, Any] | None = None,
-    user_documents: list[dict[str, Any]] | None = None,
+    provider: LiteratureProvider,
+    provider_scope: list[str],
+    max_claims: int,
+    filters: Mapping[str, Any] | None,
+    user_documents: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
     comparison_run_id = f"litcmp_{uuid.uuid4().hex[:12]}"
     claims = extract_literature_claims(record, max_claims=max(1, int(max_claims or 1)))
-    active_provider = provider or FixtureLiteratureProvider()
-    scope = provider_scope or [getattr(active_provider, "provider_id", "fixture_provider")]
     normalized_user_documents = _normalize_user_document_sources(user_documents)
 
     query_count = 0
     comparisons: list[dict[str, Any]] = []
     citations_by_identity: dict[str, dict[str, Any]] = {}
-    restricted_content_used = False
     provider_request_ids: list[str] = []
     all_sources_seen: dict[str, dict[str, Any]] = {
         _search_result_identity(source): copy.deepcopy(source)
@@ -339,7 +328,7 @@ def compare_result_to_literature(
         }
         claim_filters = _search_filters_for_claim(claim, filters)
         for query in build_claim_queries(claim):
-            for candidate in active_provider.search(query, filters=claim_filters):
+            for candidate in provider.search(query, filters=claim_filters):
                 source_key = _search_result_identity(candidate)
                 if not source_key:
                     continue
@@ -354,7 +343,7 @@ def compare_result_to_literature(
                 result_source = _clean_text((candidate.get("provenance") or {}).get("result_source"))
                 if result_source:
                     provider_result_sources.add(result_source)
-            request_ids_for_query = _provider_request_ids(active_provider)
+            request_ids_for_query = _provider_request_ids(provider)
             query_count += max(1, len(request_ids_for_query))
             for request_id in request_ids_for_query:
                 if request_id and request_id not in provider_request_ids:
@@ -363,7 +352,7 @@ def compare_result_to_literature(
         evaluations: list[dict[str, Any]] = []
         for source in search_results.values():
             source_key = _search_result_identity(source)
-            accessible = _fetch_accessible_text(source, provider=active_provider)
+            accessible = _fetch_accessible_text(source, provider=provider)
             if accessible is None:
                 if str(source.get("access_class") or "").lower() == "restricted_external":
                     restricted_source_ids.add(source_key)
@@ -402,6 +391,7 @@ def compare_result_to_literature(
             comparisons.append(
                 LiteratureComparison(
                     claim_id=str(claim.get("claim_id") or ""),
+                    claim_text=str(claim.get("claim_text") or ""),
                     retrieved_sources=sorted(
                         _clean_text(item.get("source_id"))
                         for item in search_results.values()
@@ -419,6 +409,7 @@ def compare_result_to_literature(
             comparisons.append(
                 LiteratureComparison(
                     claim_id=str(claim.get("claim_id") or ""),
+                    claim_text=str(claim.get("claim_text") or ""),
                     retrieved_sources=sorted(
                         _clean_text(item.get("source_id"))
                         for item in search_results.values()
@@ -439,14 +430,14 @@ def compare_result_to_literature(
     context = LiteratureContext(
         mode="metadata_abstract_oa_only",
         comparison_run_id=comparison_run_id,
-        provider_scope=scope,
+        provider_scope=provider_scope,
         result_id=_clean_text(record.get("id")),
         analysis_type=_clean_text(record.get("analysis_type")).upper(),
         provider_request_ids=provider_request_ids,
         provider_result_source=(
             "multi_provider_search"
-            if len(scope) > 1
-            else (sorted(provider_result_sources)[0] if len(provider_result_sources) == 1 else _provider_result_source(active_provider, provider_scope=scope))
+            if len(provider_scope) > 1
+            else (sorted(provider_result_sources)[0] if len(provider_result_sources) == 1 else _provider_result_source(provider, provider_scope=provider_scope))
         ),
         query_count=query_count,
         source_count=len(all_sources_seen),
@@ -454,7 +445,7 @@ def compare_result_to_literature(
         accessible_source_count=len(accessible_source_ids),
         restricted_source_count=len(restricted_source_ids),
         metadata_only_evidence=bool(accessible_source_ids) and not (used_access_fields & {"oa_full_text", "user_provided_document"}),
-        restricted_content_used=restricted_content_used,
+        restricted_content_used=False,
         generated_at_utc=datetime.now(timezone.utc).isoformat(),
     ).to_dict()
 
@@ -465,6 +456,359 @@ def compare_result_to_literature(
         "literature_comparisons": normalize_literature_comparisons(comparisons),
         "citations": normalize_citations(citations),
     }
+
+
+def _xrd_candidate_claims(
+    record: Mapping[str, Any],
+    query_payload: Mapping[str, Any],
+    *,
+    max_claims: int,
+) -> list[dict[str, Any]]:
+    summary = dict(record.get("summary") or {})
+    candidate = _clean_text(query_payload.get("candidate_display_name") or query_payload.get("candidate_name")) or "the top-ranked candidate"
+    match_status = _clean_text(summary.get("match_status")).lower() or "no_match"
+    confidence_band = _clean_text(summary.get("confidence_band")).lower() or "no_match"
+    warning_reason = _clean_text(summary.get("top_candidate_reason_below_threshold"))
+
+    claims: list[dict[str, Any]] = []
+    if match_status == "no_match":
+        claims.append(
+            LiteratureClaim(
+                claim_id="C1",
+                claim_text=f"The current XRD result remains a no_match screening outcome; literature can only provide context around the top-ranked candidate {candidate}.",
+                claim_type="cautionary_interpretation",
+                modality="XRD",
+                strength="low",
+                evidence_snapshot=dict(query_payload.get("evidence_snapshot") or {}),
+                uncertainty_notes=[warning_reason] if warning_reason else [],
+                suggested_query_terms=[_clean_text(query_payload.get("candidate_name")), _clean_text(query_payload.get("candidate_formula")), "XRD"],
+            ).to_dict()
+        )
+    else:
+        claims.append(
+            LiteratureClaim(
+                claim_id="C1",
+                claim_text=f"The top-ranked XRD candidate is {candidate}, but the result remains qualitative and requires cautious interpretation.",
+                claim_type="interpretation",
+                modality="XRD",
+                strength="low" if confidence_band == "low" else "moderate",
+                evidence_snapshot=dict(query_payload.get("evidence_snapshot") or {}),
+                uncertainty_notes=[warning_reason] if warning_reason else [],
+                suggested_query_terms=[_clean_text(query_payload.get("candidate_name")), _clean_text(query_payload.get("candidate_formula")), "XRD"],
+            ).to_dict()
+        )
+    if max_claims > 1 and warning_reason:
+        claims.append(
+            LiteratureClaim(
+                claim_id="C2",
+                claim_text=f"The current XRD evidence for {candidate} remains below a definitive phase-validation threshold.",
+                claim_type="cautionary_interpretation",
+                modality="XRD",
+                strength="low",
+                evidence_snapshot=dict(query_payload.get("evidence_snapshot") or {}),
+                uncertainty_notes=[warning_reason],
+                suggested_query_terms=[_clean_text(query_payload.get("candidate_name")), _clean_text(query_payload.get("candidate_formula")), "powder diffraction"],
+            ).to_dict()
+        )
+    return normalize_literature_claims(claims[: max(1, int(max_claims or 1))])
+
+
+def _xrd_candidate_tokens(query_payload: Mapping[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for value in (
+        query_payload.get("candidate_display_name"),
+        query_payload.get("candidate_name"),
+        query_payload.get("candidate_formula"),
+        query_payload.get("candidate_id"),
+    ):
+        cleaned = _clean_text(value)
+        if not cleaned:
+            continue
+        tokens.add(cleaned.lower())
+        tokens.update(_tokenize(cleaned))
+    return {token for token in tokens if token}
+
+
+def _xrd_source_text(source: Mapping[str, Any], accessible: Mapping[str, Any] | None) -> str:
+    parts = [
+        _clean_text(source.get("title")),
+        _clean_text(source.get("journal")),
+        _clean_text(source.get("abstract_text")),
+        _clean_text(source.get("oa_full_text")),
+        _clean_text((source.get("provenance") or {}).get("comparison_hint")),
+    ]
+    if accessible is not None:
+        parts.append(_clean_text(accessible.get("text")))
+    return " ".join(part for part in parts if part).strip()
+
+
+def _xrd_candidate_overlap(source_text: str, candidate_tokens: set[str]) -> int:
+    lowered = source_text.lower()
+    return sum(1 for token in candidate_tokens if token and token in lowered)
+
+
+def _xrd_validation_posture(
+    *,
+    match_status: str,
+    confidence_band: str,
+    access_class: str,
+    overlap: int,
+    source_text: str,
+    hint: str,
+) -> str:
+    lowered = source_text.lower()
+    if match_status == "no_match":
+        return "contextual_only"
+    if hint in {"contradicts", "contradict"} or any(phrase in lowered for phrase in CONTRADICT_PHRASES):
+        return "alternative_interpretation"
+    if overlap >= 2 and confidence_band not in {"low", "no_match", "not_run"} and access_class in {"open_access_full_text", "user_provided_document", "abstract_only"}:
+        return "related_support"
+    return "non_validating"
+
+
+def _xrd_support_label_for_posture(posture: str) -> str:
+    if posture == "related_support":
+        return "partially_supports"
+    if posture == "alternative_interpretation":
+        return "contradicts"
+    return "related_but_inconclusive"
+
+
+def _xrd_comparison_confidence(posture: str, access_class: str, overlap: int) -> str:
+    if posture == "related_support" and access_class in {"open_access_full_text", "user_provided_document"} and overlap >= 2:
+        return "moderate"
+    if posture == "alternative_interpretation" and overlap >= 1:
+        return "moderate"
+    return "low"
+
+
+def _xrd_comparison_note(*, candidate: str, match_status: str, confidence_band: str, posture: str) -> str:
+    if match_status == "no_match":
+        return (
+            f"This paper discusses XRD characterization of {candidate}. The current result remains a no_match screening outcome and the paper does not validate a phase call for the present sample."
+        )
+    if posture == "alternative_interpretation":
+        return (
+            "This source is related to the candidate context, but it does not provide validating support for the current pattern and may indicate an alternative interpretation."
+        )
+    if posture == "related_support" and confidence_band not in {"low", "no_match"}:
+        return (
+            f"This paper discusses XRD characterization of {candidate}. It is relevant to the top-ranked candidate, but the present result should still be interpreted within qualitative phase-screening limits."
+        )
+    return "This source is relevant to the top-ranked candidate, but the current XRD evidence remains limited and non-validating."
+
+
+def _is_fixture_source(source: Mapping[str, Any]) -> bool:
+    provenance = dict(source.get("provenance") or {})
+    provider_id = _clean_text(provenance.get("provider_id")).lower()
+    result_source = _clean_text(provenance.get("result_source")).lower()
+    return provider_id == "fixture_provider" or result_source == "fixture_search"
+
+
+def _compare_xrd_candidate_to_literature(
+    record: Mapping[str, Any],
+    *,
+    provider: LiteratureProvider,
+    provider_scope: list[str],
+    max_claims: int,
+    filters: Mapping[str, Any] | None,
+    user_documents: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    comparison_run_id = f"litcmp_{uuid.uuid4().hex[:12]}"
+    query_payload = build_xrd_literature_query(record)
+    claims = _xrd_candidate_claims(record, query_payload, max_claims=max_claims)
+    summary = dict(record.get("summary") or {})
+    normalized_user_documents = _normalize_user_document_sources(user_documents)
+
+    search_results: dict[str, dict[str, Any]] = {
+        _search_result_identity(source): copy.deepcopy(source)
+        for source in normalized_user_documents
+        if _search_result_identity(source)
+    }
+    provider_request_ids: list[str] = []
+    provider_result_sources = {
+        _clean_text((source.get("provenance") or {}).get("result_source"))
+        for source in normalized_user_documents
+        if _clean_text((source.get("provenance") or {}).get("result_source"))
+    }
+    search_filters = copy.deepcopy(dict(filters or {}))
+    modalities = [_clean_text(item).upper() for item in _as_list(search_filters.get("modalities")) if _clean_text(item)]
+    if "XRD" not in modalities:
+        modalities.insert(0, "XRD")
+    search_filters["modalities"] = modalities
+    search_filters.setdefault("analysis_type", "XRD")
+    search_filters.setdefault("top_k", 5)
+
+    query_text = _clean_text(query_payload.get("query_text"))
+    if query_text:
+        for candidate in provider.search(query_text, filters=search_filters):
+            source_key = _search_result_identity(candidate)
+            if not source_key:
+                continue
+            if source_key in search_results:
+                search_results[source_key] = merge_literature_candidates(search_results[source_key], candidate)
+            else:
+                search_results[source_key] = copy.deepcopy(candidate)
+            result_source = _clean_text((candidate.get("provenance") or {}).get("result_source"))
+            if result_source:
+                provider_result_sources.add(result_source)
+        for request_id in _provider_request_ids(provider):
+            if request_id and request_id not in provider_request_ids:
+                provider_request_ids.append(request_id)
+
+    citations_by_identity: dict[str, dict[str, Any]] = {}
+    comparisons_with_rank: list[tuple[int, dict[str, Any]]] = []
+    accessible_source_ids: set[str] = set()
+    restricted_source_ids: set[str] = set()
+    used_access_fields: set[str] = set()
+    candidate_tokens = _xrd_candidate_tokens(query_payload)
+    match_status = _clean_text(summary.get("match_status")).lower() or "no_match"
+    confidence_band = _clean_text(summary.get("confidence_band")).lower() or "no_match"
+    candidate_display = _clean_text(query_payload.get("candidate_display_name") or query_payload.get("candidate_name")) or "the top-ranked candidate"
+    real_literature_available = False
+
+    for source in search_results.values():
+        source_identity = _search_result_identity(source)
+        access_class = _clean_text(source.get("access_class")).lower() or "metadata_only"
+        accessible = _fetch_accessible_text(source, provider=provider)
+        if accessible is None:
+            if access_class == "restricted_external":
+                restricted_source_ids.add(source_identity)
+            evidence_used: list[str] = []
+        else:
+            accessible_source_ids.add(source_identity)
+            field = _clean_text(accessible.get("field")).lower() or "abstract_text"
+            used_access_fields.add(field)
+            evidence_used = [_brief_evidence(_clean_text(accessible.get("text")))] if _clean_text(accessible.get("text")) else []
+
+        source_text = _xrd_source_text(source, accessible)
+        overlap = _xrd_candidate_overlap(source_text, candidate_tokens)
+        hint = _clean_text((source.get("provenance") or {}).get("comparison_hint")).lower()
+        posture = _xrd_validation_posture(
+            match_status=match_status,
+            confidence_band=confidence_band,
+            access_class=access_class,
+            overlap=overlap,
+            source_text=source_text,
+            hint=hint,
+        )
+        note = _xrd_comparison_note(candidate=candidate_display, match_status=match_status, confidence_band=confidence_band, posture=posture)
+        citation_key = citation_identity_key(source)
+        if citation_key not in citations_by_identity:
+            citations_by_identity[citation_key] = build_citation_entry(source, citation_id=f"ref{len(citations_by_identity) + 1}")
+        citation = citations_by_identity[citation_key]
+        provider_id = _clean_text((source.get("provenance") or {}).get("provider_id"))
+        if provider_id in REAL_BIBLIOGRAPHIC_PROVIDERS:
+            real_literature_available = True
+
+        comparison = LiteratureComparison(
+            claim_id=str(claims[0]["claim_id"]) if claims else "C1",
+            claim_text=str(claims[0]["claim_text"]) if claims else "",
+            candidate_name=_clean_text(query_payload.get("candidate_name")),
+            candidate_formula=_clean_text(query_payload.get("candidate_formula")),
+            paper_title=_clean_text(source.get("title")),
+            paper_year=source.get("year"),
+            paper_journal=_clean_text(source.get("journal")),
+            paper_doi=_clean_text(source.get("doi")),
+            paper_url=_clean_text(source.get("url")),
+            provider_id=provider_id,
+            access_class=access_class,
+            comparison_note=note,
+            validation_posture=posture,
+            query_text=query_text,
+            match_status_snapshot=match_status,
+            confidence_band_snapshot=confidence_band,
+            retrieved_sources=[_clean_text(source.get("source_id"))] if _clean_text(source.get("source_id")) else [],
+            support_label=_xrd_support_label_for_posture(posture),
+            rationale=note,
+            evidence_used=evidence_used,
+            citation_ids=[citation["citation_id"]],
+            confidence=_xrd_comparison_confidence(posture, access_class, overlap),
+            sources_considered=len(search_results),
+        ).to_dict()
+        score = overlap + (6 if posture == "related_support" else 4 if posture == "alternative_interpretation" else 2 if posture == "contextual_only" else 1)
+        comparisons_with_rank.append((score, comparison))
+
+    comparisons_with_rank.sort(key=lambda item: (-item[0], -(item[1].get("paper_year") or 0), str(item[1].get("paper_title") or "")))
+    comparisons = [item for _score, item in comparisons_with_rank]
+
+    context = LiteratureContext(
+        mode="metadata_abstract_oa_only",
+        comparison_run_id=comparison_run_id,
+        provider_scope=provider_scope,
+        result_id=_clean_text(record.get("id")),
+        analysis_type="XRD",
+        provider_request_ids=provider_request_ids,
+        provider_result_source=(
+            "multi_provider_search"
+            if len(provider_scope) > 1
+            else (sorted(provider_result_sources)[0] if len(provider_result_sources) == 1 else _provider_result_source(provider, provider_scope=provider_scope))
+        ),
+        query_count=1 if query_text else 0,
+        source_count=len(search_results),
+        citation_count=len(citations_by_identity),
+        accessible_source_count=len(accessible_source_ids),
+        restricted_source_count=len(restricted_source_ids),
+        metadata_only_evidence=bool(search_results) and not (used_access_fields & {"oa_full_text", "user_provided_document"}),
+        restricted_content_used=False,
+        generated_at_utc=datetime.now(timezone.utc).isoformat(),
+        query_text=query_text,
+        candidate_name=_clean_text(query_payload.get("candidate_name")),
+        candidate_formula=_clean_text(query_payload.get("candidate_formula")),
+        candidate_id=_clean_text(query_payload.get("candidate_id")),
+        candidate_display_name=_clean_text(query_payload.get("candidate_display_name")),
+        match_status_snapshot=match_status,
+        confidence_band_snapshot=confidence_band,
+        top_candidate_score_snapshot=_clean_float(summary.get("top_candidate_score")),
+        shared_peak_count_snapshot=_clean_int(summary.get("top_candidate_shared_peak_count")),
+        coverage_ratio_snapshot=_clean_float(summary.get("top_candidate_coverage_ratio")),
+        weighted_overlap_score_snapshot=_clean_float(summary.get("top_candidate_weighted_overlap_score")),
+        candidate_provider_snapshot=_clean_text(summary.get("top_candidate_provider")),
+        candidate_result_source_snapshot=_clean_text(summary.get("library_result_source")),
+        real_literature_available=real_literature_available,
+        fixture_fallback_used=bool(search_filters.get("allow_fixture_fallback")) and not real_literature_available and any(
+            _is_fixture_source(source) for source in search_results.values()
+        ),
+        query_rationale=_clean_text(query_payload.get("query_rationale")),
+    ).to_dict()
+
+    citations = sorted(citations_by_identity.values(), key=lambda item: item["citation_id"])
+    return {
+        "literature_context": normalize_literature_context(context),
+        "literature_claims": claims,
+        "literature_comparisons": normalize_literature_comparisons(comparisons),
+        "citations": normalize_citations(citations),
+    }
+
+
+def compare_result_to_literature(
+    record: Mapping[str, Any],
+    *,
+    provider: LiteratureProvider | None = None,
+    provider_scope: list[str] | None = None,
+    max_claims: int = 3,
+    filters: Mapping[str, Any] | None = None,
+    user_documents: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    active_provider = provider or FixtureLiteratureProvider()
+    scope = provider_scope or [getattr(active_provider, "provider_id", "fixture_provider")]
+    if _clean_text(record.get("analysis_type")).upper() == "XRD":
+        return _compare_xrd_candidate_to_literature(
+            record,
+            provider=active_provider,
+            provider_scope=scope,
+            max_claims=max_claims,
+            filters=filters,
+            user_documents=user_documents,
+        )
+    return _compare_generic_result_to_literature(
+        record,
+        provider=active_provider,
+        provider_scope=scope,
+        max_claims=max_claims,
+        filters=filters,
+        user_documents=user_documents,
+    )
 
 
 def attach_literature_package(record: Mapping[str, Any], package: Mapping[str, Any]) -> dict[str, Any]:

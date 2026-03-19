@@ -525,6 +525,8 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Unknown result_id: {result_id}")
 
         provider_ids = [str(item).strip() for item in (request.provider_ids or []) if str(item).strip()]
+        if not provider_ids and str(record.get("analysis_type") or "").upper() == "XRD":
+            provider_ids = ["openalex_like_provider"]
         try:
             providers, provider_scope = resolve_literature_providers(
                 provider_ids,

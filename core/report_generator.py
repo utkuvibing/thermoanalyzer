@@ -1940,6 +1940,24 @@ def _literature_fixture_state(record: Mapping[str, Any]) -> dict[str, bool]:
     }
 
 
+def _comparison_is_fixture(
+    comparison: Mapping[str, Any],
+    *,
+    citations_by_id: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    citation_ids = [
+        normalize_report_text(token)
+        for token in (comparison.get("citation_ids") or [])
+        if normalize_report_text(token)
+    ]
+    cited_rows = [dict(citations_by_id[citation_id]) for citation_id in citation_ids if citation_id in citations_by_id]
+    if cited_rows:
+        return all(_citation_is_fixture(citation) for citation in cited_rows)
+
+    provider_id = normalize_report_text(comparison.get("provider_id") or "").lower()
+    return provider_id == "fixture_provider"
+
+
 def _citation_report_line(citation: Mapping[str, Any]) -> str:
     if _citation_is_fixture(citation):
         title = normalize_report_text(citation.get("title") or "Fixture citation metadata")
@@ -2000,17 +2018,81 @@ def _citation_appendix_line(citation: Mapping[str, Any]) -> str:
 def _literature_main_sections(record: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     comparisons = [dict(item) for item in (record.get("literature_comparisons") or []) if isinstance(item, Mapping)]
     context = dict(record.get("literature_context") or {})
-    citations_by_id = _citation_lookup(record)
+    all_citations_by_id = _citation_lookup(record)
     fixture_state = _literature_fixture_state(record)
     if fixture_state["fixture_only"]:
         return []
     citations_by_id = {
         citation_id: citation
-        for citation_id, citation in citations_by_id.items()
+        for citation_id, citation in all_citations_by_id.items()
         if not _citation_is_fixture(citation)
     }
+    reportable_xrd_comparisons = [
+        item
+        for item in comparisons
+        if not _comparison_is_fixture(item, citations_by_id=all_citations_by_id)
+    ]
     if not comparisons and not citations_by_id:
         return []
+
+    if str(record.get("analysis_type") or "").upper() == "XRD" and (
+        normalize_report_text(context.get("query_text") or "")
+        or any(normalize_report_text(item.get("paper_title") or "") for item in reportable_xrd_comparisons)
+    ):
+        if not reportable_xrd_comparisons and not citations_by_id:
+            return []
+        sections: list[tuple[str, dict[str, Any]]] = []
+        candidate_name = (
+            normalize_report_text(context.get("candidate_display_name") or "")
+            or normalize_report_text(context.get("candidate_name") or "")
+            or normalize_report_text((record.get("summary") or {}).get("top_candidate_display_name_unicode") or "")
+            or normalize_report_text((record.get("summary") or {}).get("top_candidate_name") or "")
+            or "Not recorded"
+        )
+        candidate_context = {
+            "Candidate": candidate_name,
+            "Query Text": normalize_report_text(context.get("query_text") or "Not recorded"),
+            "Accepted Match Status": normalize_report_text(context.get("match_status_snapshot") or (record.get("summary") or {}).get("match_status") or "Not recorded"),
+            "Confidence Band": normalize_report_text(context.get("confidence_band_snapshot") or (record.get("summary") or {}).get("confidence_band") or "Not recorded"),
+            "Authoritative Note": "Literature provides contextual evidence around the top-ranked candidate and does not override XRD screening.",
+        }
+        sections.append(("XRD Candidate Literature Check", candidate_context))
+
+        relevant_payload: dict[str, Any] = {}
+        alternative_payload: dict[str, Any] = {}
+        for item in reportable_xrd_comparisons:
+            title = normalize_report_text(item.get("paper_title") or item.get("claim_text") or f"Paper {len(relevant_payload) + len(alternative_payload) + 1}")
+            journal = normalize_report_text(item.get("paper_journal") or "")
+            year = normalize_report_text(item.get("paper_year") or "n.d.")
+            link = normalize_report_text(item.get("paper_doi") or item.get("paper_url") or "")
+            posture = normalize_report_text(item.get("validation_posture") or "non_validating")
+            note = normalize_report_text(item.get("comparison_note") or item.get("rationale") or "No comparison note recorded.")
+            line = f"{year}. {journal}. posture={posture}. {note}"
+            if link:
+                line = f"{line} Link: {link}."
+            if posture == "related_support":
+                relevant_payload[title] = normalize_report_text(line)
+            else:
+                alternative_payload[title] = normalize_report_text(line)
+
+        if not relevant_payload and reportable_xrd_comparisons:
+            relevant_payload["Note"] = "No paper met the threshold for candidate-related support; literature remains contextual and non-definitive."
+        sections.append(("Relevant Papers", relevant_payload))
+
+        if not alternative_payload and reportable_xrd_comparisons:
+            alternative_payload["Note"] = "No alternative or non-validating papers were retained beyond the contextual candidate check."
+        sections.append(("Alternative or Non-Validating Papers", alternative_payload))
+
+        follow_up_checks: dict[str, Any] = {}
+        if not reportable_xrd_comparisons:
+            follow_up_checks["Check 1"] = "No bibliographic papers were retained for the top-ranked candidate; consider broadening candidate labels or searching additional metadata providers."
+        if normalize_report_text(context.get("match_status_snapshot") or "").lower() == "no_match":
+            follow_up_checks["Check 2"] = "The accepted XRD outcome remains no_match; literature does not validate a phase call and confirmatory experiments may still be required."
+        if context.get("metadata_only_evidence"):
+            follow_up_checks["Check 3"] = "The retained paper set is metadata- or abstract-heavy; broader open-access evidence could refine candidate-level context."
+        if follow_up_checks:
+            sections.append(("Recommended Follow-Up Literature Checks", follow_up_checks))
+        return sections
 
     sections: list[tuple[str, dict[str, Any]]] = []
     comparison_payload: dict[str, Any] = {}

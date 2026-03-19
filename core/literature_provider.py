@@ -334,6 +334,17 @@ class MetadataAPILiteratureProvider:
         return None
 
 
+class OpenAlexLikeLiteratureProvider(MetadataAPILiteratureProvider):
+    """OpenAlex-style metadata provider shell.
+
+    Legal guardrail: this provider is metadata-first and only uses abstract or
+    open-access text when the provider response already exposes it legally.
+    """
+
+    provider_id = "openalex_like_provider"
+    provider_result_source = "openalex_like_search"
+
+
 class MultiLiteratureProviderAggregator:
     provider_id = "multi_provider_aggregator"
     provider_result_source = "multi_provider_search"
@@ -376,6 +387,7 @@ def default_literature_provider_registry() -> dict[str, Callable[[], LiteratureP
     return {
         "fixture_provider": FixtureLiteratureProvider,
         "metadata_api_provider": MetadataAPILiteratureProvider,
+        "openalex_like_provider": OpenAlexLikeLiteratureProvider,
     }
 
 
