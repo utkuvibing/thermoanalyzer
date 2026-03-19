@@ -50,6 +50,7 @@ def test_merge_literature_detail_into_record_updates_saved_result_fields():
     assert updated["literature_context"]["comparison_run_id"] == "litcmp_demo_001"
     assert updated["literature_claims"][0]["claim_id"] == "C1"
     assert updated["citations"][0]["citation_id"] == "ref1"
+    assert updated["report_payload"]["literature_fixture_detected"] is False
 
 
 def test_build_literature_sections_handles_absent_payload():
@@ -68,6 +69,8 @@ def test_render_literature_sections_no_crash_when_payload_absent(monkeypatch):
     fake_st = SimpleNamespace(
         caption=lambda text: captions.append(str(text)),
         markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: captions.append(str(text)),
+        container=lambda: nullcontext(),
     )
     monkeypatch.setattr(literature_compare_panel, "st", fake_st)
 
@@ -80,16 +83,26 @@ def test_render_literature_sections_no_crash_when_payload_absent(monkeypatch):
 def test_render_literature_sections_renders_compact_payload(monkeypatch):
     captions: list[str] = []
     markdowns: list[str] = []
+    warnings: list[str] = []
 
     fake_st = SimpleNamespace(
         caption=lambda text: captions.append(str(text)),
         markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: warnings.append(str(text)),
+        container=lambda: nullcontext(),
     )
     monkeypatch.setattr(literature_compare_panel, "st", fake_st)
 
     literature_compare_panel.render_literature_sections(
         {
+            "summary": {"match_status": "matched", "confidence_band": "medium"},
             "literature_context": {"restricted_content_used": False, "metadata_only_evidence": True},
+            "literature_claims": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "Phase Alpha remains a qualitative follow-up target rather than a confirmed identification.",
+                }
+            ],
             "literature_comparisons": [
                 {
                     "claim_id": "C1",
@@ -117,8 +130,154 @@ def test_render_literature_sections_renders_compact_payload(monkeypatch):
     assert any("Supporting References" in item for item in markdowns)
     assert any("Contradictory or Alternative References" in item for item in markdowns)
     assert any("Recommended Follow-Up Literature Checks" in item for item in markdowns)
+    assert any("Phase Alpha remains a qualitative follow-up target" in item for item in markdowns)
     assert any("Supporting paper" in item for item in markdowns)
-    assert any("abstract_only" in item for item in markdowns)
+    assert any("abstract_only" in item for item in captions)
+    assert warnings == []
+
+
+def test_render_literature_sections_shows_fixture_banner_and_demo_citation_guardrail(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+    warnings: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: warnings.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "summary": {"match_status": "matched", "confidence_band": "medium"},
+            "literature_context": {"provider_scope": ["fixture_provider"], "restricted_content_used": False},
+            "literature_claims": [{"claim_id": "C1", "claim_text": "Phase Alpha remains a qualitative follow-up candidate."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "support_label": "supports",
+                    "confidence": "moderate",
+                    "rationale": "Fixture literature appears directionally aligned but is not real evidence.",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref1",
+                    "title": "Fixture paper",
+                    "year": 2025,
+                    "journal": "Fixture Journal",
+                    "doi": "10.1000/fixture",
+                    "access_class": "open_access_full_text",
+                    "provenance": {
+                        "provider_id": "fixture_provider",
+                        "result_source": "fixture_search",
+                        "provider_scope": ["fixture_provider"],
+                    },
+                }
+            ],
+        },
+        lang="en",
+    )
+
+    assert warnings == ["Demo literature fixture output — not a real bibliographic source"]
+    assert any("Demo DOI/URL display is not a production reference" in item for item in captions)
+    assert any("Demo fixture only" in item for item in captions)
+
+
+def test_no_match_weak_literature_does_not_render_misleading_support_label(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+    warnings: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: warnings.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "summary": {"match_status": "no_match", "confidence_band": "no_match"},
+            "literature_context": {"metadata_only_evidence": True, "restricted_content_used": False},
+            "literature_claims": [{"claim_id": "C1", "claim_text": "The XRD output remained a cautionary no_match result."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "support_label": "supports",
+                    "confidence": "low",
+                    "rationale": "Metadata overlap exists, but it does not validate the analytical outcome.",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref1",
+                    "title": "Metadata-only paper",
+                    "access_class": "metadata_only",
+                    "provenance": {"provider_id": "metadata_api_provider", "result_source": "open_metadata_api"},
+                }
+            ],
+        },
+        lang="en",
+    )
+
+    assert warnings == []
+    assert any("Insufficient literature evidence" in item for item in captions)
+    assert not any("Cautiously consistent" in item for item in captions)
+
+
+def test_render_literature_sections_turkish_path_stays_turkish(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+    warnings: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: warnings.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "summary": {"match_status": "matched", "confidence_band": "medium"},
+            "literature_context": {"provider_scope": ["fixture_provider"], "restricted_content_used": False},
+            "literature_claims": [{"claim_id": "C1", "claim_text": "Faz Alfa yalnızca nitel bir takip adayıdır."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "support_label": "supports",
+                    "confidence": "moderate",
+                    "rationale": "Bu çıktı yalnızca demo amaçlıdır.",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref1",
+                    "title": "Demo makalesi",
+                    "access_class": "metadata_only",
+                    "provenance": {
+                        "provider_id": "fixture_provider",
+                        "result_source": "fixture_search",
+                        "provider_scope": ["fixture_provider"],
+                    },
+                }
+            ],
+        },
+        lang="tr",
+    )
+
+    assert warnings == ["Demo literature fixture output — gerçek bibliyografik kaynak değildir"]
+    assert any("Literatür Karşılaştırması" in item for item in markdowns)
+    assert any("İddia Kimliği" in item for item in captions)
+    assert not any("Literature Comparison" in item for item in markdowns)
 
 
 def test_call_literature_compare_maps_backend_response_into_updated_record(monkeypatch):
@@ -184,6 +343,7 @@ def test_render_literature_compare_panel_updates_session_state_on_success(monkey
         warning=lambda *args, **kwargs: None,
         caption=lambda text: captions.append(str(text)),
         markdown=lambda text: markdowns.append(str(text)),
+        container=lambda: nullcontext(),
     )
     monkeypatch.setattr(literature_compare_panel, "st", fake_st)
     monkeypatch.setattr(

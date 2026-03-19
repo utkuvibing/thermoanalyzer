@@ -503,7 +503,7 @@ def test_result_serialization_includes_literature_payload_sections():
     assert any(row["section"] == "citations" and row["field"] == "citation_id" for row in flat_rows)
 
 
-def test_docx_and_pdf_reports_render_literature_sections():
+def test_docx_and_pdf_reports_exclude_fixture_only_literature_by_default():
     pytest.importorskip("reportlab")
     pypdf = pytest.importorskip("pypdf")
 
@@ -595,19 +595,16 @@ def test_docx_and_pdf_reports_render_literature_sections():
     with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
         xml = archive.read("word/document.xml").decode("utf-8")
 
-    assert "Literature Comparison" in xml
-    assert "Supporting References" in xml
-    assert "Contradictory or Alternative References" in xml
-    assert "Recommended Follow-Up Literature Checks" in xml
-    assert "litcmp_demo_001" in xml
-    assert "litreq_fixture_provider_demo" in xml
-    assert "CC-BY-4.0" in xml
-    assert "fixture_provider" in xml
+    assert "Development / Demo Literature Output" in xml
+    assert "Fixture/demo-only literature output was excluded from the report by default because it is not a real bibliographic source." in xml
+    assert "Supporting References" not in xml
+    assert "Contradictory or Alternative References" not in xml
+    assert "10.1000/support" not in xml
+    assert "10.1000/alternative" not in xml
 
     pdf_bytes = generate_pdf_report(results={record["id"]: record}, datasets={"xrd_demo": dataset})
     extracted = "\n".join(page.extract_text() or "" for page in pypdf.PdfReader(io.BytesIO(pdf_bytes)).pages)
 
-    assert "Literature Comparison" in extracted
-    assert "Supporting References" in extracted
-    assert "Contradictory or Alternative References" in extracted
-    assert "Recommended Follow-Up Literature Checks" in extracted
+    assert "Development / Demo Literature Output" in extracted
+    assert "excluded from the report by default" in extracted
+    assert "Supporting References" not in extracted

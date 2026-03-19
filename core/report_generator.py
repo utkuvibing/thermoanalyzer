@@ -1901,13 +1901,70 @@ def _citation_lookup(record: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return lookup
 
 
+def _literature_demo_enabled() -> bool:
+    token = (
+        os.getenv("THERMOANALYZER_INCLUDE_DEMO_LITERATURE")
+        or os.getenv("MATERIALSCOPE_INCLUDE_DEMO_LITERATURE")
+        or ""
+    )
+    return token.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _citation_is_fixture(citation: Mapping[str, Any]) -> bool:
+    provenance = dict(citation.get("provenance") or {})
+    provider_id = normalize_report_text(provenance.get("provider_id") or "").lower()
+    result_source = normalize_report_text(provenance.get("result_source") or "").lower()
+    provider_scope = [
+        normalize_report_text(item).lower()
+        for item in (provenance.get("provider_scope") or [])
+        if normalize_report_text(item)
+    ]
+    return provider_id == "fixture_provider" or result_source == "fixture_search" or "fixture_provider" in provider_scope
+
+
+def _literature_fixture_state(record: Mapping[str, Any]) -> dict[str, bool]:
+    context = dict(record.get("literature_context") or {})
+    provider_scope = [
+        normalize_report_text(item).lower()
+        for item in (context.get("provider_scope") or [])
+        if normalize_report_text(item)
+    ]
+    citations = [dict(item) for item in (record.get("citations") or []) if isinstance(item, Mapping)]
+    fixture_from_scope = "fixture_provider" in provider_scope
+    fixture_citations = [citation for citation in citations if _citation_is_fixture(citation)]
+    fixture_detected = fixture_from_scope or bool(fixture_citations)
+    fixture_only = fixture_detected and (not citations or len(fixture_citations) == len(citations))
+    return {
+        "fixture_detected": fixture_detected,
+        "fixture_only": fixture_only,
+    }
+
+
 def _citation_report_line(citation: Mapping[str, Any]) -> str:
+    if _citation_is_fixture(citation):
+        title = normalize_report_text(citation.get("title") or "Fixture citation metadata")
+        access_class = normalize_report_text(citation.get("access_class") or "metadata_only")
+        return normalize_report_text(
+            f"Development/demo fixture citation only: {title}. Access class: {access_class}. "
+            "This is not an authoritative bibliographic reference."
+        )
     citation_text = normalize_report_text(citation.get("citation_text") or citation.get("title") or "Citation not recorded")
     access_class = normalize_report_text(citation.get("access_class") or "metadata_only")
     return normalize_report_text(f"{citation_text} Access class: {access_class}.")
 
 
 def _citation_appendix_line(citation: Mapping[str, Any]) -> str:
+    if _citation_is_fixture(citation):
+        title = normalize_report_text(citation.get("title") or "Fixture citation metadata")
+        access_class = normalize_report_text(citation.get("access_class") or "metadata_only")
+        provenance = dict(citation.get("provenance") or {})
+        provider_id = normalize_report_text(provenance.get("provider_id") or "fixture_provider")
+        result_source = normalize_report_text(provenance.get("result_source") or "fixture_search")
+        return normalize_report_text(
+            f"Development/demo fixture citation only: {title}. Access class: {access_class}. "
+            f"Provider: {provider_id}. Result source: {result_source}. "
+            "DOI/URL text is intentionally omitted from authoritative citation display."
+        )
     citation_text = normalize_report_text(citation.get("citation_text") or citation.get("title") or "Citation not recorded")
     access_class = normalize_report_text(citation.get("access_class") or "metadata_only")
     license_note = normalize_report_text(citation.get("source_license_note") or "not recorded")
@@ -1944,6 +2001,14 @@ def _literature_main_sections(record: Mapping[str, Any]) -> list[tuple[str, dict
     comparisons = [dict(item) for item in (record.get("literature_comparisons") or []) if isinstance(item, Mapping)]
     context = dict(record.get("literature_context") or {})
     citations_by_id = _citation_lookup(record)
+    fixture_state = _literature_fixture_state(record)
+    if fixture_state["fixture_only"]:
+        return []
+    citations_by_id = {
+        citation_id: citation
+        for citation_id, citation in citations_by_id.items()
+        if not _citation_is_fixture(citation)
+    }
     if not comparisons and not citations_by_id:
         return []
 
@@ -1957,7 +2022,11 @@ def _literature_main_sections(record: Mapping[str, Any]) -> list[tuple[str, dict
         label = normalize_report_text(item.get("support_label") or "related_but_inconclusive")
         confidence = normalize_report_text(item.get("confidence") or "low")
         rationale = normalize_report_text(item.get("rationale") or "No literature rationale recorded.")
-        citation_ids = [normalize_report_text(token) for token in (item.get("citation_ids") or []) if normalize_report_text(token)]
+        citation_ids = [
+            normalize_report_text(token)
+            for token in (item.get("citation_ids") or [])
+            if normalize_report_text(token) and normalize_report_text(token) in citations_by_id
+        ]
         citation_note = f" Citations: {', '.join(citation_ids)}." if citation_ids else " No accessible citation was retained for this claim."
         comparison_payload[f"{claim_id} ({label}, {confidence})"] = normalize_report_text(f"{rationale}{citation_note}")
         if label in {"supports", "partially_supports"}:
@@ -2025,9 +2094,25 @@ def _literature_main_sections(record: Mapping[str, Any]) -> list[tuple[str, dict
 
 def _literature_appendix_sections(record: Mapping[str, Any]) -> list[tuple[str, dict[str, str]]]:
     sections: list[tuple[str, dict[str, str]]] = []
+    fixture_state = _literature_fixture_state(record)
+    if fixture_state["fixture_only"] and not _literature_demo_enabled():
+        return [
+            (
+                "Development / Demo Literature Output",
+                {
+                    "Status": (
+                        "Fixture/demo-only literature output was excluded from the report by default because it is not a real bibliographic source."
+                    )
+                },
+            )
+        ]
+
     context = dict(record.get("literature_context") or {})
     if context:
-        sections.append(("Literature Comparison Context", _table_payload(context)))
+        title = "Literature Comparison Context"
+        if fixture_state["fixture_only"]:
+            title = "Development / Demo Literature Output"
+        sections.append((title, _table_payload(context)))
 
     comparisons_payload = {}
     for item in record.get("literature_comparisons") or []:
@@ -2046,13 +2131,25 @@ def _literature_appendix_sections(record: Mapping[str, Any]) -> list[tuple[str, 
             f"confidence={confidence}; citations={citations or 'none'}; {rationale}"
         )
     if comparisons_payload:
-        sections.append(("Literature Comparison Outcomes", comparisons_payload))
+        sections.append(
+            (
+                "Demo Literature Comparison Outcomes" if fixture_state["fixture_only"] else "Literature Comparison Outcomes",
+                comparisons_payload,
+            )
+        )
 
     citations_payload = {}
     for citation_id, citation in _citation_lookup(record).items():
+        if _citation_is_fixture(citation) and not _literature_demo_enabled():
+            continue
         citations_payload[citation_id] = _citation_appendix_line(citation)
     if citations_payload:
-        sections.append(("Literature Citations", citations_payload))
+        sections.append(
+            (
+                "Demo Literature Citations" if fixture_state["fixture_only"] else "Literature Citations",
+                citations_payload,
+            )
+        )
     return sections
 
 
