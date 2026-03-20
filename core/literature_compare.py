@@ -319,7 +319,7 @@ def _thermal_search_queries(query_payload: Mapping[str, Any]) -> list[str]:
     for value in [_clean_text(query_payload.get("query_text"))] + [_clean_text(item) for item in _as_list(query_payload.get("fallback_queries"))]:
         if value and value not in queries:
             queries.append(value)
-        if len(queries) >= 2:
+        if len(queries) >= 5:
             break
     return queries
 
@@ -365,7 +365,8 @@ def _thermal_subject_overlap(source_text: str, subject_tokens: set[str]) -> int:
 
 
 def _thermal_query_is_too_narrow(query_payload: Mapping[str, Any]) -> bool:
-    return not any(_clean_text(item) for item in _as_list(query_payload.get("query_display_terms")))
+    subject = _clean_text((query_payload.get("evidence_snapshot") or {}).get("sample_name"))
+    return not subject and not any(_clean_text(item) for item in _as_list(query_payload.get("query_display_terms")))
 
 
 def _thermal_validation_posture(

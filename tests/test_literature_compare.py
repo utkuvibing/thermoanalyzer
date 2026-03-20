@@ -10,7 +10,7 @@ import pytest
 
 from core.data_io import ThermalDataset
 from core.literature_claims import extract_literature_claims
-from core.literature_compare import attach_literature_package, compare_result_to_literature
+from core.literature_compare import _thermal_search_queries, attach_literature_package, compare_result_to_literature
 from core.literature_provider import (
     FixtureLiteratureProvider,
     MetadataAPILiteratureProvider,
@@ -23,6 +23,7 @@ from core.literature_provider import (
 )
 from core.report_generator import generate_docx_report, generate_pdf_report
 from core.result_serialization import flatten_result_records, make_result_record, split_valid_results
+from core.thermal_literature_query_builder import build_dsc_literature_query, build_dta_literature_query, build_tga_literature_query
 
 
 class StubProvider:
@@ -343,6 +344,68 @@ def test_tga_compare_no_results_persists_traceability():
     assert context["provider_query_status"] == "not_configured"
     assert context["no_results_reason"] == "not_configured"
     assert context["real_literature_available"] is False
+
+
+def test_tga_query_builder_strips_filename_artifacts_and_adds_scientific_fallbacks():
+    record = _thermal_record("TGA")
+    record["metadata"]["display_name"] = "tga_CaCO3_decomposition.csv"
+    record["metadata"]["file_name"] = "tga_CaCO3_decomposition.csv"
+    record["metadata"]["sample_name"] = ""
+    record["summary"]["sample_name"] = ""
+    record["summary"]["total_mass_loss_percent"] = 43.9
+    record["rows"][0]["midpoint_temperature"] = 718.0
+
+    payload = build_tga_literature_query(record)
+
+    assert ".csv" not in payload["query_text"]
+    assert payload["query_display_title"] == "CaCO3 decomposition"
+    assert not payload["query_text"].startswith('"CaCO3 decomposition.csv"')
+    assert any("thermogravimetric analysis" in query.lower() for query in payload["fallback_queries"])
+    assert any("calcium carbonate" in query.lower() or "calcite" in query.lower() for query in payload["fallback_queries"])
+    assert any("decarbonation" in query.lower() or "calcination" in query.lower() for query in payload["fallback_queries"])
+
+
+def test_tga_query_builder_does_not_preserve_exact_quoted_filename_subject():
+    record = _thermal_record("TGA")
+    record["metadata"]["display_name"] = "CaCO3 decomposition.csv"
+    record["metadata"]["sample_name"] = ""
+    record["summary"]["sample_name"] = ""
+
+    payload = build_tga_literature_query(record)
+
+    assert payload["query_display_title"] == "CaCO3 decomposition"
+    assert '"CaCO3 decomposition.csv"' not in payload["query_text"]
+    assert ".csv" not in payload["query_text"]
+
+
+def test_thermal_search_queries_keeps_broader_prioritized_fallbacks():
+    query_payload = {
+        "query_text": "CaCO3 TGA decomposition mass loss residue 718 C",
+        "fallback_queries": [
+            "CaCO3 thermogravimetric analysis decomposition",
+            "CaCO3 decomposition mass loss residue",
+            "calcium carbonate thermogravimetric analysis decomposition",
+            "calcium carbonate decarbonation calcination CO2 release thermogravimetric analysis",
+            "thermogravimetric analysis decomposition mass loss residue",
+        ],
+    }
+
+    queries = _thermal_search_queries(query_payload)
+
+    assert len(queries) > 2
+    assert len(queries) <= 5
+    assert queries[0] == "CaCO3 TGA decomposition mass loss residue 718 C"
+    assert len(set(queries)) == len(queries)
+
+
+def test_dsc_and_dta_query_builders_keep_existing_semantics_without_filename_noise():
+    dsc_payload = build_dsc_literature_query(_thermal_record("DSC"))
+    dta_payload = build_dta_literature_query(_thermal_record("DTA"))
+
+    assert dsc_payload["query_display_mode"] == "DSC / thermal interpretation"
+    assert "glass transition" in dsc_payload["query_text"].lower() or "thermal event" in dsc_payload["query_text"].lower()
+    assert dta_payload["query_display_mode"] == "DTA / thermal events"
+    assert "differential thermal analysis" in dta_payload["query_text"].lower()
 
 
 @pytest.mark.parametrize(

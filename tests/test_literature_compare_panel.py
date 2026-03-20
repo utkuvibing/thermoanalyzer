@@ -466,6 +466,44 @@ def test_render_literature_sections_renders_thermal_search_summary_without_xrd_c
     assert not any("top-ranked candidate" in item.lower() for item in captions)
 
 
+def test_render_literature_sections_shows_cleaned_thermal_focus_label(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: captions.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "analysis_type": "TGA",
+            "summary": {"sample_name": ""},
+            "literature_context": {
+                "query_text": "CaCO3 thermogravimetric analysis decomposition",
+                "query_display_title": "CaCO3 decomposition",
+                "query_display_mode": "TGA / decomposition profile",
+                "query_display_terms": ["decomposition", "mass loss", "residue"],
+                "real_literature_available": False,
+                "provider_query_status": "not_configured",
+                "no_results_reason": "not_configured",
+                "source_count": 0,
+                "citation_count": 0,
+            },
+            "literature_claims": [],
+            "literature_comparisons": [],
+            "citations": [],
+        },
+        lang="en",
+    )
+
+    assert any("Focus: CaCO3 decomposition" in item for item in captions)
+    assert not any(".csv" in item for item in captions)
+
+
 def test_render_literature_sections_keeps_turkish_zero_hit_copy_fully_turkish(monkeypatch):
     captions: list[str] = []
     markdowns: list[str] = []

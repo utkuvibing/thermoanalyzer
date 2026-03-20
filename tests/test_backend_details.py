@@ -381,7 +381,14 @@ def test_result_literature_compare_endpoint_persists_payload():
     assert detail_payload["literature_claims"]
 
 
-def test_result_literature_compare_endpoint_persists_safe_context_when_no_real_results_exist():
+def test_result_literature_compare_endpoint_persists_safe_context_when_no_real_results_exist(monkeypatch):
+    for name in (
+        "MATERIALSCOPE_OPENALEX_EMAIL",
+        "THERMOANALYZER_OPENALEX_EMAIL",
+        "MATERIALSCOPE_OPENALEX_API_KEY",
+        "THERMOANALYZER_OPENALEX_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
     store, project_id, result_id = _seed_xrd_result_store()
     client = TestClient(create_app(api_token="details-token", store=store))
 
