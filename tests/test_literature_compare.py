@@ -2080,3 +2080,75 @@ def test_docx_report_preserves_clickable_doi_links_for_thermal_references():
 
     assert "10.1000/calcite-direct" in xml
     assert "https://doi.org/10.1000/calcite-direct" in rels
+
+
+def test_docx_report_formats_chemical_formulas_in_literature_text_without_breaking_doi_links():
+    record = attach_literature_package(
+        _thermal_record("TGA"),
+        {
+            "literature_context": {
+                "mode": "metadata_abstract_oa_only",
+                "comparison_run_id": "litcmp_tga_formula_docx",
+                "provider_scope": ["openalex_like_provider"],
+                "provider_request_ids": ["openalex_req_tga_formula"],
+                "provider_result_source": "openalex_api",
+                "query_text": "CaCO3 decomposition CO2 capture",
+                "query_display_title": "CaCO3 decomposition",
+                "query_display_mode": "TGA / decomposition profile",
+                "query_rationale": "CaCO3 decomposition with CO<sub>2</sub> release from Ca(OH)2–CaCO3–CaO systems.",
+                "real_literature_available": True,
+                "evidence_specificity_summary": "abstract_backed",
+            },
+            "literature_claims": [{"claim_id": "C1", "claim_text": "CaCO3 decomposition remains qualitative."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "claim_text": "CaCO3 decomposition remains qualitative.",
+                    "support_label": "partially_supports",
+                    "confidence": "moderate",
+                    "rationale": "CaCO3 decomposition discusses CO<sub>2</sub> release from Ca(OH)2–CaCO3–CaO systems.",
+                    "validation_posture": "related_support",
+                    "citation_ids": ["ref1"],
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref1",
+                    "title": "CaCO3 decomposition and CO2 capture",
+                    "authors": ["A. Author"],
+                    "year": 2024,
+                    "journal": "Journal of CaCO3 Studies",
+                    "doi": "10.1000/calcite-direct",
+                    "url": "https://example.test/calcite-direct",
+                    "access_class": "abstract_only",
+                    "citation_text": "A. Author (2024). CaCO3 decomposition and CO2 capture. Journal of CaCO3 Studies.",
+                    "source_license_note": "provider_abstract",
+                    "provenance": {
+                        "provider_id": "openalex_like_provider",
+                        "result_source": "openalex_api",
+                        "provider_scope": ["openalex_like_provider"],
+                        "provider_request_ids": ["openalex_req_tga_formula"],
+                    },
+                }
+            ],
+        },
+    )
+    dataset = ThermalDataset(
+        data=pd.DataFrame({"temperature": [650.0, 718.0, 790.0], "signal": [100.0, 82.0, 56.1]}),
+        metadata={"sample_name": "CaCO3 decomposition", "display_name": "CaCO3 decomposition"},
+        data_type="TGA",
+        units={"temperature": "degC", "signal": "%"},
+        original_columns={"temperature": "temperature", "signal": "signal"},
+        file_path="",
+    )
+
+    docx_bytes = generate_docx_report(results={record["id"]: record}, datasets={record["dataset_key"]: dataset})
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+        rels = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+
+    assert "CaCO₃ decomposition" in xml
+    assert "CO₂ capture" in xml
+    assert "Ca(OH)₂–CaCO₃–CaO" in xml
+    assert "https://doi.org/10.1000/calcite-direct" in rels
+    assert "10.1000/calcite-direct" in xml

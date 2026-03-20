@@ -4,6 +4,7 @@ from pathlib import Path
 from contextlib import nullcontext
 from types import SimpleNamespace
 
+from core.chemical_formula_formatting import format_chemical_formula_text
 from ui.components import literature_compare_panel
 
 
@@ -195,6 +196,17 @@ def test_render_citation_item_renders_clickable_doi_link(monkeypatch):
     )
 
     assert any("DOI: [10.1000/calcite-direct](https://doi.org/10.1000/calcite-direct)" in item for item in markdowns)
+
+
+def test_format_chemical_formula_text_formats_formulas_but_not_doi_or_urls():
+    text = "CaCO3 decomposition and CO<sub>2</sub> capture. DOI: 10.1000/caco3-study https://doi.org/10.1000/caco3-study"
+
+    formatted = format_chemical_formula_text(text)
+
+    assert "CaCO₃ decomposition" in formatted
+    assert "CO₂ capture" in formatted
+    assert "10.1000/caco3-study" in formatted
+    assert "https://doi.org/10.1000/caco3-study" in formatted
 
 
 def test_build_literature_sections_marks_xrd_candidate_mode_and_paper_cards():
@@ -561,7 +573,7 @@ def test_render_literature_sections_shows_cleaned_thermal_focus_label(monkeypatc
         lang="en",
     )
 
-    assert any("Focus: CaCO3 decomposition" in item for item in captions)
+    assert any("Focus: CaCO₃ decomposition" in item for item in captions)
     assert not any(".csv" in item for item in captions)
 
 
@@ -744,6 +756,64 @@ def test_render_literature_sections_uses_persisted_mixed_thermal_record_for_rele
     assert any(item == "**Relevant References**" for item in markdowns)
     assert any("Calcite thermal decomposition by thermogravimetric analysis" in item for item in markdowns)
     assert not any("No supporting accessible references were retained" in item for item in captions)
+
+
+def test_render_literature_sections_formats_chemical_formulas_in_user_facing_text(monkeypatch):
+    captions: list[str] = []
+    markdowns: list[str] = []
+
+    fake_st = SimpleNamespace(
+        caption=lambda text: captions.append(str(text)),
+        markdown=lambda text: markdowns.append(str(text)),
+        warning=lambda text: captions.append(str(text)),
+        container=lambda: nullcontext(),
+    )
+    monkeypatch.setattr(literature_compare_panel, "st", fake_st)
+
+    literature_compare_panel.render_literature_sections(
+        {
+            "analysis_type": "TGA",
+            "summary": {"sample_name": "CaCO3 decomposition"},
+            "literature_context": {
+                "analysis_type": "TGA",
+                "query_text": "calcium carbonate thermogravimetric analysis decarbonation",
+                "query_display_title": "CaCO3 decomposition",
+                "query_rationale": "CaCO3 decomposition with CO<sub>2</sub> release from Ca(OH)2–CaCO3–CaO context.",
+                "query_display_mode": "TGA / decomposition profile",
+                "real_literature_available": True,
+                "metadata_only_evidence": False,
+                "evidence_specificity_summary": "abstract_backed",
+            },
+            "literature_claims": [{"claim_id": "C1", "claim_text": "CaCO3 decomposition remains qualitative."}],
+            "literature_comparisons": [
+                {
+                    "claim_id": "C1",
+                    "paper_title": "CaCO3 decomposition and CO2 capture",
+                    "access_class": "abstract_only",
+                    "validation_posture": "contextual_only",
+                    "support_label": "partially_supports",
+                    "confidence": "moderate",
+                    "rationale": "CaCO3 decomposition discusses CO<sub>2</sub> release from Ca(OH)2–CaCO3–CaO systems.",
+                    "citation_ids": ["ref7"],
+                }
+            ],
+            "citations": [
+                {
+                    "citation_id": "ref7",
+                    "title": "CaCO3 decomposition and CO2 capture",
+                    "journal": "Journal of CaCO3 Studies",
+                    "doi": "10.1000/calcite-direct",
+                    "access_class": "abstract_only",
+                }
+            ],
+        },
+        lang="en",
+    )
+
+    assert any("CaCO₃ decomposition" in item for item in captions + markdowns)
+    assert any("CO₂" in item for item in captions + markdowns)
+    assert any("Ca(OH)₂–CaCO₃–CaO" in item for item in captions + markdowns)
+    assert any("DOI: [10.1000/calcite-direct](https://doi.org/10.1000/calcite-direct)" in item for item in markdowns)
 
 
 def test_build_literature_sections_keeps_weak_metadata_only_neighbor_in_alternative_references():

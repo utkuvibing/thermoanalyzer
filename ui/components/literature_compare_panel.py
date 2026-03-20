@@ -11,6 +11,7 @@ from typing import Any, Mapping
 import httpx
 import streamlit as st
 
+from core.chemical_formula_formatting import format_chemical_formula_text
 from core.literature_partitioning import partition_reference_ids, reference_bucket_for_comparison
 from core.project_io import save_project_archive
 from utils.diagnostics import record_exception
@@ -37,6 +38,10 @@ def _ui_text(lang: str, tr: str, en: str, **kwargs: Any) -> str:
     if kwargs:
         return text.format(**kwargs)
     return text
+
+
+def _display_text(value: Any) -> str:
+    return format_chemical_formula_text(_clean_text(value))
 
 
 def _doi_url(doi: str) -> str:
@@ -335,7 +340,7 @@ def _query_terms(value: Any) -> list[str]:
 def _xrd_comparison_note_text(row: Mapping[str, Any], *, lang: str) -> str:
     stored_note = _clean_text(row.get("comparison_note"))
     if stored_note and _clean_text(lang).lower() != "tr":
-        return stored_note
+        return _display_text(stored_note)
     candidate = _clean_text(row.get("candidate_name")) or _ui_text(lang, "aday faz", "the candidate phase")
     match_status = _clean_text(row.get("match_status_snapshot")).lower()
     confidence_band = _clean_text(row.get("confidence_band_snapshot")).lower()
@@ -378,7 +383,7 @@ def _xrd_comparison_note_text(row: Mapping[str, Any], *, lang: str) -> str:
 
 
 def _xrd_search_interpretation_lines(candidate_summary: Mapping[str, Any], *, lang: str) -> list[str]:
-    candidate = _clean_text(candidate_summary.get("best_ranked_candidate")) or _ui_text(lang, "aday faz", "the candidate phase")
+    candidate = _display_text(candidate_summary.get("best_ranked_candidate")) or _ui_text(lang, "aday faz", "the candidate phase")
     match_status = _clean_text(candidate_summary.get("accepted_match_status")).lower()
     lines = [
         _ui_text(
@@ -405,9 +410,9 @@ def _xrd_search_interpretation_lines(candidate_summary: Mapping[str, Any], *, la
 
 
 def _render_xrd_search_summary(candidate_summary: Mapping[str, Any], *, lang: str) -> None:
-    candidate = _clean_text(candidate_summary.get("query_display_title") or candidate_summary.get("best_ranked_candidate"))
+    candidate = _display_text(candidate_summary.get("query_display_title") or candidate_summary.get("best_ranked_candidate"))
     mode = _xrd_search_mode_text(lang, _clean_text(candidate_summary.get("query_display_mode")) or "XRD / phase identification")
-    extra_terms = ", ".join(_query_terms(candidate_summary.get("query_display_terms")))
+    extra_terms = ", ".join(_display_text(item) for item in _query_terms(candidate_summary.get("query_display_terms")))
     raw_query = _clean_text(candidate_summary.get("query_text"))
 
     st.markdown(f"**{_ui_text(lang, 'Literatür Arama Özeti', 'Literature Search Summary')}**")
@@ -554,10 +559,10 @@ def _render_xrd_no_results_status(candidate_summary: Mapping[str, Any], *, lang:
 
 def _thermal_subject_label(context: Mapping[str, Any], summary: Mapping[str, Any], *, lang: str) -> str:
     return (
-        _clean_text(context.get("query_display_title"))
-        or _clean_text(context.get("candidate_display_name"))
-        or _clean_text(context.get("candidate_name"))
-        or _clean_text(summary.get("sample_name"))
+        _display_text(context.get("query_display_title"))
+        or _display_text(context.get("candidate_display_name"))
+        or _display_text(context.get("candidate_name"))
+        or _display_text(summary.get("sample_name"))
         or _ui_text(lang, "kayıt yok", "not recorded")
     )
 
@@ -565,9 +570,9 @@ def _thermal_subject_label(context: Mapping[str, Any], summary: Mapping[str, Any
 def _render_thermal_search_summary(context: Mapping[str, Any], summary: Mapping[str, Any], *, lang: str) -> None:
     title = _thermal_subject_label(context, summary, lang=lang)
     mode = _thermal_search_mode_text(lang, _clean_text(context.get("query_display_mode")) or "Thermal / interpretation")
-    extra_terms = ", ".join(_query_terms(context.get("query_display_terms")))
+    extra_terms = ", ".join(_display_text(item) for item in _query_terms(context.get("query_display_terms")))
     raw_query = _clean_text(context.get("query_text"))
-    rationale = _clean_text(context.get("query_rationale"))
+    rationale = _display_text(context.get("query_rationale"))
 
     st.markdown(f"**{_ui_text(lang, 'Termal Literatür Arama Özeti', 'Thermal Literature Search Summary')}**")
     with _streamlit_block():
@@ -1074,9 +1079,9 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
         claim = claim_lookup.get(_clean_text(item.get("claim_id")))
         provider_badges = _provider_badges_for_citations(citation_items, provider_scope=flags["provider_scope"])
         evidence_badges = _evidence_badges_for_citations(citation_items)
-        paper_title = _clean_text(item.get("paper_title")) or _clean_text((citation_items[0] if citation_items else {}).get("title"))
+        paper_title = _display_text(item.get("paper_title")) or _display_text((citation_items[0] if citation_items else {}).get("title"))
         paper_year = item.get("paper_year") if item.get("paper_year") not in (None, "") else (citation_items[0].get("year") if citation_items else None)
-        paper_journal = _clean_text(item.get("paper_journal")) or _clean_text((citation_items[0] if citation_items else {}).get("journal"))
+        paper_journal = _display_text(item.get("paper_journal")) or _display_text((citation_items[0] if citation_items else {}).get("journal"))
         paper_doi = _clean_text(item.get("paper_doi")) or _clean_text((citation_items[0] if citation_items else {}).get("doi"))
         paper_url = _clean_text(item.get("paper_url")) or _clean_text((citation_items[0] if citation_items else {}).get("url"))
         provider_id = _clean_text(item.get("provider_id")) or ", ".join(provider_badges)
@@ -1084,11 +1089,11 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
         comparison_rows.append(
             {
                 "claim_id": _clean_text(item.get("claim_id")) or "C1",
-                "claim_text": _clean_text((claim or {}).get("claim_text"))
-                or _clean_text(item.get("claim_text"))
+                "claim_text": _display_text((claim or {}).get("claim_text"))
+                or _display_text(item.get("claim_text"))
                 or "No human-readable scientific claim was recorded.",
-                "candidate_name": _clean_text(item.get("candidate_name")) or _clean_text(context.get("candidate_display_name") or context.get("candidate_name")),
-                "candidate_formula": _clean_text(item.get("candidate_formula")) or _clean_text(context.get("candidate_formula")),
+                "candidate_name": _display_text(item.get("candidate_name")) or _display_text(context.get("candidate_display_name") or context.get("candidate_name")),
+                "candidate_formula": _display_text(item.get("candidate_formula")) or _display_text(context.get("candidate_formula")),
                 "paper_title": paper_title,
                 "paper_year": paper_year,
                 "paper_journal": paper_journal,
@@ -1096,7 +1101,7 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
                 "paper_url": paper_url,
                 "provider_id": provider_id,
                 "access_class": _clean_text(item.get("access_class")) or _clean_text((citation_items[0] if citation_items else {}).get("access_class")) or "metadata_only",
-                "comparison_note": _clean_text(item.get("comparison_note")) or _clean_text(item.get("rationale")),
+                "comparison_note": _display_text(item.get("comparison_note")) or _display_text(item.get("rationale")),
                 "validation_posture": _clean_text(item.get("validation_posture")) or "non_validating",
                 "query_text": _clean_text(item.get("query_text")) or _clean_text(context.get("query_text")),
                 "match_status_snapshot": _clean_text(item.get("match_status_snapshot")) or _clean_text(context.get("match_status_snapshot") or summary.get("match_status")),
@@ -1104,7 +1109,7 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
                 "support_label": _clean_text(item.get("support_label")) or "related_but_inconclusive",
                 "display_label_key": display_label_key,
                 "confidence": _clean_text(item.get("confidence")) or "low",
-                "rationale": _clean_text(item.get("rationale")) or "",
+                "rationale": _display_text(item.get("rationale")) or "",
                 "citation_ids": citation_ids,
                 "provider_badges": provider_badges,
                 "evidence_badges": evidence_badges,
@@ -1212,9 +1217,9 @@ def build_literature_sections(record: Mapping[str, Any] | None) -> dict[str, Any
 
 
 def _render_citation_item(citation: Mapping[str, Any], *, lang: str, provider_scope: list[str]) -> None:
-    title = _clean_text(citation.get("title")) or "Untitled source"
+    title = _display_text(citation.get("title")) or "Untitled source"
     year = _clean_text(citation.get("year")) or "n.d."
-    journal = _clean_text(citation.get("journal"))
+    journal = _display_text(citation.get("journal"))
     doi = _clean_text(citation.get("doi"))
     url = _clean_text(citation.get("url"))
     access_class = _clean_text(citation.get("access_class")) or "metadata_only"
@@ -1299,14 +1304,14 @@ def _render_xrd_candidate_summary(candidate_summary: Mapping[str, Any], *, lang:
 
 def _render_xrd_paper_card(row: Mapping[str, Any], *, lang: str) -> None:
     with _streamlit_block():
-        st.markdown(f"**{_clean_text(row.get('paper_title')) or _ui_text(lang, 'Başlık kaydedilmedi', 'Title not recorded')}**")
+        st.markdown(f"**{_display_text(row.get('paper_title')) or _ui_text(lang, 'Başlık kaydedilmedi', 'Title not recorded')}**")
         st.caption(
             _ui_text(
                 lang,
                 "Yıl: {year} | Dergi: {journal} | Sağlayıcı: {provider} | Erişim: {access} | Duruş: {posture}",
                 "Year: {year} | Journal: {journal} | Provider: {provider} | Access: {access} | Posture: {posture}",
                 year=str(row.get("paper_year") if row.get("paper_year") not in (None, "") else "n.d."),
-                journal=_clean_text(row.get("paper_journal")) or _ui_text(lang, "kayıt yok", "not recorded"),
+                journal=_display_text(row.get("paper_journal")) or _ui_text(lang, "kayıt yok", "not recorded"),
                 provider=_clean_text(row.get("provider_id")) or _ui_text(lang, "kayıt yok", "not recorded"),
                 access=_evidence_badge_text(lang, _access_basis_key(access_class=_clean_text(row.get("access_class")), fixture=False)),
                 posture=_validation_posture_text(lang, _clean_text(row.get("validation_posture"))),
@@ -1473,7 +1478,7 @@ def render_literature_sections(record: Mapping[str, Any] | None, *, lang: str) -
         provider_note = ", ".join(row["provider_badges"]) or _ui_text(lang, "kayıt yok", "not recorded")
         evidence_note = ", ".join(_evidence_badge_text(lang, item) for item in row["evidence_badges"])
         with _streamlit_block():
-            st.markdown(f"**{row['claim_text']}**")
+            st.markdown(f"**{_display_text(row['claim_text'])}**")
             st.caption(
                 _ui_text(
                     lang,
@@ -1493,7 +1498,7 @@ def render_literature_sections(record: Mapping[str, Any] | None, *, lang: str) -
                     evidence=evidence_note,
                 )
             )
-            st.markdown(row["rationale"] or _ui_text(lang, "Ek gerekçe kaydedilmedi.", "No additional rationale was recorded."))
+            st.markdown(_display_text(row["rationale"]) or _ui_text(lang, "Ek gerekçe kaydedilmedi.", "No additional rationale was recorded."))
             st.caption(
                 _ui_text(
                     lang,
