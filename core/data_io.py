@@ -1847,6 +1847,9 @@ def _looks_like_xrd_measured_pattern(source_name: str, text: str, *, data_type: 
     sample = str(text or "")[:5000].lower()
     has_hint = any(token in sample for token in ("2theta", "two theta", "xrd", "diffract", "intensity", "counts"))
     declared_xrd = str(data_type or "").upper().strip() == "XRD"
+    source_name_lower = str(source_name or "").lower()
+    axis_values, signal_values = _parse_xrd_numeric_pairs(str(text or "").splitlines()[:200])
+    has_numeric_pair_shape = len(axis_values) >= 10 and len(signal_values) == len(axis_values)
 
     if suffix in {".xlsx", ".xls"} or sample.startswith("pk\x03\x04"):
         return False
@@ -1854,7 +1857,13 @@ def _looks_like_xrd_measured_pattern(source_name: str, text: str, *, data_type: 
     if suffix == ".xy":
         return True
     if suffix == ".dat":
-        return bool(has_hint or declared_xrd)
+        return bool(has_hint or declared_xrd or has_numeric_pair_shape)
+    if suffix in {".txt", ".csv", ".tsv"} and has_numeric_pair_shape:
+        if declared_xrd:
+            return True
+        if "xrd" in source_name_lower or "diffract" in source_name_lower:
+            return True
+        return bool(has_hint)
     if declared_xrd:
         return has_hint and any(token in sample for token in ("2theta", "two theta", "xrd", "diffract"))
     return has_hint and ("2theta" in sample or "two theta" in sample)

@@ -526,6 +526,30 @@ class TestReadCSV:
         assert ds.metadata["import_format"] == "xrd_xy_dat"
         assert ds.metadata["xrd_axis_role"] == "two_theta"
 
+    def test_read_xrd_txt_with_whitespace_numeric_pairs_infers_from_filename(self):
+        buf = io.StringIO(
+            "\n"
+            "   5.00173         78 \n"
+            "   5.01789         83 \n"
+            "   5.03404         98 \n"
+            "   5.05019        104 \n"
+            "   5.06634        109 \n"
+            "   5.08249        100 \n"
+            "   5.09865        121 \n"
+            "   5.11480         94 \n"
+            "   5.13095         95 \n"
+            "   5.14710        112 \n"
+        )
+        buf.name = "xrd_garnet.txt"
+
+        ds = read_thermal_data(buf)
+
+        assert ds.data_type == "XRD"
+        assert len(ds.data) == 10
+        assert ds.metadata["import_format"] == "xrd_xy_dat"
+        assert ds.units["temperature"] == "degree_2theta"
+        assert ds.units["signal"] == "counts"
+
     def test_read_xrd_csv_infers_type_from_source_name_and_normalizes_units(self):
         buf = io.StringIO(
             "temperature,signal\n"

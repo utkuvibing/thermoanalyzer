@@ -35,6 +35,60 @@ def _validate_import_stage(dataset):
     )
 
 
+def _load_raw_preview_dataframe(uploaded_file) -> pd.DataFrame:
+    """Load an uploaded file into a DataFrame for preview/mapping flows."""
+    uploaded_file.seek(0)
+    raw_ext = os.path.splitext(uploaded_file.name)[1].lower()
+    if raw_ext in (".xlsx", ".xls"):
+        df = pd.read_excel(uploaded_file)
+        uploaded_file.seek(0)
+        return df
+
+    fmt = detect_file_format(uploaded_file)
+    uploaded_file.seek(0)
+    delimiter = fmt.get("delimiter", ",")
+    sep = r"\s+" if delimiter == " " else delimiter
+    header = fmt.get("header_row", 0)
+    encoding = fmt.get("encoding", "utf-8")
+
+    try:
+        df = pd.read_csv(
+            uploaded_file,
+            sep=sep,
+            header=header,
+            encoding=encoding,
+            engine="python",
+            skip_blank_lines=True,
+        )
+    except Exception:
+        uploaded_file.seek(0)
+        df = pd.read_csv(
+            uploaded_file,
+            sep=r"\s+",
+            header=None,
+            encoding=encoding,
+            engine="python",
+            skip_blank_lines=True,
+        )
+    else:
+        numeric_headers = sum(1 for col in df.columns if pd.to_numeric(pd.Series([col]), errors="coerce").notna().all())
+        if len(df.columns) <= 3 and numeric_headers == len(df.columns):
+            uploaded_file.seek(0)
+            df = pd.read_csv(
+                uploaded_file,
+                sep=r"\s+",
+                header=None,
+                encoding=encoding,
+                engine="python",
+                skip_blank_lines=True,
+            )
+
+    uploaded_file.seek(0)
+    if all(isinstance(col, int) for col in df.columns):
+        df.columns = [f"Column {index + 1}" for index in range(len(df.columns))]
+    return df
+
+
 def render():
     ensure_session_state()
 
@@ -112,20 +166,7 @@ def render():
                     }
 
                     with st.expander(tx("Kolon Eşlemeyi Düzenle", "Adjust Column Mapping"), expanded=False):
-                        uploaded_file.seek(0)
-                        raw_ext = os.path.splitext(uploaded_file.name)[1].lower()
-                        if raw_ext in (".xlsx", ".xls"):
-                            raw_df = pd.read_excel(uploaded_file)
-                        else:
-                            fmt = detect_file_format(uploaded_file)
-                            uploaded_file.seek(0)
-                            raw_df = pd.read_csv(
-                                uploaded_file,
-                                sep=fmt.get("delimiter", ","),
-                                header=fmt.get("header_row", 0),
-                                encoding=fmt.get("encoding", "utf-8"),
-                            )
-                        uploaded_file.seek(0)
+                        raw_df = _load_raw_preview_dataframe(uploaded_file)
 
                         mapping = render_column_mapper(
                             raw_df,
@@ -221,13 +262,7 @@ def render():
                     )
 
                     try:
-                        uploaded_file.seek(0)
-                        raw_ext = os.path.splitext(uploaded_file.name)[1].lower()
-                        if raw_ext in (".xlsx", ".xls"):
-                            raw_df = pd.read_excel(uploaded_file)
-                        else:
-                            raw_df = pd.read_csv(uploaded_file)
-                        uploaded_file.seek(0)
+                        raw_df = _load_raw_preview_dataframe(uploaded_file)
 
                         st.write(tx("Lütfen kolonları manuel eşleyin:", "Please map columns manually:"))
                         guessed_fallback = guess_columns(raw_df, source_name=uploaded_file.name)
