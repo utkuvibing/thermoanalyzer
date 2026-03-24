@@ -460,7 +460,7 @@ def test_validate_xrd_processing_warns_when_wavelength_context_is_missing():
 
     assert summary["status"] == "warn"
     assert summary["issues"] == []
-    assert any("xrd wavelength is not recorded" in warning.lower() for warning in summary["warnings"])
+    assert any("exact phase-screening output" in warning.lower() for warning in summary["warnings"])
     assert summary["checks"]["xrd_provenance_state"] == "incomplete"
 
 
@@ -789,6 +789,45 @@ def test_enrich_xrd_match_validation_fails_when_matched_output_is_missing_eviden
     assert any("missing 'unmatched_major_peak_count'" in item.lower() for item in enriched["issues"])
     assert enriched["checks"]["match_status"] == "matched"
     assert enriched["checks"]["top_phase_id"] == "xrd_phase_alpha"
+
+
+def test_enrich_xrd_match_validation_accepts_family_consistent_as_contextual_lane():
+    validation = {"status": "pass", "issues": [], "warnings": [], "checks": {}}
+    summary = {
+        "match_status": "family_consistent",
+        "candidate_count": 2,
+        "top_phase_score": 0.37,
+        "confidence_band": "family_consistent",
+        "caution_code": "xrd_family_consistent",
+        "family_context_label": "Garnet",
+    }
+    rows = [
+        {
+            "rank": 1,
+            "candidate_id": "xrd_alpha_garnet",
+            "normalized_score": 0.37,
+            "confidence_band": "no_match",
+            "evidence": {
+                "shared_peak_count": 3,
+                "weighted_overlap_score": 0.22,
+                "mean_delta_position": 0.08,
+                "unmatched_major_peak_count": 1,
+                "tolerance_deg": 0.28,
+            },
+        }
+    ]
+
+    enriched = enrich_xrd_result_validation(
+        validation,
+        summary=summary,
+        rows=rows,
+    )
+
+    assert enriched["status"] == "warn"
+    assert enriched["issues"] == []
+    assert enriched["checks"]["match_status"] == "family_consistent"
+    assert enriched["checks"]["caution_state_output"] == "family_consistent"
+    assert any("family-level support only" in item.lower() for item in enriched["warnings"])
 
 
 def test_enrich_xrd_confidence_validation_warns_on_low_confidence_matched_output():

@@ -32,7 +32,7 @@ from core.result_serialization import (
 )
 from core.tga_processor import TGAProcessor, resolve_tga_unit_interpretation
 from core.validation import enrich_spectral_result_validation, enrich_xrd_result_validation, validate_thermal_dataset
-from core.xrd_display import xrd_candidate_display_payload
+from core.xrd_display import xrd_candidate_display_payload, xrd_candidate_family_payload
 
 
 _DSC_TEMPLATE_DEFAULTS = {
@@ -1891,6 +1891,80 @@ def _match_xrd_reference_peaks(
     return matches, unmatched_reference_indices
 
 
+def _xrd_profile_background_index(signal: np.ndarray) -> float:
+    if signal.size == 0:
+        return 0.0
+    peak = float(np.nanmax(signal))
+    if peak <= 0.0:
+        return 0.0
+    return float(max(0.0, min(1.0, np.nanpercentile(signal, 70) / peak)))
+
+
+def _xrd_family_cluster_summary(
+    ranked_matches: list[dict[str, Any]],
+    *,
+    minimum_score: float,
+) -> dict[str, Any]:
+    clusters: dict[str, dict[str, Any]] = {}
+    for item in ranked_matches[:5]:
+        family_payload = xrd_candidate_family_payload(item)
+        family_key = str(family_payload.get("family_key") or "").strip().lower()
+        family_label = str(family_payload.get("family_label") or "").strip()
+        if not family_key or not family_label:
+            continue
+        cluster = clusters.setdefault(
+            family_key,
+            {
+                "family_key": family_key,
+                "family_label": family_label,
+                "family_source": family_payload.get("family_source"),
+                "candidate_count": 0,
+                "best_score": 0.0,
+                "best_family_support_score": 0.0,
+                "candidate_ids": [],
+            },
+        )
+        cluster["candidate_count"] += 1
+        cluster["best_score"] = max(cluster["best_score"], float(item.get("normalized_score") or 0.0))
+        cluster["best_family_support_score"] = max(
+            cluster["best_family_support_score"],
+            float(((item.get("evidence") or {}).get("family_support_score") or 0.0)),
+        )
+        candidate_id = str(item.get("candidate_id") or "").strip()
+        if candidate_id and candidate_id not in cluster["candidate_ids"]:
+            cluster["candidate_ids"].append(candidate_id)
+
+    if not clusters:
+        return {
+            "family_key": None,
+            "family_label": None,
+            "family_source": None,
+            "candidate_count": 0,
+            "best_score": 0.0,
+            "best_family_support_score": 0.0,
+            "candidate_ids": [],
+            "clustered": False,
+        }
+
+    best = sorted(
+        clusters.values(),
+        key=lambda item: (
+            -int(item["candidate_count"]),
+            -float(item["best_family_support_score"]),
+            -float(item["best_score"]),
+            str(item["family_label"]),
+        ),
+    )[0]
+    best["clustered"] = bool(
+        int(best["candidate_count"]) >= 2
+        or (
+            str(best.get("family_source") or "") in {"phase_family", "family_label"}
+            and float(best["best_family_support_score"]) >= max(minimum_score - 0.02, 0.35)
+        )
+    )
+    return best
+
+
 def _rank_xrd_phase_candidates(
     *,
     observed_peaks: list[dict[str, float]],
@@ -1898,6 +1972,7 @@ def _rank_xrd_phase_candidates(
     matching_config: Mapping[str, Any],
     comparison_space: str = "two_theta",
     wavelength_angstrom: float | None = None,
+    broad_background_index: float = 0.0,
 ) -> list[dict[str, Any]]:
     tolerance_deg = _coerce_positive_float(matching_config.get("tolerance_deg"), 0.28)
     top_n = _coerce_positive_int(matching_config.get("top_n"), 5)
@@ -2007,6 +2082,25 @@ def _rank_xrd_phase_candidates(
             if idx in major_reference_indices
         ]
         major_penalty = float(len(unmatched_major_positions) / max(len(major_reference_indices), 1))
+        matched_reference_indices = {
+            int(item.get("reference_index", -1))
+            for item in matches
+            if int(item.get("reference_index", -1)) >= 0
+        }
+        matched_major_peak_count = sum(1 for idx in major_reference_indices if idx in matched_reference_indices)
+        major_peak_coverage_ratio = float(matched_major_peak_count / max(len(major_reference_indices), 1))
+        shared_peak_ratio = float(shared_peak_count / max(len(observed_peaks), 1))
+        intensity_distortion_likely = bool(
+            (
+                broad_background_index >= 0.2
+                or (shared_peak_count >= 3 and major_peak_coverage_ratio >= 0.5)
+            )
+            and coverage_ratio >= 0.35
+            and delta_score >= 0.55
+            and weighted_overlap_score + 0.14 < (
+                (0.55 * coverage_ratio) + (0.45 * major_peak_coverage_ratio)
+            )
+        )
 
         matched_peak_pairs: list[dict[str, Any]] = []
         matched_observed_indices: set[int] = set()
@@ -2100,8 +2194,18 @@ def _rank_xrd_phase_candidates(
         score = (0.5 * coverage_ratio) + (intensity_weight * weighted_overlap_score) + (delta_weight * delta_score)
         score -= 0.15 * major_penalty
         score = float(max(0.0, min(1.0, score)))
+        family_support_score = (
+            0.28 * coverage_ratio
+            + 0.24 * major_peak_coverage_ratio
+            + 0.18 * min(shared_peak_count / 4.0, 1.0)
+            + 0.18 * delta_score
+            + (0.07 if intensity_distortion_likely else 0.12) * weighted_overlap_score
+        )
+        family_support_score -= (0.05 if intensity_distortion_likely else 0.1) * major_penalty
+        family_support_score = float(max(0.0, min(1.0, family_support_score)))
         confidence_band = _confidence_band(score, minimum_score)
         display_payload = xrd_candidate_display_payload(reference)
+        family_payload = xrd_candidate_family_payload(reference)
         reference_bundle = build_xrd_reference_bundle(
             {
                 "candidate_id": reference.get("candidate_id"),
@@ -2113,6 +2217,7 @@ def _rank_xrd_phase_candidates(
                 "phase_name": display_payload.get("phase_name"),
                 "formula_pretty": display_payload.get("formula_pretty"),
                 "formula": display_payload.get("formula"),
+                "phase_family": family_payload.get("family_label"),
                 "source_id": display_payload.get("source_id"),
             },
             reference,
@@ -2130,6 +2235,9 @@ def _rank_xrd_phase_candidates(
                 "phase_name": display_payload.get("phase_name"),
                 "formula_pretty": display_payload.get("formula_pretty"),
                 "formula": display_payload.get("formula"),
+                "phase_family": family_payload.get("family_label"),
+                "family_label": family_payload.get("family_label"),
+                "family_source": family_payload.get("family_source"),
                 "display_name_unicode": reference_bundle.get("display_name_unicode"),
                 "formula_unicode": reference_bundle.get("formula_unicode"),
                 "source_id": display_payload.get("source_id"),
@@ -2146,10 +2254,17 @@ def _rank_xrd_phase_candidates(
                     "shared_peak_count": shared_peak_count,
                     "weighted_overlap_score": round(weighted_overlap_score, 4),
                     "coverage_ratio": round(coverage_ratio, 4),
+                    "shared_peak_ratio": round(shared_peak_ratio, 4),
                     "mean_delta_position": round(mean_delta, 4) if mean_delta is not None else None,
                     "mean_delta_ratio": round(mean_delta_ratio, 4) if mean_delta_ratio is not None else None,
+                    "matched_major_peak_count": matched_major_peak_count,
+                    "major_reference_peak_count": len(major_reference_indices),
+                    "major_peak_coverage_ratio": round(major_peak_coverage_ratio, 4),
                     "unmatched_major_peak_count": len(unmatched_major_positions),
                     "unmatched_major_peak_positions": [round(item, 4) for item in sorted(unmatched_major_positions)],
+                    "broad_background_index": round(float(broad_background_index), 4),
+                    "intensity_distortion_likely": intensity_distortion_likely,
+                    "family_support_score": round(family_support_score, 4),
                     "matched_peak_pairs": matched_peak_pairs,
                     "unmatched_observed_peaks": unmatched_observed_peaks,
                     "unmatched_reference_peaks": unmatched_reference_peaks,
@@ -2247,11 +2362,16 @@ def _build_xrd_top_candidate_summary(
             "top_candidate_coverage_ratio": None,
             "top_candidate_mean_delta_position": None,
             "top_candidate_unmatched_major_peak_count": None,
+            "top_candidate_major_peak_coverage_ratio": None,
+            "top_candidate_family_support_score": None,
+            "top_candidate_family_label": None,
+            "top_candidate_family_source": None,
             "top_candidate_reason_below_threshold": "",
         }
 
     evidence = dict(top_match.get("evidence") or {})
     display_payload = xrd_candidate_display_payload(top_match)
+    family_payload = xrd_candidate_family_payload(top_match)
     return {
         "top_candidate_id": top_match.get("candidate_id"),
         "top_candidate_name": top_match.get("candidate_name"),
@@ -2271,6 +2391,10 @@ def _build_xrd_top_candidate_summary(
         "top_candidate_coverage_ratio": _xrd_summary_scalar(evidence.get("coverage_ratio")),
         "top_candidate_mean_delta_position": _xrd_summary_scalar(evidence.get("mean_delta_position")),
         "top_candidate_unmatched_major_peak_count": _coerce_positive_int(evidence.get("unmatched_major_peak_count"), 0),
+        "top_candidate_major_peak_coverage_ratio": _xrd_summary_scalar(evidence.get("major_peak_coverage_ratio")),
+        "top_candidate_family_support_score": _xrd_summary_scalar(evidence.get("family_support_score")),
+        "top_candidate_family_label": family_payload.get("family_label"),
+        "top_candidate_family_source": family_payload.get("family_source"),
         "top_candidate_reason_below_threshold": ""
         if matched
         else _xrd_reason_below_threshold(
@@ -2316,6 +2440,7 @@ def _execute_xrd_batch(
     smoothed = _apply_xrd_smoothing(signal, smoothing)
     baseline_curve = _estimate_xrd_baseline(smoothed, baseline)
     corrected = np.maximum(smoothed - baseline_curve, 0.0)
+    broad_background_index = _xrd_profile_background_index(corrected)
     peaks, resolved_peak_detection = _detect_xrd_peaks(axis, corrected, peak_detection)
     manager = get_reference_library_manager()
     library_context = manager.library_context("XRD")
@@ -2435,6 +2560,7 @@ def _execute_xrd_batch(
             matching_config=matching_config,
             comparison_space=observed_space,
             wavelength_angstrom=wavelength_angstrom,
+            broad_background_index=broad_background_index,
         )
         if manager.count_installed_candidates("XRD") > 0:
             library_result_source = "limited_fallback_cache"
@@ -2493,6 +2619,10 @@ def _execute_xrd_batch(
         "top_candidate_coverage_ratio",
         "top_candidate_mean_delta_position",
         "top_candidate_unmatched_major_peak_count",
+        "top_candidate_major_peak_coverage_ratio",
+        "top_candidate_family_support_score",
+        "top_candidate_family_label",
+        "top_candidate_family_source",
         "top_candidate_reason_below_threshold",
     ):
         value = cloud_summary.get(key)
@@ -2500,6 +2630,18 @@ def _execute_xrd_batch(
             continue
         if top_candidate_summary.get(key) in (None, "", []):
             top_candidate_summary[key] = value
+    family_cluster = _xrd_family_cluster_summary(ranked_matches, minimum_score=minimum_score)
+    top_family_support_score = float(top_candidate_summary.get("top_candidate_family_support_score") or 0.0)
+    top_major_peak_coverage = float(top_candidate_summary.get("top_candidate_major_peak_coverage_ratio") or 0.0)
+    top_shared_peak_count = int(top_candidate_summary.get("top_candidate_shared_peak_count") or 0)
+    family_consistent = bool(
+        top_match
+        and not matched
+        and top_shared_peak_count >= 3
+        and top_family_support_score >= max(minimum_score - 0.02, 0.36)
+        and top_major_peak_coverage >= 0.45
+        and bool(family_cluster.get("clustered"))
+    )
     if cloud_payload is not None and cloud_coverage_warning_message and not cloud_caution_message:
         cloud_caution_message = cloud_coverage_warning_message
 
@@ -2515,9 +2657,16 @@ def _execute_xrd_batch(
             "top_phase_score": round(top_score, 4),
         }
     else:
-        match_status = "matched" if matched else "no_match"
-        confidence_band = top_match["confidence_band"] if matched and top_match else "no_match"
-        if not matched:
+        if matched:
+            match_status = "matched"
+            confidence_band = top_match["confidence_band"] if top_match else "no_match"
+        elif family_consistent:
+            match_status = "family_consistent"
+            confidence_band = "family_consistent"
+        else:
+            match_status = "no_match"
+            confidence_band = "no_match"
+        if match_status == "no_match":
             candidate_label = (
                 top_candidate_summary.get("top_candidate_display_name")
                 or top_candidate_summary.get("top_candidate_name")
@@ -2548,6 +2697,30 @@ def _execute_xrd_batch(
                 "top_candidate_display_name": top_candidate_summary.get("top_candidate_display_name"),
                 "top_candidate_score": top_candidate_summary.get("top_candidate_score"),
                 "top_candidate_reason_below_threshold": top_candidate_summary.get("top_candidate_reason_below_threshold"),
+            }
+        elif match_status == "family_consistent":
+            family_label = str(
+                family_cluster.get("family_label")
+                or top_candidate_summary.get("top_candidate_family_label")
+                or top_candidate_summary.get("top_candidate_display_name")
+                or top_candidate_summary.get("top_candidate_name")
+                or "related candidate family"
+            )
+            caution_payload = {
+                "code": cloud_caution_code or "xrd_family_consistent",
+                "message": cloud_caution_message
+                or (
+                    f"Exact phase-level acceptance was not retained, but the strongest ranked candidates remain "
+                    f"family-consistent with {family_label}. Treat this as contextual family-level screening support, "
+                    "not as an exact phase identification."
+                ),
+                "minimum_score": minimum_score,
+                "top_phase_score": round(top_score, 4),
+                "top_candidate_name": top_candidate_summary.get("top_candidate_name"),
+                "top_candidate_display_name": top_candidate_summary.get("top_candidate_display_name"),
+                "top_candidate_score": top_candidate_summary.get("top_candidate_score"),
+                "family_label": family_label,
+                "family_candidate_count": int(family_cluster.get("candidate_count") or 0),
             }
         elif confidence_band == "low":
             caution_payload = {
@@ -2610,6 +2783,7 @@ def _execute_xrd_batch(
             "xrd_peak_max": resolved_peak_detection["max_peaks"],
             "xrd_peak_ranking": resolved_peak_detection["peak_ranking"],
             "xrd_peak_count": len(peaks),
+            "xrd_broad_background_index": round(float(broad_background_index), 4),
             "xrd_reference_candidate_count": len(references),
             "xrd_provider_candidate_counts": cloud_provider_candidate_counts,
             "xrd_coverage_tier": cloud_coverage_tier,
@@ -2621,6 +2795,8 @@ def _execute_xrd_batch(
             "xrd_match_minimum_score": matching_config["minimum_score"],
             "xrd_match_intensity_weight": matching_config["intensity_weight"],
             "xrd_match_major_peak_fraction": matching_config["major_peak_fraction"],
+            "xrd_family_context_label": family_cluster.get("family_label"),
+            "xrd_family_context_candidate_count": int(family_cluster.get("candidate_count") or 0),
             "library_sync_mode": library_context["library_sync_mode"],
             "library_cache_status": library_context["library_cache_status"],
             "library_reference_package_count": effective_library_reference_package_count,
@@ -2650,6 +2826,7 @@ def _execute_xrd_batch(
             "xrd_provider_candidate_counts": cloud_provider_candidate_counts,
             "xrd_coverage_tier": cloud_coverage_tier,
             "xrd_provenance_state": xrd_provenance_state,
+            "xrd_family_context_label": family_cluster.get("family_label"),
             "library_provider": top_provider,
             "library_package": top_package,
             "library_version": top_version,
@@ -2684,9 +2861,16 @@ def _execute_xrd_batch(
         "xrd_seed_coverage_only": cloud_coverage_tier == "seed_dev",
         "xrd_provenance_state": xrd_provenance_state,
         "xrd_provenance_warning": xrd_provenance_warning,
+        "xrd_broad_background_index": round(float(broad_background_index), 4),
         "match_tolerance_deg": matching_config["tolerance_deg"],
         "match_metric": matching_config["metric"],
         "match_coordinate_space": (top_match or {}).get("evidence", {}).get("comparison_space") or observed_space,
+        "family_context_label": family_cluster.get("family_label"),
+        "family_context_source": family_cluster.get("family_source"),
+        "family_context_candidate_count": int(family_cluster.get("candidate_count") or 0),
+        "family_context_best_score": round(float(family_cluster.get("best_score") or 0.0), 4),
+        "family_context_best_family_support_score": round(float(family_cluster.get("best_family_support_score") or 0.0), 4),
+        "family_context_candidate_ids": list(family_cluster.get("candidate_ids") or []),
         "library_provider": top_provider,
         "library_package": top_package,
         "library_version": top_version,
@@ -2711,6 +2895,9 @@ def _execute_xrd_batch(
             "phase_name": item.get("phase_name"),
             "formula_pretty": item.get("formula_pretty"),
             "formula": item.get("formula"),
+            "phase_family": item.get("phase_family"),
+            "family_label": item.get("family_label"),
+            "family_source": item.get("family_source"),
             "formula_unicode": item.get("formula_unicode"),
             "source_id": item.get("source_id"),
             "normalized_score": item["normalized_score"],

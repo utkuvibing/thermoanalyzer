@@ -830,6 +830,47 @@ def _apply_xrd_input_review(*, dataset, state, wavelength_angstrom: float | None
     )
 
 
+def _xrd_status_label(value: str | None) -> str:
+    token = str(value or "").strip().lower()
+    if token == "family_consistent":
+        return "family_consistent"
+    if token in {"matched", "no_match", "not_run"}:
+        return token
+    return str(value or "N/A")
+
+
+def _render_xrd_provenance_notice(*, summary: Mapping[str, Any] | None, dataset, lang: str) -> None:
+    summary_payload = dict(summary or {})
+    metadata = getattr(dataset, "metadata", {}) or {}
+    provenance_state = str(
+        summary_payload.get("xrd_provenance_state")
+        or metadata.get("xrd_provenance_state")
+        or ("complete" if metadata.get("xrd_wavelength_angstrom") not in (None, "") else "incomplete")
+    ).strip().lower()
+    provenance_warning = str(
+        summary_payload.get("xrd_provenance_warning")
+        or metadata.get("xrd_provenance_warning")
+        or ""
+    ).strip()
+    axis_review_required = bool(metadata.get("xrd_axis_mapping_review_required"))
+    if axis_review_required:
+        st.error(
+            tx(
+                "XRD eksen eÅŸlemesi hala inceleme bekliyor. Exact-phase screening kararlÄ± kabul edilmemelidir.",
+                "XRD axis mapping still requires review. Exact-phase screening should not be treated as stable in this state.",
+            )
+        )
+    if provenance_state != "complete":
+        st.warning(
+            tx(
+                "XRD provenance eksik. Exact-phase screening yerine yalnÄ±zca temkinli screening/context olarak yorumlayÄ±n.",
+                "XRD provenance is incomplete. Treat the output as cautionary screening/context rather than stable exact-phase screening.",
+            )
+        )
+        if provenance_warning:
+            st.caption(provenance_warning)
+
+
 def _render_xrd_input_review_panel(*, dataset_key: str, dataset, state, lang: str) -> None:
     review_required = _xrd_axis_review_required(dataset, state.get("processing"))
     current_wavelength = _xrd_current_wavelength(dataset, state.get("processing"))
@@ -853,7 +894,7 @@ def _render_xrd_input_review_panel(*, dataset_key: str, dataset, state, lang: st
             st.info(
                 tx(
                     "XRD dalgaboyu kayıtlı değil. Eşleştirme yine çalışabilir, ancak provenance eksik kalır.",
-                    "XRD wavelength is not recorded. Matching can still run, but provenance remains incomplete.",
+                    "XRD wavelength is not recorded. Do not treat any exact-phase screening result as stable until the wavelength is recorded.",
                 )
             )
 
@@ -2006,11 +2047,12 @@ def render():
 
         best_candidate_name = _xrd_best_candidate_name(summary, matches)
         best_candidate_score = _xrd_best_candidate_score(summary, matches)
+        _render_xrd_provenance_notice(summary=summary, dataset=dataset, lang=lang)
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(tx("Pik Sayısı", "Peak Count"), str(peak_count))
         m2.metric(tx("En İyi Aday", "Best Candidate"), best_candidate_name or tx("Yok", "None"))
         m3.metric(tx("Aday Skoru", "Candidate Score"), f"{best_candidate_score:.3f}" if best_candidate_score is not None else "N/A")
-        m4.metric(tx("Kabul Durumu", "Accepted Match Status"), str(summary.get("match_status") or tx("Yok", "None")))
+        m4.metric(tx("Kabul Durumu", "Accepted Match Status"), _xrd_status_label(summary.get("match_status")))
         if summary.get("library_result_source"):
             st.caption(
                 tx(
@@ -2034,6 +2076,13 @@ def render():
                 tx(
                     "Kurulu bir XRD referans paketi bulunamadı. Önce Kütüphane sayfasından sync yapın veya veri seti metadata içine `xrd_reference_library` ekleyin.",
                     "No installed XRD reference package is available. Sync the Library page first or add `xrd_reference_library` to the dataset metadata.",
+                )
+            )
+        elif str(summary.get("match_status") or "").lower() == "family_consistent":
+            st.info(
+                tx(
+                    "Exact eÅŸleÅŸme kabul edilmedi; ancak Ã¼st sÄ±ralÄ± adaylar anlamlÄ± bir aile/family baÄŸlamÄ± paylaÅŸÄ±yor.",
+                    "Exact matching was not accepted, but the top-ranked candidates still share meaningful family-level context.",
                 )
             )
         elif str(summary.get("match_status") or "").lower() == "no_match" and summary.get("top_candidate_reason_below_threshold"):
@@ -2273,8 +2322,9 @@ def render():
         st.markdown(f"**{tx('Durum', 'Status')}:** {record.get('status')}")
         best_candidate_name = _xrd_best_candidate_name(summary, matches=[])
         best_candidate_score = _xrd_best_candidate_score(summary, matches=[])
+        _render_xrd_provenance_notice(summary=summary, dataset=dataset, lang=lang)
         result_m1, result_m2, result_m3, result_m4 = st.columns(4)
-        result_m1.metric(tx("Kabul Durumu", "Accepted Match Status"), str(summary.get("match_status") or "N/A"))
+        result_m1.metric(tx("Kabul Durumu", "Accepted Match Status"), _xrd_status_label(summary.get("match_status")))
         result_m2.metric(tx("En İyi Aday", "Best Candidate"), best_candidate_name or tx("Yok", "None"))
         result_m3.metric(
             tx("Aday Skoru", "Candidate Score"),

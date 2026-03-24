@@ -462,6 +462,22 @@ def _make_xrd_no_match_record():
     return record, dataset
 
 
+def _make_xrd_family_consistent_record():
+    record, dataset = _make_xrd_no_match_record()
+    record["summary"]["match_status"] = "family_consistent"
+    record["summary"]["confidence_band"] = "family_consistent"
+    record["summary"]["caution_code"] = "xrd_family_consistent"
+    record["summary"]["caution_message"] = (
+        "Exact phase acceptance was not retained, but the strongest ranked candidates remain family-consistent with Garnet."
+    )
+    record["summary"]["family_context_label"] = "Garnet"
+    record["summary"]["family_context_candidate_count"] = 2
+    record["summary"]["top_candidate_family_support_score"] = 0.58
+    record["review"]["caution"]["code"] = "xrd_family_consistent"
+    record["review"]["caution"]["message"] = record["summary"]["caution_message"]
+    return record, dataset
+
+
 def test_generate_docx_report_returns_docx_bytes(thermal_dataset):
     docx_bytes = generate_docx_report(results={}, datasets={"synthetic_dsc": thermal_dataset})
     assert isinstance(docx_bytes, bytes)
@@ -680,6 +696,22 @@ def test_generate_docx_report_renders_xrd_no_match_caution_fields():
     assert "Xrd Provenance Warning" in xml
     assert "qualitative phase matching provenance remains incomplete" in xml
     assert "qualitative caution" in xml
+
+
+def test_generate_docx_report_renders_xrd_family_consistent_as_family_level_support():
+    xrd_record, xrd_dataset = _make_xrd_family_consistent_record()
+    docx_bytes = generate_docx_report(
+        results={xrd_record["id"]: xrd_record},
+        datasets={"synthetic_xrd": xrd_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "family_consistent" in xml
+    assert "xrd_family_consistent" in xml
+    assert "family-level" in xml
+    assert "Garnet" in xml
 
 
 def test_record_key_results_uses_humanized_xrd_display_name():

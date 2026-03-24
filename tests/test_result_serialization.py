@@ -471,6 +471,57 @@ def test_serialize_xrd_result_adds_no_match_caution_semantics():
     assert "definitive identification" not in claim_text
 
 
+def test_serialize_xrd_result_preserves_family_consistent_lane():
+    dataset = _xrd_dataset()
+    processing = ensure_processing_payload(analysis_type="XRD", workflow_template="xrd.general")
+
+    record = serialize_xrd_result(
+        "synthetic_xrd_family",
+        dataset,
+        summary={
+            "peak_count": 4,
+            "match_status": "family_consistent",
+            "candidate_count": 2,
+            "top_phase_id": None,
+            "top_phase": None,
+            "top_phase_score": 0.37,
+            "confidence_band": "family_consistent",
+            "family_context_label": "Garnet",
+            "family_context_candidate_count": 2,
+            "top_candidate_family_support_score": 0.58,
+        },
+        rows=[
+            {
+                "rank": 1,
+                "candidate_id": "xrd_alpha_garnet",
+                "candidate_name": "Alpha Garnet",
+                "family_label": "Garnet",
+                "normalized_score": 0.37,
+                "confidence_band": "no_match",
+                "evidence": {
+                    "shared_peak_count": 3,
+                    "weighted_overlap_score": 0.22,
+                    "mean_delta_position": 0.08,
+                    "unmatched_major_peak_count": 1,
+                    "major_peak_coverage_ratio": 0.67,
+                    "family_support_score": 0.58,
+                    "tolerance_deg": 0.28,
+                },
+            }
+        ],
+        processing=processing,
+        validation={"status": "warn", "issues": [], "warnings": []},
+    )
+
+    assert record["summary"]["match_status"] == "family_consistent"
+    assert record["summary"]["confidence_band"] == "family_consistent"
+    assert record["summary"]["family_context_label"] == "Garnet"
+    assert record["summary"]["top_candidate_family_support_score"] == 0.58
+    assert record["review"]["caution"]["code"] == "xrd_family_consistent"
+    assert "candidate family" in record["review"]["caution"]["message"].lower()
+    assert record["scientific_context"]["fit_quality"]["match_status"] == "family_consistent"
+
+
 def test_serialize_xrd_result_adds_humanized_display_fields_without_losing_raw_ids():
     dataset = _xrd_dataset()
     processing = ensure_processing_payload(analysis_type="XRD", workflow_template="xrd.general")

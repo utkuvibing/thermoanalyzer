@@ -552,7 +552,7 @@ def _build_xrd_scientific_context(
             ),
         ),
     ]
-    if summary.get("match_status") == "no_match" and summary.get("top_candidate_reason_below_threshold"):
+    if summary.get("match_status") in {"no_match", "family_consistent"} and summary.get("top_candidate_reason_below_threshold"):
         interpretation.append(
             build_interpretation(
                 "The best-ranked candidate remained below the accepted qualitative phase-call threshold.",
@@ -562,7 +562,7 @@ def _build_xrd_scientific_context(
         )
     limitations = [
         "Qualitative ranking is not a definitive identification or quantitative phase fraction.",
-        "No-match and low-confidence outcomes remain valid cautionary results.",
+        "No-match, family-level support, and low-confidence outcomes remain valid cautionary results.",
     ]
     warnings = _validation_warnings(validation)
     caution_code = summary.get("caution_code")
@@ -1148,6 +1148,12 @@ def serialize_spectral_result(
     normalized_summary.setdefault("library_result_source", None)
     normalized_summary.setdefault("library_provider_scope", [])
     normalized_summary.setdefault("library_offline_limited_mode", False)
+    normalized_summary.setdefault("family_context_label", None)
+    normalized_summary.setdefault("family_context_source", None)
+    normalized_summary.setdefault("family_context_candidate_count", 0)
+    normalized_summary.setdefault("family_context_best_score", None)
+    normalized_summary.setdefault("family_context_best_family_support_score", None)
+    normalized_summary.setdefault("family_context_candidate_ids", [])
     normalized_summary.setdefault("sample_name", dataset.metadata.get("sample_name"))
     normalized_summary.setdefault("sample_mass", dataset.metadata.get("sample_mass"))
     normalized_summary.setdefault("heating_rate", dataset.metadata.get("heating_rate"))
@@ -1278,6 +1284,9 @@ def serialize_xrd_result(
                 "phase_name": payload.get("phase_name") or display_payload.get("phase_name"),
                 "formula_pretty": payload.get("formula_pretty") or display_payload.get("formula_pretty"),
                 "formula": payload.get("formula") or display_payload.get("formula"),
+                "phase_family": payload.get("phase_family"),
+                "family_label": payload.get("family_label"),
+                "family_source": payload.get("family_source"),
                 "formula_unicode": payload.get("formula_unicode") or reference_bundle.get("formula_unicode"),
                 "source_id": payload.get("source_id") or display_payload.get("source_id"),
                 "normalized_score": _clean_scalar(payload.get("normalized_score")),
@@ -1335,6 +1344,10 @@ def serialize_xrd_result(
     normalized_summary.setdefault("top_candidate_coverage_ratio", top_evidence.get("coverage_ratio"))
     normalized_summary.setdefault("top_candidate_mean_delta_position", top_evidence.get("mean_delta_position"))
     normalized_summary.setdefault("top_candidate_unmatched_major_peak_count", top_evidence.get("unmatched_major_peak_count"))
+    normalized_summary.setdefault("top_candidate_major_peak_coverage_ratio", top_evidence.get("major_peak_coverage_ratio"))
+    normalized_summary.setdefault("top_candidate_family_support_score", top_evidence.get("family_support_score"))
+    normalized_summary.setdefault("top_candidate_family_label", (top_row or {}).get("family_label"))
+    normalized_summary.setdefault("top_candidate_family_source", (top_row or {}).get("family_source"))
     normalized_summary.setdefault("top_candidate_reason_below_threshold", "")
     top_display = xrd_candidate_display_payload(normalized_summary, top_row)
     top_display_variants = xrd_candidate_display_variants(normalized_summary, top_row)
@@ -1390,7 +1403,7 @@ def serialize_xrd_result(
 
     match_status = str(normalized_summary.get("match_status") or "").lower()
     confidence_band = str(normalized_summary.get("confidence_band") or "").lower()
-    if match_status == "no_match" and top_row and not str(normalized_summary.get("top_candidate_reason_below_threshold") or "").strip():
+    if match_status in {"no_match", "family_consistent"} and top_row and not str(normalized_summary.get("top_candidate_reason_below_threshold") or "").strip():
         reasons: list[str] = []
         top_candidate_score = normalized_summary.get("top_candidate_score")
         minimum_score = _clean_scalar(((processing or {}).get("method_context") or {}).get("xrd_match_minimum_score"))
@@ -1440,7 +1453,22 @@ def serialize_xrd_result(
         normalized_summary["top_candidate_reason_below_threshold"] = "; ".join(reasons[:3])
 
     caution_payload = {}
-    if match_status == "no_match":
+    if match_status == "family_consistent":
+        caution_payload = {
+            "code": str(normalized_summary.get("caution_code") or "xrd_family_consistent"),
+            "message": str(
+                normalized_summary.get("caution_message")
+                or "The XRD result supports a related candidate family, but exact phase acceptance was not justified."
+            ),
+            "top_phase_score": _clean_scalar(normalized_summary.get("top_phase_score")),
+            "top_candidate_name": normalized_summary.get("top_candidate_name"),
+            "top_candidate_display_name": normalized_summary.get("top_candidate_display_name"),
+            "top_candidate_score": _clean_scalar(normalized_summary.get("top_candidate_score")),
+            "family_label": normalized_summary.get("family_context_label") or normalized_summary.get("top_candidate_family_label"),
+            "family_support_score": _clean_scalar(normalized_summary.get("top_candidate_family_support_score")),
+            "top_candidate_reason_below_threshold": normalized_summary.get("top_candidate_reason_below_threshold"),
+        }
+    elif match_status == "no_match":
         caution_payload = {
             "code": str(normalized_summary.get("caution_code") or "xrd_no_match"),
             "message": str(

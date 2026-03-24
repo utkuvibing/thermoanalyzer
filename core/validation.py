@@ -63,8 +63,8 @@ _SPECTRAL_TEMPLATE_IDS = {
 }
 _SPECTRAL_METRICS = {"cosine", "pearson", "cosine_prerank_then_pearson_peak_overlap"}
 _XRD_TEMPLATE_IDS = {"xrd.general", "xrd.phase_screening"}
-_XRD_MATCH_STATUSES = {"matched", "no_match", "not_run"}
-_XRD_CONFIDENCE_BANDS = {"high", "medium", "low", "no_match", "not_run"}
+_XRD_MATCH_STATUSES = {"matched", "family_consistent", "no_match", "not_run"}
+_XRD_CONFIDENCE_BANDS = {"high", "medium", "low", "family_consistent", "no_match", "not_run"}
 _XRD_REQUIRED_EVIDENCE_FIELDS = (
     "shared_peak_count",
     "weighted_overlap_score",
@@ -671,7 +671,7 @@ def _check_xrd_workflow(
     )
     if axis_mapping_review_required or stable_matching_blocked:
         issues.append(
-            "XRD axis mapping requires explicit 2theta/angle confirmation before stable qualitative matching."
+            "XRD axis mapping requires explicit 2theta/angle confirmation before stable qualitative matching; exact phase screening should remain blocked until this review is completed."
         )
     if not axis_role:
         warnings.append("XRD axis role is not recorded in processing context.")
@@ -679,7 +679,7 @@ def _check_xrd_workflow(
         warnings.append("XRD axis unit is not recorded in processing context.")
     if wavelength in (None, ""):
         warnings.append(
-            "XRD wavelength is not recorded; set xrd_wavelength_angstrom for deterministic qualitative matching provenance."
+            "XRD wavelength is not recorded; set xrd_wavelength_angstrom before relying on exact phase-screening output because deterministic XRD provenance remains incomplete."
         )
     if provenance_state.lower() != "complete" and provenance_warning:
         warnings.append(provenance_warning)
@@ -875,7 +875,7 @@ def enrich_xrd_result_validation(
     checks["xrd_provenance_state"] = summary.get("xrd_provenance_state") or "not_recorded"
 
     if match_status not in _XRD_MATCH_STATUSES:
-        issues.append("XRD match_status must be one of 'matched', 'no_match', or 'not_run'.")
+        issues.append("XRD match_status must be one of 'matched', 'family_consistent', 'no_match', or 'not_run'.")
         checks["caution_state_output"] = "invalid"
     elif match_status == "matched":
         checks["caution_state_output"] = "clear"
@@ -883,6 +883,13 @@ def enrich_xrd_result_validation(
             issues.append("XRD matched outputs must include top_phase_id.")
         if confidence_band not in {"high", "medium", "low"}:
             issues.append("XRD matched outputs must include confidence_band high/medium/low.")
+    elif match_status == "family_consistent":
+        checks["caution_state_output"] = "family_consistent"
+        if confidence_band != "family_consistent":
+            issues.append("XRD family_consistent outputs must use confidence_band='family_consistent'.")
+        warnings.append(
+            "XRD family-consistent output is contextual family-level support only; it must not be interpreted as exact phase validation."
+        )
     elif match_status == "no_match":
         checks["caution_state_output"] = "no_match"
         if confidence_band != "no_match":
@@ -901,7 +908,7 @@ def enrich_xrd_result_validation(
             warnings.append(message)
 
     if confidence_band not in _XRD_CONFIDENCE_BANDS:
-        issues.append("XRD confidence_band must be one of high/medium/low/no_match/not_run.")
+        issues.append("XRD confidence_band must be one of high/medium/low/family_consistent/no_match/not_run.")
 
     if confidence_band == "low" and match_status == "matched":
         checks["caution_state_output"] = "low_confidence"
@@ -919,7 +926,7 @@ def enrich_xrd_result_validation(
     if provenance_state == "incomplete":
         warnings.append(
             str(summary.get("xrd_provenance_warning") or "").strip()
-            or "XRD wavelength is not recorded; qualitative phase matching provenance remains incomplete."
+            or "XRD wavelength is not recorded; deterministic XRD provenance remains incomplete and exact phase screening should be treated cautiously."
         )
 
     if top_phase_score not in (None, ""):

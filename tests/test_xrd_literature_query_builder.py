@@ -75,6 +75,24 @@ def test_query_builder_degrades_to_generic_xrd_terms_when_candidate_is_missing()
     assert "no_match" in payload["query_rationale"]
 
 
+def test_query_builder_prefers_family_context_for_no_match_fallback():
+    record = _record(
+        {
+            "match_status": "no_match",
+            "confidence_band": "no_match",
+            "family_context_label": "Garnet",
+            "top_candidate_name": "Alpha Garnet",
+        }
+    )
+    record["metadata"] = {"display_name": "Unknown Garnet-bearing Sample"}
+
+    payload = build_xrd_literature_query(record)
+
+    assert "Garnet" in payload["query_text"]
+    assert payload["candidate_display_name"] == "Garnet"
+    assert "family-level context" in payload["query_rationale"]
+
+
 def test_query_presentation_prefers_human_candidate_label():
     presentation = build_xrd_query_presentation(
         {

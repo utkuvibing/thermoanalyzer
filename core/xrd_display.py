@@ -11,6 +11,30 @@ _MP_RAW_LABEL_RE = re.compile(r"^\s*(?:materials[\s_-]*project[\s_-]*)?mp[\s#:_-
 _MP_ID_RE = re.compile(r"\bmp[\s#:_-]*0*(\d+)\b", re.IGNORECASE)
 _FORMULA_SEGMENT_RE = re.compile(r"[A-Z][A-Za-z0-9().·+\-]*")
 _FORMULA_COUNT_RE = re.compile(r"(?<=[A-Za-z\)])(\d+(?:\.\d+)?)")
+_FAMILY_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+_FAMILY_STOPWORDS = {
+    "and",
+    "candidate",
+    "crystal",
+    "family",
+    "group",
+    "materials",
+    "match",
+    "matched",
+    "material",
+    "mineral",
+    "pattern",
+    "phase",
+    "powder",
+    "project",
+    "ref",
+    "reference",
+    "screening",
+    "synthetic",
+    "system",
+    "unknown",
+    "xrd",
+}
 _UNICODE_SUBSCRIPTS = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 
 
@@ -90,6 +114,41 @@ def _format_formula_count(value: str, *, target: str) -> str:
 
 def _format_formula_segment(segment: str, *, target: str) -> str:
     return _FORMULA_COUNT_RE.sub(lambda match: _format_formula_count(match.group(1), target=target), segment)
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _normalized_family_token(value: Any) -> str | None:
+    token = _text(value)
+    if token is None:
+        return None
+    normalized = token.strip().lower().replace("/", " ").replace("_", " ").replace("-", " ")
+    normalized = " ".join(part for part in normalized.split() if part)
+    return normalized or None
+
+
+def _display_family_label(value: Any) -> str | None:
+    token = _text(value)
+    if token is None:
+        return None
+    return token.replace("_", " ").replace("-", " ").strip() or None
+
+
+def _family_tokens_from_text(value: Any) -> list[str]:
+    token = _text(value)
+    if token is None:
+        return []
+    output: list[str] = []
+    seen: set[str] = set()
+    for match in _FAMILY_TOKEN_RE.finditer(token):
+        part = match.group(0).strip().lower()
+        if part.isdigit() or part in _FAMILY_STOPWORDS or part in seen:
+            continue
+        seen.add(part)
+        output.append(part)
+    return output
 
 
 def format_scientific_formula_text(value: Any, target: str = "unicode") -> str | None:
@@ -198,3 +257,42 @@ def xrd_candidate_display_variants(
         "unicode_display_name": format_scientific_formula_text(base_label, target="unicode"),
         "html_display_name": format_scientific_formula_text(base_label, target="html"),
     }
+
+
+def xrd_candidate_family_payload(
+    match_or_row: Mapping[str, Any] | None,
+    reference_entry: Mapping[str, Any] | None = None,
+) -> dict[str, str | None]:
+    primary = dict(match_or_row or {})
+    reference = dict(reference_entry or {})
+    reference_metadata = _mapping(primary.get("reference_metadata"))
+    package_metadata = _mapping(reference.get("package_metadata"))
+    payloads = (primary, reference_metadata, reference, package_metadata)
+
+    for key in ("phase_family", "family_label"):
+        explicit = _first_text(payloads, key)
+        if explicit:
+            return {
+                "family_key": _normalized_family_token(explicit),
+                "family_label": _display_family_label(explicit),
+                "family_source": key,
+            }
+
+    display_payload = xrd_candidate_display_payload(primary, reference)
+    for value in (
+        display_payload.get("phase_name"),
+        display_payload.get("display_name"),
+        primary.get("candidate_name"),
+        primary.get("candidate_id"),
+    ):
+        tokens = _family_tokens_from_text(value)
+        if not tokens:
+            continue
+        family_token = tokens[-1]
+        return {
+            "family_key": family_token,
+            "family_label": family_token.replace("_", " ").title(),
+            "family_source": "derived_label_token",
+        }
+
+    return {"family_key": None, "family_label": None, "family_source": None}

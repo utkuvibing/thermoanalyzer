@@ -13,7 +13,7 @@ from core.mechanism_rules import (
     tga_mechanism_signals,
 )
 from core.uncertainty_rules import claim_gate, fit_quality_band, metadata_gaps
-from core.xrd_display import xrd_candidate_display_name
+from core.xrd_display import xrd_candidate_display_name, xrd_candidate_family_payload
 
 
 def _safe_float(value: Any) -> float | None:
@@ -470,6 +470,12 @@ def _build_xrd_reasoning(
     weighted_overlap = _safe_float(summary.get("top_candidate_weighted_overlap_score"))
     if weighted_overlap is None:
         weighted_overlap = _safe_float((top_row.get("evidence") or {}).get("weighted_overlap_score"))
+    family_support_score = _safe_float(summary.get("top_candidate_family_support_score"))
+    if family_support_score is None:
+        family_support_score = _safe_float((top_row.get("evidence") or {}).get("family_support_score"))
+    major_peak_coverage_ratio = _safe_float(summary.get("top_candidate_major_peak_coverage_ratio"))
+    if major_peak_coverage_ratio is None:
+        major_peak_coverage_ratio = _safe_float((top_row.get("evidence") or {}).get("major_peak_coverage_ratio"))
     mean_delta_position = _safe_float(summary.get("top_candidate_mean_delta_position"))
     if mean_delta_position is None:
         mean_delta_position = _safe_float((top_row.get("evidence") or {}).get("mean_delta_position"))
@@ -492,6 +498,16 @@ def _build_xrd_reasoning(
     provenance_warning = str(summary.get("xrd_provenance_warning") or metadata.get("xrd_provenance_warning") or "").strip()
     import_review_required = bool(metadata.get("import_review_required"))
     reason_below_threshold = str(summary.get("top_candidate_reason_below_threshold") or "").strip()
+    family_payload = xrd_candidate_family_payload(summary, top_row)
+    family_label = str(
+        summary.get("family_context_label")
+        or summary.get("top_candidate_family_label")
+        or family_payload.get("family_label")
+        or ""
+    ).strip()
+    family_candidate_count = _safe_int(summary.get("family_context_candidate_count"))
+    if family_candidate_count is None:
+        family_candidate_count = 0
     validation_status = str((validation or {}).get("status") or "").lower()
     wavelength_missing = metadata.get("xrd_wavelength_angstrom") in (None, "")
     metadata_gaps_xrd = metadata_gaps(metadata, ["instrument"])
@@ -507,6 +523,7 @@ def _build_xrd_reasoning(
     sparse_shared_peaks = shared_peak_count is not None and shared_peak_count < 3
     low_coverage = coverage_ratio is not None and coverage_ratio < 0.5
     weak_overlap = weighted_overlap is not None and weighted_overlap < 0.45
+    family_lane = match_status == "family_consistent"
     partial_support = bool(
         sparse_shared_peaks
         or low_coverage
@@ -541,6 +558,10 @@ def _build_xrd_reasoning(
         descriptive_text = (
             f"Accepted qualitative phase screening retained {best_candidate} as the leading ranked candidate against the available XRD references."
         )
+    elif family_lane:
+        descriptive_text = (
+            f"Exact phase-level acceptance was not retained, but the ranked XRD evidence remains family-consistent with {family_label or best_candidate}."
+        )
     elif rows:
         descriptive_text = (
             f"A best-ranked XRD candidate ({best_candidate}) was generated, but accepted match status remains no_match for qualitative screening."
@@ -561,10 +582,14 @@ def _build_xrd_reasoning(
     evidence_map["C1"] = evidence
 
     if allow_comparative and rows:
-        if partial_support or match_status == "no_match":
+        if partial_support or match_status in {"no_match", "family_consistent"}:
             comparative_text = (
                 f"Observed/reference overlap is strongest for {best_candidate}, but the support remains partial and does not justify definitive phase assignment."
             )
+            if family_lane and family_label:
+                comparative_text = (
+                    f"Observed/reference overlap is strongest for {best_candidate}, and the leading candidates remain grouped within the {family_label} context without supporting an exact phase call."
+                )
         else:
             comparative_text = (
                 f"Observed/reference overlap is strongest for {best_candidate} relative to the other ranked candidates in the screened library set."
@@ -580,6 +605,12 @@ def _build_xrd_reasoning(
             evidence.append(f"Mean delta position: {mean_delta_position:.3f}.")
         if unmatched_major_peak_count is not None:
             evidence.append(f"Unmatched major reference peaks: {unmatched_major_peak_count}.")
+        if major_peak_coverage_ratio is not None:
+            evidence.append(f"Major peak coverage ratio: {major_peak_coverage_ratio:.3f}.")
+        if family_support_score is not None:
+            evidence.append(f"Family support score: {family_support_score:.3f}.")
+        if family_label:
+            evidence.append(f"Family context: {family_label}.")
         if score_gap is not None:
             evidence.append(f"Score gap to next ranked candidate: {score_gap:.3f}.")
         claims.append(_claim("C2", "comparative", comparative_text, evidence))
@@ -626,6 +657,10 @@ def _build_xrd_reasoning(
         uncertainty_items.append(
             "Accepted match status remained no_match; the best-ranked candidate did not satisfy the configured qualitative screening threshold."
         )
+    elif family_lane:
+        uncertainty_items.append(
+            "Accepted exact phase status was not retained; the output should be interpreted as family-level contextual support only."
+        )
     elif confidence_band == "low":
         uncertainty_items.append(
             "The retained candidate is low confidence and should be treated as a follow-up target rather than a confirmed phase call."
@@ -638,8 +673,16 @@ def _build_xrd_reasoning(
         uncertainty_items.append("Reference coverage is limited, so substantial portions of the candidate peak set remain unsupported.")
     if weak_overlap:
         uncertainty_items.append("Weighted overlap remains weak after intensity and penalty terms are applied.")
+    if family_support_score is not None and family_lane:
+        uncertainty_items.append(
+            f"Family-support evidence is stronger than exact-phase evidence for the leading candidates (family support score {family_support_score:.3f})."
+        )
     if (unmatched_major_peak_count or 0) > 0:
         uncertainty_items.append("One or more major reference peaks remain unmatched, which weakens phase-specific confidence.")
+    if family_label:
+        uncertainty_items.append(
+            f"Family-level context is centered on {family_label}" + (f" across {family_candidate_count} leading candidates." if family_candidate_count else ".")
+        )
     if coverage_warning:
         uncertainty_items.append(coverage_warning)
     if provider_candidate_counts:
@@ -663,6 +706,9 @@ def _build_xrd_reasoning(
     elif match_status == "matched" and confidence_band in {"medium", "high"} and not partial_support:
         overall_confidence = "moderate"
         overall_label = "moderate, qualitative phase-screening evidence"
+    elif family_lane:
+        overall_confidence = "low"
+        overall_label = "low, family-level contextual support only"
     else:
         overall_confidence = "low"
         overall_label = "low, cautionary qualitative screening only"
@@ -672,6 +718,8 @@ def _build_xrd_reasoning(
         if allow_interpretive
         else "low_confidence"
         if match_status == "matched" and confidence_band == "low"
+        else "family_consistent"
+        if family_lane
         else "no_match"
         if match_status == "no_match"
         else "partial_overlap"

@@ -675,6 +675,19 @@ def _record_metric_snapshot(record: dict) -> str:
                     f"source {result_source}",
                 ]
             )
+        if match_status.lower() == "family_consistent":
+            caution = summary.get("caution_code") or "xrd_family_consistent"
+            family_label = summary.get("family_context_label") or summary.get("top_candidate_family_label") or best_candidate
+            return ", ".join(
+                [
+                    f"family context {family_label}",
+                    f"best candidate {best_candidate}",
+                    f"score {top_score}",
+                    f"accepted match status {match_status}",
+                    f"caution {caution}",
+                    f"source {result_source}",
+                ]
+            )
         if _xrd_has_best_candidate(summary):
             caution = summary.get("caution_code") or "xrd_no_match"
             shared_peaks = _format_value(summary.get("top_candidate_shared_peak_count"))
@@ -1697,6 +1710,15 @@ def _xrd_caution_note(summary_payload: dict[str, Any]) -> str:
     reason = str(summary_payload.get("top_candidate_reason_below_threshold") or "").strip()
     if match_status == "not_run":
         return caution_message or "Phase matching was not run because no reference library candidates were available."
+    if match_status == "family_consistent":
+        return (
+            caution_message
+            or (
+                f"Exact phase acceptance was not retained, but the strongest ranked candidates remain family-consistent "
+                f"with {str(summary_payload.get('family_context_label') or best_candidate or 'the visible candidate family')}. "
+                "Treat this as contextual family-level screening support rather than a confirmed identification."
+            )
+        )
     if match_status == "no_match":
         if caution_message:
             return caution_message

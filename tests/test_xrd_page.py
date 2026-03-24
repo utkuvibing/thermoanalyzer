@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -657,3 +658,27 @@ def test_apply_xrd_input_review_keeps_wavelength_warning_when_wavelength_still_m
     assert dataset.metadata["import_review_required"] is True
     assert dataset.metadata["import_confidence"] == "medium"
     assert dataset.metadata["xrd_provenance_state"] == "incomplete"
+
+
+def test_render_xrd_provenance_notice_highlights_incomplete_provenance(monkeypatch):
+    dataset = _xrd_dataset()
+    dataset.metadata["xrd_wavelength_angstrom"] = None
+    dataset.metadata["xrd_provenance_state"] = "incomplete"
+    dataset.metadata["xrd_provenance_warning"] = "XRD wavelength is not recorded; exact screening should remain cautionary."
+    warnings: list[str] = []
+    captions: list[str] = []
+    errors: list[str] = []
+
+    fake_st = SimpleNamespace(
+        warning=lambda text: warnings.append(str(text)),
+        caption=lambda text: captions.append(str(text)),
+        error=lambda text: errors.append(str(text)),
+    )
+    monkeypatch.setattr(xrd_page, "st", fake_st)
+
+    xrd_page._render_xrd_provenance_notice(summary={}, dataset=dataset, lang="en")
+
+    assert warnings
+    assert any("exact-phase screening" in item.lower() for item in warnings)
+    assert any("exact screening" in item.lower() for item in captions)
+    assert errors == []

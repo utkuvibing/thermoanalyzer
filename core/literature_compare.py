@@ -1152,6 +1152,7 @@ def _xrd_candidate_claims(
     match_status = _clean_text(summary.get("match_status")).lower() or "no_match"
     confidence_band = _clean_text(summary.get("confidence_band")).lower() or "no_match"
     warning_reason = _clean_text(summary.get("top_candidate_reason_below_threshold"))
+    family_label = _clean_text((query_payload.get("evidence_snapshot") or {}).get("family_label") or summary.get("family_context_label"))
 
     claims: list[dict[str, Any]] = []
     if match_status == "no_match":
@@ -1165,6 +1166,22 @@ def _xrd_candidate_claims(
                 evidence_snapshot=dict(query_payload.get("evidence_snapshot") or {}),
                 uncertainty_notes=[warning_reason] if warning_reason else [],
                 suggested_query_terms=[_clean_text(query_payload.get("candidate_name")), _clean_text(query_payload.get("candidate_formula")), "XRD"],
+            ).to_dict()
+        )
+    elif match_status == "family_consistent":
+        claims.append(
+            LiteratureClaim(
+                claim_id="C1",
+                claim_text=(
+                    f"The current XRD result supports a family-level context around {family_label or candidate}, "
+                    "but literature remains non-validating and does not justify an exact phase identification."
+                ),
+                claim_type="cautionary_interpretation",
+                modality="XRD",
+                strength="low",
+                evidence_snapshot=dict(query_payload.get("evidence_snapshot") or {}),
+                uncertainty_notes=[warning_reason] if warning_reason else [],
+                suggested_query_terms=[family_label or _clean_text(query_payload.get("candidate_name")), _clean_text(query_payload.get("candidate_formula")), "XRD"],
             ).to_dict()
         )
     else:
@@ -1277,6 +1294,10 @@ def _xrd_comparison_note(*, candidate: str, match_status: str, confidence_band: 
     if match_status == "no_match":
         return (
             f"This paper discusses XRD characterization of {candidate_label}. The current result remains a no_match screening outcome and stays below the XRD acceptance threshold, so the paper provides candidate-level context rather than validation."
+        )
+    if match_status == "family_consistent":
+        return (
+            f"This paper discusses XRD characterization relevant to {candidate_label}. The current result supports only family-level context, so the source should be used as non-validating literature support rather than exact phase confirmation."
         )
     if posture == "alternative_interpretation":
         return (

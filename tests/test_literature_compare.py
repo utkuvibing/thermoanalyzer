@@ -1070,7 +1070,8 @@ def test_xrd_zero_hit_real_provider_persists_no_results_traceability():
     assert context["real_literature_available"] is False
     assert context["fixture_fallback_allowed"] is False
     assert context["query_display_title"] == "Phase Alpha"
-    assert context["query_display_terms"] == ["powder diffraction", "crystal structure", "phase identification"]
+    assert context["query_display_terms"][:3] == ["powder diffraction", "crystal structure", "phase identification"]
+    assert "Synthetic XRD Pattern" in context["query_display_terms"]
 
 
 def test_xrd_not_configured_provider_persists_traceability():
@@ -1135,9 +1136,9 @@ def test_xrd_query_too_narrow_persists_traceability():
     package = compare_result_to_literature(record, provider=provider, provider_scope=["openalex_like_provider"])
 
     context = package["literature_context"]
-    assert context["query_text"] == "XRD phase identification diffraction pattern"
+    assert context["query_text"] == "\"Synthetic XRD Pattern\" XRD mineral phase identification diffraction pattern"
     assert context["provider_query_status"] == "no_results"
-    assert context["no_results_reason"] == "query_too_narrow"
+    assert context["no_results_reason"] == "no_real_results"
     assert context["real_literature_available"] is False
 
 

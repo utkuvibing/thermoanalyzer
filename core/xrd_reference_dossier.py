@@ -178,6 +178,7 @@ def build_xrd_reference_bundle(
         "generated_at": _text(existing_metadata.get("generated_at") or reference.get("generated_at")),
         "last_updated": _text(existing_metadata.get("last_updated") or reference.get("last_updated")),
         "canonical_material_key": _text(existing_metadata.get("canonical_material_key") or reference.get("canonical_material_key")),
+        "phase_family": _text(existing_metadata.get("phase_family") or reference.get("phase_family")),
         "space_group": _text(existing_metadata.get("space_group") or reference.get("space_group")),
         "symmetry": _text(existing_metadata.get("symmetry") or reference.get("symmetry")),
         "formula": _text(display_payload.get("formula")) or _text(existing_metadata.get("formula")) or _text(reference.get("formula")),

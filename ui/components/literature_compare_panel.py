@@ -719,6 +719,8 @@ def _comparison_display_label(
 
     if match_status == "no_match" or confidence_band in {"no_match", "low", "not_run"}:
         return "insufficient_literature_evidence"
+    if match_status == "family_consistent":
+        return "contextually_supportive_non_validating"
     if analysis_type in {"DSC", "DTA", "TGA"}:
         if raw_label in {"supports", "partially_supports"}:
             return "contextually_supportive_non_validating" if comparison_confidence in {"moderate", "high"} else "related_but_non_validating"

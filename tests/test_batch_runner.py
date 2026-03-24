@@ -205,6 +205,76 @@ def _make_xrd_dataset(*, include_reference_library: bool = True, no_match: bool 
     )
 
 
+def _make_xrd_family_consistent_dataset():
+    axis = np.linspace(8.0, 88.0, 900)
+    baseline = 24.0 + 0.08 * axis + 22.0 * np.exp(-0.5 * ((axis - 31.0) / 7.5) ** 2)
+    signal = (
+        baseline
+        + _gaussian(axis, 18.4, 0.62, 95.0)
+        + _gaussian(axis, 33.2, 0.72, 130.0)
+        + _gaussian(axis, 47.8, 0.78, 110.0)
+        + 1.5 * np.sin(axis / 3.5)
+    )
+    metadata = {
+        "sample_name": "Broad Mineral XRD",
+        "display_name": "Broad Mineral-like Pattern",
+        "instrument": "XRDBench",
+        "vendor": "TestVendor",
+        "xrd_axis_role": "two_theta",
+        "xrd_axis_unit": "degree_2theta",
+        "xrd_wavelength_angstrom": 1.5406,
+        "xrd_reference_library": [
+            {
+                "id": "xrd_alpha_garnet",
+                "name": "Alpha Garnet",
+                "phase_family": "garnet",
+                "peaks": [
+                    {"position": 18.37, "intensity": 0.45},
+                    {"position": 33.18, "intensity": 0.44},
+                    {"position": 47.76, "intensity": 0.41},
+                    {"position": 55.40, "intensity": 1.0},
+                    {"position": 63.52, "intensity": 0.92},
+                    {"position": 72.05, "intensity": 0.78},
+                    {"position": 78.10, "intensity": 0.35},
+                ],
+            },
+            {
+                "id": "xrd_beta_garnet",
+                "name": "Beta Garnet",
+                "phase_family": "garnet",
+                "peaks": [
+                    {"position": 18.33, "intensity": 0.44},
+                    {"position": 33.11, "intensity": 0.42},
+                    {"position": 47.72, "intensity": 0.4},
+                    {"position": 55.15, "intensity": 0.96},
+                    {"position": 63.10, "intensity": 0.88},
+                    {"position": 71.62, "intensity": 0.74},
+                    {"position": 77.70, "intensity": 0.34},
+                ],
+            },
+            {
+                "id": "xrd_mismatch_oxide",
+                "name": "Mismatch Oxide",
+                "phase_family": "oxide",
+                "peaks": [
+                    {"position": 12.1, "intensity": 1.0},
+                    {"position": 25.6, "intensity": 0.8},
+                    {"position": 41.9, "intensity": 0.9},
+                    {"position": 68.3, "intensity": 0.7},
+                ],
+            },
+        ],
+    }
+    return ThermalDataset(
+        data=pd.DataFrame({"temperature": axis, "signal": signal}),
+        metadata=metadata,
+        data_type="XRD",
+        units={"temperature": "degree_2theta", "signal": "counts"},
+        original_columns={"temperature": "two_theta", "signal": "intensity"},
+        file_path="",
+    )
+
+
 def test_execute_dsc_batch_template_saves_normalized_record(thermal_dataset):
     dataset = thermal_dataset.copy()
     dataset.metadata.update(
@@ -629,6 +699,81 @@ def test_execute_xrd_batch_template_keeps_no_match_as_cautionary_saved_output():
     assert outcome["record"]["review"]["caution"]["code"] == "xrd_no_match"
     assert outcome["record"]["review"]["caution"]["top_candidate_name"] == "Mismatch A"
     assert outcome["summary_row"]["match_status"] == "no_match"
+
+
+def test_execute_xrd_batch_template_can_emit_family_consistent_for_broad_mineral_patterns(monkeypatch):
+    dataset = _make_xrd_family_consistent_dataset()
+    manager_stub = type(
+        "ManagerStub",
+        (),
+        {
+            "library_context": lambda self, _analysis_type: {
+                "library_mode": "not_configured",
+                "reference_package_count": 0,
+                "reference_candidate_count": 0,
+                "library_sync_mode": "not_synced",
+                "library_cache_status": "cold",
+            },
+            "load_entries": lambda self, _analysis_type: [],
+            "count_installed_candidates": lambda self, _analysis_type: 0,
+            "record_cloud_lookup": lambda self, **_kwargs: None,
+        },
+    )()
+    monkeypatch.setattr("core.batch_runner.get_reference_library_manager", lambda: manager_stub)
+
+    outcome = execute_batch_template(
+        dataset_key="broad_mineral_xrd",
+        dataset=dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        batch_run_id="batch_xrd_family_consistent",
+    )
+
+    summary = outcome["record"]["summary"]
+    assert outcome["status"] == "saved"
+    assert summary["match_status"] == "family_consistent"
+    assert summary["confidence_band"] == "family_consistent"
+    assert summary["top_phase_id"] is None
+    assert summary["family_context_label"]
+    assert summary["family_context_candidate_count"] >= 2
+    assert summary["top_candidate_family_support_score"] > summary["top_candidate_score"]
+    assert summary["caution_code"] == "xrd_family_consistent"
+    assert "family-level" in summary["caution_message"].lower()
+
+
+def test_execute_xrd_batch_template_keeps_exact_match_threshold_strict_for_family_consistent_cases(monkeypatch):
+    dataset = _make_xrd_family_consistent_dataset()
+    manager_stub = type(
+        "ManagerStub",
+        (),
+        {
+            "library_context": lambda self, _analysis_type: {
+                "library_mode": "not_configured",
+                "reference_package_count": 0,
+                "reference_candidate_count": 0,
+                "library_sync_mode": "not_synced",
+                "library_cache_status": "cold",
+            },
+            "load_entries": lambda self, _analysis_type: [],
+            "count_installed_candidates": lambda self, _analysis_type: 0,
+            "record_cloud_lookup": lambda self, **_kwargs: None,
+        },
+    )()
+    monkeypatch.setattr("core.batch_runner.get_reference_library_manager", lambda: manager_stub)
+
+    outcome = execute_batch_template(
+        dataset_key="broad_mineral_xrd_strict",
+        dataset=dataset,
+        analysis_type="XRD",
+        workflow_template_id="xrd.general",
+        batch_run_id="batch_xrd_family_consistent_strict",
+    )
+
+    summary = outcome["record"]["summary"]
+    assert summary["match_status"] == "family_consistent"
+    assert summary["top_candidate_score"] < outcome["record"]["processing"]["method_context"]["xrd_match_minimum_score"]
+    assert summary["top_phase_id"] is None
+    assert summary["top_match_id"] is None
 
 
 def test_execute_xrd_batch_template_surfaces_missing_wavelength_provenance_in_summary():
