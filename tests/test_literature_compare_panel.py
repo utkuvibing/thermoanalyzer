@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from core.chemical_formula_formatting import format_chemical_formula_text
 from ui.components import literature_compare_panel
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class _FakeResponse:
     def __init__(self, status_code: int, payload: dict):
@@ -266,6 +268,15 @@ def test_default_compare_request_uses_real_provider_for_thermal_modalities():
         assert payload["max_claims"] == 2
         assert payload["filters"]["analysis_type"] == analysis_type
         assert payload["filters"]["allow_fixture_fallback"] is False
+
+
+def test_default_compare_request_uses_real_provider_for_ftir():
+    payload = literature_compare_panel._default_compare_request(current_record={"analysis_type": "FTIR"})
+
+    assert payload["provider_ids"] == ["openalex_like_provider"]
+    assert payload["max_claims"] == 2
+    assert payload["filters"]["analysis_type"] == "FTIR"
+    assert payload["filters"]["allow_fixture_fallback"] is False
 
 
 def test_render_literature_sections_renders_xrd_candidate_summary_before_paper_cards(monkeypatch):
@@ -1147,16 +1158,24 @@ def test_render_literature_compare_panel_updates_session_state_on_success(monkey
 
 
 def test_xrd_page_results_summary_uses_literature_compare_panel():
-    source = Path("C:/MaterialScope/ui/xrd_page.py").read_text(encoding="utf-8")
+    source = (_REPO_ROOT / "ui" / "xrd_page.py").read_text(encoding="utf-8")
 
     assert "render_literature_compare_panel(" in source
 
 
 def test_thermal_pages_results_summary_use_literature_compare_panel():
     for path in (
-        "C:/MaterialScope/ui/dsc_page.py",
-        "C:/MaterialScope/ui/dta_page.py",
-        "C:/MaterialScope/ui/tga_page.py",
+        _REPO_ROOT / "ui" / "dsc_page.py",
+        _REPO_ROOT / "ui" / "dta_page.py",
+        _REPO_ROOT / "ui" / "tga_page.py",
     ):
         source = Path(path).read_text(encoding="utf-8")
         assert "render_literature_compare_panel(" in source
+
+
+def test_ftir_results_summary_uses_literature_compare_panel():
+    source = (_REPO_ROOT / "ui" / "spectral_page.py").read_text(encoding="utf-8")
+
+    assert "_render_literature_compare_if_supported(" in source
+    assert "_LITERATURE_COMPARE_ENABLED_TYPES = {\"FTIR\"}" in source
+    assert "render_literature_compare_panel(" in source

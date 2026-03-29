@@ -749,6 +749,7 @@ def _compare_generic_result_to_literature(
     normalized_user_documents = _normalize_user_document_sources(user_documents)
 
     query_count = 0
+    executed_queries: list[str] = []
     comparisons: list[dict[str, Any]] = []
     citations_by_identity: dict[str, dict[str, Any]] = {}
     provider_request_ids: list[str] = []
@@ -774,6 +775,7 @@ def _compare_generic_result_to_literature(
         }
         claim_filters = _search_filters_for_claim(claim, filters)
         for query in build_claim_queries(claim):
+            executed_queries.append(query)
             for candidate in provider.search(query, filters=claim_filters):
                 source_key = _search_result_identity(candidate)
                 if not source_key:
@@ -885,6 +887,7 @@ def _compare_generic_result_to_literature(
             if len(provider_scope) > 1
             else (sorted(provider_result_sources)[0] if len(provider_result_sources) == 1 else _provider_result_source(provider, provider_scope=provider_scope))
         ),
+        query_text=executed_queries[0] if executed_queries else "",
         query_count=query_count,
         source_count=len(all_sources_seen),
         citation_count=len(citations_by_identity),

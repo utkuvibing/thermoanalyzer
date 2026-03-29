@@ -174,6 +174,46 @@ def _seed_thermal_result_store(analysis_type: str) -> tuple[ProjectStore, str, s
     return store, project_id, record["id"]
 
 
+def _seed_spectral_result_store(analysis_type: str) -> tuple[ProjectStore, str, str]:
+    normalized = analysis_type.upper()
+    record = make_result_record(
+        result_id=f"{normalized.lower()}_demo",
+        analysis_type=normalized,
+        status="stable",
+        dataset_key=f"{normalized.lower()}_demo",
+        metadata={"sample_name": f"{normalized} Sample"},
+        summary={
+            "sample_name": f"{normalized} Sample",
+            "match_status": "no_match",
+            "candidate_count": 1,
+            "top_match_name": "Cellulose-like pattern",
+            "top_match_score": 0.41,
+            "confidence_band": "low",
+        },
+        rows=[
+            {
+                "rank": 1,
+                "candidate_name": "Cellulose-like pattern",
+                "normalized_score": 0.41,
+                "confidence_band": "low",
+            }
+        ],
+        scientific_context={
+            "scientific_claims": [
+                {
+                    "id": "C1",
+                    "claim": f"The {normalized} result suggests a qualitative band-pattern interpretation that remains non-confirmatory.",
+                }
+            ],
+            "uncertainty_assessment": {"overall_confidence": "low", "items": ["Interpretation remains qualitative."]},
+        },
+        validation={"status": "pass", "warnings": [], "issues": []},
+    )
+    store = ProjectStore()
+    project_id = store.put(normalize_workspace_state({"results": {record["id"]: record}}))
+    return store, project_id, record["id"]
+
+
 def _headers() -> dict[str, str]:
     return {"X-TA-Token": "details-token"}
 
@@ -422,6 +462,23 @@ def test_result_literature_compare_endpoint_defaults_live_provider_for_thermal_r
     payload = response.json()
     assert payload["literature_context"]["provider_scope"] == ["openalex_like_provider"]
     assert payload["literature_context"]["analysis_type"] == "DSC"
+    assert payload["literature_context"]["query_text"]
+
+
+def test_result_literature_compare_endpoint_defaults_live_provider_for_ftir_results():
+    store, project_id, result_id = _seed_spectral_result_store("FTIR")
+    client = TestClient(create_app(api_token="details-token", store=store))
+
+    response = client.post(
+        f"/workspace/{project_id}/results/{result_id}/literature/compare",
+        headers=_headers(),
+        json={"persist": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["literature_context"]["provider_scope"] == ["openalex_like_provider"]
+    assert payload["literature_context"]["analysis_type"] == "FTIR"
     assert payload["literature_context"]["query_text"]
 
 

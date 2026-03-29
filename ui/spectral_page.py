@@ -20,6 +20,7 @@ from core.processing_schema import (
 from core.validation import validate_thermal_dataset
 from ui.components.chrome import render_page_header
 from ui.components.history_tracker import _log_event
+from ui.components.literature_compare_panel import render_literature_compare_panel
 from ui.components.preset_manager import render_processing_preset_panel, seed_pending_workflow_template
 from ui.components.plot_builder import (
     apply_plot_display_settings,
@@ -65,6 +66,8 @@ _SPECTRAL_TEMPLATE_DEFAULTS = {
         },
     },
 }
+
+_LITERATURE_COMPARE_ENABLED_TYPES = {"FTIR"}
 
 
 def _get_spectral_datasets(analysis_type: str):
@@ -370,6 +373,43 @@ def _seed_spectral_processing_defaults(token: str, processing, workflow_template
             analysis_type=token,
         )
     return seeded
+
+
+def _render_literature_compare_if_supported(
+    *,
+    analysis_type: str,
+    selected_key: str,
+    record: dict | None,
+    title_key: str,
+) -> dict | None:
+    token = str(analysis_type or "").upper()
+    if token not in _LITERATURE_COMPARE_ENABLED_TYPES:
+        return record
+
+    result_id = f"{token.lower()}_{selected_key}"
+    saved_record = record
+    st.divider()
+    if saved_record:
+        st.caption(tx("Kaydedilmiş sonuç kimliği: {result_id}", "Saved result ID: {result_id}", result_id=result_id))
+    saved_record, literature_action = render_literature_compare_panel(
+        record=saved_record,
+        result_id=result_id if saved_record else None,
+        lang=st.session_state.get("lang", "tr"),
+        key_prefix=f"{token.lower()}_literature_compare_{selected_key}",
+    )
+    if literature_action and literature_action.get("status") == "success":
+        _log_event(
+            tx("Literatür Karşılaştırması", "Literature Compare"),
+            tx(
+                "{result_id} için literatür karşılaştırması güncellendi.",
+                "Literature comparison was refreshed for {result_id}.",
+                result_id=result_id,
+            ),
+            t(title_key),
+            dataset_key=selected_key,
+            result_id=result_id,
+        )
+    return saved_record
 
 
 def render_spectral_page(
@@ -782,4 +822,10 @@ def render_spectral_page(
             )
         summary_rows = [{"key": key, "value": value} for key, value in summary.items()]
         st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
+        _render_literature_compare_if_supported(
+            analysis_type=token,
+            selected_key=selected_key,
+            record=record,
+            title_key=title_key,
+        )
 

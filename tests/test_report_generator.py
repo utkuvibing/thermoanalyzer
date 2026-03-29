@@ -643,6 +643,69 @@ def test_generate_docx_report_renders_ftir_no_match_caution_fields():
     assert "cloud_search" in xml
 
 
+def test_generate_docx_report_renders_ftir_literature_sections():
+    ftir_record, ftir_dataset = _make_ftir_no_match_record()
+    ftir_record["literature_context"] = {
+        "analysis_type": "FTIR",
+        "provider_scope": ["openalex_like_provider"],
+        "provider_request_ids": ["openalex_req_ftir_001"],
+        "query_text": "\"cellulose\" FTIR band assignment qualitative interpretation",
+        "query_rationale": "The FTIR literature search is centered on the leading band-pattern interpretation.",
+        "real_literature_available": True,
+        "restricted_content_used": False,
+    }
+    ftir_record["literature_claims"] = [
+        {
+            "claim_id": "C1",
+            "claim_text": "The FTIR result suggests a cellulose-like band pattern that remains qualitative.",
+        }
+    ]
+    ftir_record["literature_comparisons"] = [
+        {
+            "claim_id": "C1",
+            "claim_text": "The FTIR result suggests a cellulose-like band pattern that remains qualitative.",
+            "support_label": "related_but_inconclusive",
+            "confidence": "low",
+            "rationale": "Accessible literature discusses a similar FTIR band pattern, but the assignment remains non-confirmatory.",
+            "citation_ids": ["ref_ftir_001"],
+        }
+    ]
+    ftir_record["citations"] = [
+        {
+            "citation_id": "ref_ftir_001",
+            "title": "Cellulose FTIR band assignments",
+            "authors": ["A. Author"],
+            "journal": "Journal of Spectroscopy",
+            "year": 2024,
+            "doi": "10.1000/ftir-cellulose",
+            "url": "https://doi.org/10.1000/ftir-cellulose",
+            "access_class": "open_access_full_text",
+            "available_fields": ["metadata", "abstract", "oa_full_text"],
+            "source_license_note": "open_access",
+            "provenance": {
+                "provider_id": "openalex_like_provider",
+                "request_id": "openalex_req_ftir_001",
+                "result_source": "openalex_api",
+                "provider_scope": ["openalex_like_provider"],
+                "provider_request_ids": ["openalex_req_ftir_001"],
+            },
+        }
+    ]
+
+    docx_bytes = generate_docx_report(
+        results={ftir_record["id"]: ftir_record},
+        datasets={"synthetic_ftir": ftir_dataset},
+    )
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+
+    assert "Literature Comparison" in xml
+    assert "Supporting References" in xml
+    assert "Cellulose FTIR band assignments" in xml
+    assert "Recommended Follow-Up Literature Checks" in xml
+
+
 def test_generate_docx_report_renders_xrd_no_match_caution_fields():
     xrd_record, xrd_dataset = _make_xrd_no_match_record()
     docx_bytes = generate_docx_report(

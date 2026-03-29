@@ -871,7 +871,7 @@ def _default_compare_request(
 ) -> dict[str, Any]:
     payload = copy.deepcopy(DEFAULT_LITERATURE_COMPARE_REQUEST)
     analysis_type = _clean_text((current_record or {}).get("analysis_type")).upper()
-    if analysis_type in {"XRD", "DSC", "DTA", "TGA"}:
+    if analysis_type in {"XRD", "DSC", "DTA", "TGA", "FTIR"}:
         payload["filters"]["analysis_type"] = analysis_type or "XRD"
     else:
         payload = {

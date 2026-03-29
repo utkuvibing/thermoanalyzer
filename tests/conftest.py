@@ -7,8 +7,10 @@ All fixtures generate synthetic data with known analytical properties so
 that tests are deterministic and require no external files.
 """
 
-import sys
 import os
+import sys
+import uuid
+from pathlib import Path
 
 # Ensure the thermoanalyzer package root is importable regardless of where
 # pytest is invoked from.
@@ -17,6 +19,9 @@ _THERMOANALYZER_ROOT = os.path.abspath(
 )
 if _THERMOANALYZER_ROOT not in sys.path:
     sys.path.insert(0, _THERMOANALYZER_ROOT)
+
+_LOCAL_TMP_ROOT = Path(_THERMOANALYZER_ROOT) / "pytest_temp"
+_LOCAL_TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 import numpy as np
 import pandas as pd
@@ -98,6 +103,14 @@ def isolated_thermoanalyzer_home(monkeypatch, tmp_path):
     monkeypatch.delenv("THERMOANALYZER_LIBRARY_CLOUD_ENABLED", raising=False)
     monkeypatch.delenv("THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC", raising=False)
     yield
+
+
+@pytest.fixture
+def tmp_path():
+    """Use a workspace-local temp directory to avoid sandboxed system-temp permission issues."""
+    path = _LOCAL_TMP_ROOT / f"case_{uuid.uuid4().hex[:8]}"
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
 
 @pytest.fixture(scope="session")
