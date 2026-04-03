@@ -394,9 +394,10 @@ def test_library_feed_enforces_license_statuses(tmp_path):
     app = create_library_feed_app(mirror_root=mirror_root)
     client = TestClient(app)
 
-    trial_header = {"X-TA-License": _license_header(sku="TRIAL", expires_at=datetime(2026, 3, 28, tzinfo=UTC))}
-    activated_header = {"X-TA-License": _license_header(sku="PRO", expires_at=datetime(2026, 6, 1, tzinfo=UTC))}
-    expired_header = {"X-TA-License": _license_header(sku="PRO", expires_at=datetime(2026, 3, 1, tzinfo=UTC))}
+    now = datetime.now(UTC)
+    trial_header = {"X-TA-License": _license_header(sku="TRIAL", expires_at=now + timedelta(days=7))}
+    activated_header = {"X-TA-License": _license_header(sku="PRO", expires_at=now + timedelta(days=60))}
+    expired_header = {"X-TA-License": _license_header(sku="PRO", expires_at=now - timedelta(days=7))}
 
     manifest_response = client.get("/v1/library/manifest", headers=trial_header)
     assert manifest_response.status_code == 200

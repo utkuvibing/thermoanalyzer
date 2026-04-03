@@ -195,10 +195,20 @@ def test_batch_run_xrd_preprocessing_path_returns_saved_with_peak_summary(therma
         + 120.0 * np.exp(-0.5 * ((axis - 35.7) / 0.42) ** 2)
         + 85.0 * np.exp(-0.5 * ((axis - 52.4) / 0.38) ** 2)
     )
-    xrd_dataset.data["temperature"] = axis
-    xrd_dataset.data["signal"] = signal
-
-    xrd_key = _import_dataset(client, project_id, xrd_dataset, "batch_xrd.csv", "XRD")
+    xy_lines = ["# wavelength 1.5406", "2theta intensity"]
+    xy_lines.extend(f"{theta:.4f} {intensity:.6f}" for theta, intensity in zip(axis, signal))
+    imported = client.post(
+        "/dataset/import",
+        headers=_headers(),
+        json={
+            "project_id": project_id,
+            "file_name": "batch_xrd.xy",
+            "file_base64": _as_b64("\n".join(xy_lines).encode("utf-8")),
+            "data_type": "XRD",
+        },
+    )
+    assert imported.status_code == 200
+    xrd_key = imported.json()["dataset"]["key"]
     compare_set = client.post(
         f"/workspace/{project_id}/compare/selection",
         headers=_headers(),
