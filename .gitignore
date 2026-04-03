@@ -11,6 +11,17 @@ build/
 venv/
 env/
 .streamlit/secrets.toml
+.bg-shell/
+.codex/
+.gsd/
+.planning/
+.tmp/
+.tmp_*/
+.tmp_demo_review/
+.pytest-temp/
+.ptmp/
+.ptmp_full_*/
+.artifacts/
 *.pyc
 .pytest_cache/
 .coverage
