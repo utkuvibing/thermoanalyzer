@@ -1,0 +1,105 @@
+name: PR / Auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  toggle-auto-merge:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable or disable auto-merge from PR checkboxes
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.notice('No pull_request payload found.');
+              return;
+            }
+
+            const body = pr.body || '';
+            const wantsCodexReview = /-\s*\[x\]\s*Codex review completed/i.test(body);
+            const wantsAutoMerge = /-\s*\[x\]\s*Enable auto-merge after checks pass/i.test(body);
+            const shouldEnable = !pr.draft && wantsCodexReview && wantsAutoMerge;
+
+            const query = `
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    id
+                    isDraft
+                    autoMergeRequest {
+                      enabledAt
+                    }
+                  }
+                }
+              }
+            `;
+
+            const data = await github.graphql(query, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              number: pr.number,
+            });
+
+            const pullRequest = data.repository.pullRequest;
+            if (!pullRequest) {
+              core.setFailed(`PR #${pr.number} could not be loaded.`);
+              return;
+            }
+
+            if (shouldEnable) {
+              if (pullRequest.autoMergeRequest) {
+                core.notice(`Auto-merge is already enabled for PR #${pr.number}.`);
+                return;
+              }
+
+              await github.graphql(
+                `
+                  mutation($pullRequestId: ID!) {
+                    enablePullRequestAutoMerge(
+                      input: {
+                        pullRequestId: $pullRequestId,
+                        mergeMethod: SQUASH
+                      }
+                    ) {
+                      clientMutationId
+                    }
+                  }
+                `,
+                { pullRequestId: pullRequest.id },
+              );
+
+              core.notice(`Enabled auto-merge for PR #${pr.number}.`);
+              return;
+            }
+
+            if (!pullRequest.autoMergeRequest) {
+              core.notice(`Auto-merge remains disabled for PR #${pr.number}.`);
+              return;
+            }
+
+            await github.graphql(
+              `
+                mutation($pullRequestId: ID!) {
+                  disablePullRequestAutoMerge(
+                    input: {
+                      pullRequestId: $pullRequestId
+                    }
+                  ) {
+                    clientMutationId
+                  }
+                }
+              `,
+              { pullRequestId: pullRequest.id },
+            );
+
+            core.notice(`Disabled auto-merge for PR #${pr.number}.`);
