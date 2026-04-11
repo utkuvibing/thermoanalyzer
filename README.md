@@ -147,6 +147,29 @@ Default URL: `http://localhost:8000`
 
 For local development, start the backend before using library-backed workflows if you expect `cloud_full_access`.
 
+### Docker / Coolify deployment
+
+This repo includes a production `Dockerfile` for Coolify-style deployments.
+
+The container starts:
+- the FastAPI backend on `127.0.0.1:8000`
+- the Streamlit UI on `0.0.0.0:8501`
+
+For web deployment:
+- deploy with `Dockerfile`
+- expose port `8501`
+- set runtime secrets in Coolify instead of committing `.env`
+
+Recommended runtime environment variables:
+
+```dotenv
+THERMOANALYZER_LIBRARY_CLOUD_URL=http://127.0.0.1:8000
+THERMOANALYZER_LIBRARY_CLOUD_ENABLED=true
+THERMOANALYZER_LIBRARY_ALLOW_FULL_PROVIDER_SYNC=false
+MATERIALSCOPE_OPENALEX_EMAIL=
+MATERIALSCOPE_OPENALEX_API_KEY=
+```
+
 ---
 
 ## Local Cloud-Library Development
