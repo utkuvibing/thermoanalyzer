@@ -91,6 +91,9 @@ def test_sidebar_navigation_uses_grouped_scientific_structure():
     assert 't("nav.primary")' in app_entry
     assert 't("nav.analyses")' in app_entry
     assert 't("nav.management")' in app_entry
+    assert 'st.navigation(pages, position="hidden")' in app_entry
+    assert '_render_sidebar_page_section(t("nav.primary"), primary_pages, pg)' in app_entry
+    assert 'label_visibility="collapsed"' in app_entry
     assert 'with st.expander(t("sidebar.project"), expanded=False):' in app_entry
     assert 'st.Page(export_render, title=t("nav.report"), icon="📝", url_path="report")' in app_entry
     assert 'st.Page(project_render, title=t("nav.project"), icon="🗂️", url_path="project")' in app_entry

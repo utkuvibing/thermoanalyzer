@@ -217,6 +217,15 @@ div[data-testid="stFileUploader"] > div:first-child:hover {
     border: 1px solid rgba(255,255,255,0.08);
 }
 
+.sidebar-section-label {
+    margin: 1rem 0 0.45rem 0;
+    color: #8FA3BF !important;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
 /* Expander styling */
 details[data-testid="stExpander"] summary {
     font-weight: 500 !important;
@@ -282,11 +291,12 @@ div[data-testid="stMarkdownContainer"] p {
 # --- Sidebar branding ---
 with st.sidebar:
     st.segmented_control(
-        t("app.language"),
+        "language",
         options=list(SUPPORTED_LANGUAGES.keys()),
         format_func=lambda code: SUPPORTED_LANGUAGES[code],
         key="ui_language",
         selection_mode="single",
+        label_visibility="collapsed",
     )
     license_state = st.session_state.get("license_state", {})
     license_label = {
@@ -378,6 +388,13 @@ def _render_project_sidebar():
             )
             st.error(f"Project load failed: {exc} (Error ID: {error_id})")
 
+
+def _render_sidebar_page_section(title: str, page_items: list[tuple], current_page) -> None:
+    """Render one grouped sidebar navigation section."""
+    st.markdown(f'<div class="sidebar-section-label">{title}</div>', unsafe_allow_html=True)
+    for page, label, icon in page_items:
+        st.page_link(page, label=label, icon=icon, disabled=(page == current_page))
+
 # --- Page imports ---
 from ui.components.history_tracker import render_history_sidebar
 from ui.about_page import render as about_render
@@ -407,34 +424,56 @@ if preview_modules_available:
 else:
     show_preview_tools = False
 
-pages = {
-    t("nav.primary"): [
-        st.Page(home_render, title=t("nav.import"), icon="📂", default=True, url_path="import"),
-        st.Page(compare_render, title=t("nav.compare"), icon="🧪", url_path="compare"),
-        st.Page(export_render, title=t("nav.report"), icon="📝", url_path="report"),
-        st.Page(project_render, title=t("nav.project"), icon="🗂️", url_path="project"),
-    ],
-    t("nav.analyses"): [
-        st.Page(dsc_render, title=t("nav.dsc"), icon="📈", url_path="dsc"),
-        st.Page(tga_render, title=t("nav.tga"), icon="📉", url_path="tga"),
-        st.Page(dta_render, title=tx("DTA Analizi", "DTA Analysis"), icon="📊", url_path="dta"),
-        st.Page(ftir_render, title=t("nav.ftir"), icon="🧬", url_path="ftir"),
-        st.Page(raman_render, title=t("nav.raman"), icon="🔦", url_path="raman"),
-        st.Page(xrd_render, title=t("nav.xrd"), icon="🧿", url_path="xrd"),
-    ],
-    t("nav.management"): [
-        st.Page(library_render, title=tx("Kütüphane", "Library"), icon="🗃️", url_path="library"),
-        st.Page(license_render, title=t("nav.license"), icon="🔐", url_path="license"),
-        st.Page(about_render, title=t("nav.about"), icon="ℹ️", url_path="about"),
-    ],
-}
-if show_preview_tools:
-    pages[t("nav.preview")] = [
-        st.Page(kinetics_render, title=tx("Kinetik Analiz (Deneysel)", "Kinetic Analysis (Experimental)"), icon="⚡", url_path="kinetics"),
-        st.Page(deconv_render, title=tx("Pik Dekonvolüsyonu (Deneysel)", "Peak Deconvolution (Experimental)"), icon="🔍", url_path="deconvolution"),
-    ]
+primary_pages = [
+    (st.Page(home_render, title=t("nav.import"), icon="📂", default=True, url_path="import"), t("nav.import"), "📂"),
+    (st.Page(compare_render, title=t("nav.compare"), icon="🧪", url_path="compare"), t("nav.compare"), "🧪"),
+    (st.Page(export_render, title=t("nav.report"), icon="📝", url_path="report"), t("nav.report"), "📝"),
+    (st.Page(project_render, title=t("nav.project"), icon="🗂️", url_path="project"), t("nav.project"), "🗂️"),
+]
+analysis_pages = [
+    (st.Page(dsc_render, title=t("nav.dsc"), icon="📈", url_path="dsc"), t("nav.dsc"), "📈"),
+    (st.Page(tga_render, title=t("nav.tga"), icon="📉", url_path="tga"), t("nav.tga"), "📉"),
+    (st.Page(dta_render, title=tx("DTA Analizi", "DTA Analysis"), icon="📊", url_path="dta"), tx("DTA Analizi", "DTA Analysis"), "📊"),
+    (st.Page(ftir_render, title=t("nav.ftir"), icon="🧬", url_path="ftir"), t("nav.ftir"), "🧬"),
+    (st.Page(raman_render, title=t("nav.raman"), icon="🔦", url_path="raman"), t("nav.raman"), "🔦"),
+    (st.Page(xrd_render, title=t("nav.xrd"), icon="🧿", url_path="xrd"), t("nav.xrd"), "🧿"),
+]
+management_pages = [
+    (st.Page(library_render, title=tx("Kütüphane", "Library"), icon="🗃️", url_path="library"), tx("Kütüphane", "Library"), "🗃️"),
+    (st.Page(license_render, title=t("nav.license"), icon="🔐", url_path="license"), t("nav.license"), "🔐"),
+    (st.Page(about_render, title=t("nav.about"), icon="ℹ️", url_path="about"), t("nav.about"), "ℹ️"),
+]
 
-pg = st.navigation(pages)
+pages = {
+    t("nav.primary"): [page for page, _, _ in primary_pages],
+    t("nav.analyses"): [page for page, _, _ in analysis_pages],
+    t("nav.management"): [page for page, _, _ in management_pages],
+}
+preview_pages = []
+if show_preview_tools:
+    preview_pages = [
+        (
+            st.Page(kinetics_render, title=tx("Kinetik Analiz (Deneysel)", "Kinetic Analysis (Experimental)"), icon="⚡", url_path="kinetics"),
+            tx("Kinetik Analiz (Deneysel)", "Kinetic Analysis (Experimental)"),
+            "⚡",
+        ),
+        (
+            st.Page(deconv_render, title=tx("Pik Dekonvolüsyonu (Deneysel)", "Peak Deconvolution (Experimental)"), icon="🔍", url_path="deconvolution"),
+            tx("Pik Dekonvolüsyonu (Deneysel)", "Peak Deconvolution (Experimental)"),
+            "🔍",
+        ),
+    ]
+    pages[t("nav.preview")] = [page for page, _, _ in preview_pages]
+
+pg = st.navigation(pages, position="hidden")
+
+with st.sidebar:
+    _render_sidebar_page_section(t("nav.primary"), primary_pages, pg)
+    _render_sidebar_page_section(t("nav.analyses"), analysis_pages, pg)
+    _render_sidebar_page_section(t("nav.management"), management_pages, pg)
+    if preview_pages:
+        _render_sidebar_page_section(t("nav.preview"), preview_pages, pg)
+    st.markdown("---")
 
 # --- Pipeline history in sidebar ---
 with st.sidebar:
