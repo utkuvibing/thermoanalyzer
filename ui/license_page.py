@@ -71,9 +71,10 @@ def render():
             expanded=False,
         )
 
-    activation_tab, branding_tab = st.tabs([
+    activation_tab, branding_tab, about_tab = st.tabs([
         "Aktivasyon" if lang == "tr" else "Activation",
         "Rapor Markası" if lang == "tr" else "Report Branding",
+        "Hakkında" if lang == "tr" else "About",
     ])
 
     with activation_tab:
@@ -151,6 +152,9 @@ def render():
             if branding.get("logo_name"):
                 st.caption(f"Mevcut logo: {branding['logo_name']}" if lang == "tr" else f"Current logo: {branding['logo_name']}")
 
+    with about_tab:
+        _render_about_materialscope(lang)
+
 
 def _status_label(state, lang):
     labels = {
@@ -166,3 +170,51 @@ def _status_label(state, lang):
 def _license_company(state):
     payload = (state or {}).get("license") or {}
     return payload.get("company_name", "")
+
+
+def _render_about_materialscope(lang: str) -> None:
+    if lang == "tr":
+        st.markdown(
+            f"**MaterialScope v{APP_VERSION}**\n\n"
+            "QC ve Ar-Ge laboratuvarları için cihazdan bağımsız, çok modlu DSC/TGA/DTA/FTIR/RAMAN/XRD karakterizasyon çalışma alanı.\n\n"
+            "**Kararlı beta kapsamı**\n"
+            "- CSV/TXT/XLSX DSC, TGA, DTA, FTIR, RAMAN ve XRD koşularını içe aktar\n"
+            "- DSC, TGA, DTA, FTIR, RAMAN ve XRD analiz akışlarını çalıştır\n"
+            "- Çoklu koşuları Karşılaştırma Alanı ve Toplu Şablon Uygulayıcı ile yönet\n"
+            "- Kararlı sonuçları proje durumu, rapor ve export akışıyla sakla\n"
+            "- Laboratuvar önizleme modülleri yalnızca özel olarak etkinleştirilen buildlerde görünür\n\n"
+            "**Laboratuvar önizleme modülleri**\n"
+            "- Kinetik ve dekonvolüsyon modülleri önizleme anahtarı arkasında kalır ve ticari stabilite sözüne dahil değildir.\n\n"
+            "**Referans standartlar**\n"
+            "- ASTM E967 — DSC sıcaklık ve entalpi kalibrasyonu\n"
+            "- ASTM E1131 — TGA ile kompozisyon analizi\n"
+            "- ASTM E1356 — DSC ile cam geçişi\n"
+            "- ICTAC kinetik analiz rehberleri"
+        )
+        st.caption(
+            "Pilot kabuk: Streamlit\n"
+            "Ticari yön: offline masaüstü kabuk + yıllık cihaz lisansı"
+        )
+        return
+
+    st.markdown(
+        f"**MaterialScope v{APP_VERSION}**\n\n"
+        "Vendor-independent multimodal DSC/TGA/DTA/FTIR/RAMAN/XRD characterization workbench for QC and R&D labs.\n\n"
+        "**Stable beta scope**\n"
+        "- Import DSC, TGA, DTA, FTIR, RAMAN, and XRD runs from CSV/TXT/XLSX exports\n"
+        "- Execute stable DSC, TGA, DTA, FTIR, RAMAN, and XRD analysis workflows\n"
+        "- Manage multiple runs through Compare Workspace and the Batch Template Runner\n"
+        "- Save stable results through the current project, report, and export flows\n"
+        "- Lab preview modules appear only in explicitly enabled builds\n\n"
+        "**Lab Preview modules**\n"
+        "- Kinetics and deconvolution stay available behind the preview toggle and are excluded from the commercial stability promise.\n\n"
+        "**Reference standards**\n"
+        "- ASTM E967 — DSC Temperature & Enthalpy Calibration\n"
+        "- ASTM E1131 — Compositional Analysis by TGA\n"
+        "- ASTM E1356 — Glass Transition by DSC\n"
+        "- ICTAC kinetic analysis guidance"
+    )
+    st.caption(
+        "Pilot shell: Streamlit\n"
+        "Commercial direction: offline desktop shell + annual device licensing"
+    )

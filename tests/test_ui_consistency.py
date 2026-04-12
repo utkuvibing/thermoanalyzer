@@ -61,3 +61,13 @@ def test_project_page_sidebar_hint_matches_sidebar_actions():
     assert '"project.sidebar_hint"' in i18n
     assert "Proje Dosyasını Hazırla" in i18n
     assert "Load Selected Project" in i18n
+
+
+def test_about_content_moves_from_sidebar_to_license_tabs():
+    app_entry = _repo_text("app.py")
+    license_page = _repo_text("ui/license_page.py")
+
+    assert 'with st.expander(t("sidebar.about"))' not in app_entry
+    assert 'activation_tab, branding_tab, about_tab = st.tabs([' in license_page
+    assert '"Hakkında" if lang == "tr" else "About"' in license_page
+    assert "_render_about_materialscope(lang)" in license_page
