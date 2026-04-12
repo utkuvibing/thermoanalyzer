@@ -63,11 +63,22 @@ def test_project_page_sidebar_hint_matches_sidebar_actions():
     assert "Load Selected Project" in i18n
 
 
-def test_about_content_moves_from_sidebar_to_license_tabs():
+def test_about_page_is_navigation_item_not_license_tab():
     app_entry = _repo_text("app.py")
     license_page = _repo_text("ui/license_page.py")
+    about_page = _repo_text("ui/about_page.py")
 
     assert 'with st.expander(t("sidebar.about"))' not in app_entry
-    assert 'activation_tab, branding_tab, about_tab = st.tabs([' in license_page
-    assert '"Hakkında" if lang == "tr" else "About"' in license_page
-    assert "_render_about_materialscope(lang)" in license_page
+    assert 'st.Page(about_render, title=t("nav.about"), icon="ℹ️", url_path="about")' in app_entry
+    assert 'activation_tab, branding_tab = st.tabs([' in license_page
+    assert "about_tab" not in license_page
+    assert 'render_page_header(t("about.title"), t("about.caption"), badge=t("about.hero_badge"))' in about_page
+
+
+def test_sidebar_and_about_copy_do_not_show_version_or_preview_disabled_note():
+    app_entry = _repo_text("app.py")
+    about_page = _repo_text("ui/about_page.py")
+
+    assert 'v{APP_VERSION}' not in app_entry
+    assert 'st.sidebar.caption(t("app.preview_disabled"))' not in app_entry
+    assert "MaterialScope v" not in about_page

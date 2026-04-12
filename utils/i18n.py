@@ -99,6 +99,18 @@ TRANSLATIONS = {
         "tr": "Laboratuvar Önizlemesi",
         "en": "Lab Preview",
     },
+    "about.title": {
+        "tr": "Hakkında",
+        "en": "About",
+    },
+    "about.caption": {
+        "tr": "MaterialScope’un neyi çözdüğünü, bugün hangi kapsamın kararlı olduğunu ve ürün yönünü tek sayfada özetle.",
+        "en": "Summarize what MaterialScope solves, which scope is stable today, and the current product direction in one page.",
+    },
+    "about.hero_badge": {
+        "tr": "Ürün Bağlamı",
+        "en": "Product Context",
+    },
     "sidebar.project": {
         "tr": "Proje",
         "en": "Project",

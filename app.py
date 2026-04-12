@@ -298,7 +298,7 @@ with st.sidebar:
     }.get(license_state.get("status"), t("app.license.development"))
     st.markdown(
         f'<div class="sidebar-brand">{t("app.brand")}</div>'
-        f'<div class="sidebar-version">v{APP_VERSION} &middot; {t("app.tagline")}</div>',
+        f'<div class="sidebar-version">{t("app.tagline")}</div>',
         unsafe_allow_html=True,
     )
     n_datasets = len(st.session_state.get("datasets", {}))
@@ -381,6 +381,7 @@ def _render_project_sidebar():
 
 # --- Page imports ---
 from ui.components.history_tracker import render_history_sidebar
+from ui.about_page import render as about_render
 from ui.home import render as home_render
 from ui.compare_page import render as compare_render
 from ui.dsc_page import render as dsc_render
@@ -406,7 +407,6 @@ if preview_modules_available:
     )
 else:
     show_preview_tools = False
-    st.sidebar.caption(t("app.preview_disabled"))
 
 pages = {
     tx("Ana Akış", "Primary"): [
@@ -422,6 +422,7 @@ pages = {
         st.Page(export_render, title=t("nav.report"), icon="📝", url_path="report"),
         st.Page(project_render, title=t("nav.project"), icon="🗂️", url_path="project"),
         st.Page(license_render, title=t("nav.license"), icon="🔐", url_path="license"),
+        st.Page(about_render, title=t("nav.about"), icon="ℹ️", url_path="about"),
     ],
 }
 if show_preview_tools:
