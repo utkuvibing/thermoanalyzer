@@ -28,6 +28,7 @@ from ui.components.plot_builder import (
 from ui.components.history_tracker import _log_event
 from ui.components.preset_manager import render_processing_preset_panel, seed_pending_workflow_template
 from ui.components.quality_dashboard import render_quality_dashboard
+from ui.components.workflow_guide import render_analysis_workflow_guide
 from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
@@ -147,7 +148,8 @@ def _store_dsc_result(selected_key, dataset, temperature, signal, state):
 
 
 def render():
-    render_page_header(t("dsc.title"), t("dsc.caption"))
+    render_page_header(t("dsc.title"), t("dsc.caption"), badge=t("dsc.hero_badge"))
+    render_analysis_workflow_guide("DSC")
 
     dsc_datasets = _get_dsc_datasets()
     if not dsc_datasets:

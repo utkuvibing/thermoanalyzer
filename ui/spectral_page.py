@@ -28,6 +28,7 @@ from ui.components.plot_builder import (
     create_thermal_plot,
     default_plot_display_settings,
 )
+from ui.components.workflow_guide import render_analysis_workflow_guide
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
 
@@ -422,13 +423,7 @@ def render_spectral_page(
     token = str(analysis_type or "").upper()
     page_slug = token.lower()
     render_page_header(t(title_key), t(caption_key), badge=t(badge_key))
-    st.info(
-        tx(
-            "{analysis_type} kararlı akışı ön işleme, pik çıkarımı ve benzerlik aday sıralamasını tek workflow içinde üretir.",
-            "Stable {analysis_type} flow applies preprocessing, peak extraction, and similarity-candidate ranking in one workflow.",
-            analysis_type=token,
-        )
-    )
+    render_analysis_workflow_guide(token)
 
     spectral_datasets = _get_spectral_datasets(token)
     if not spectral_datasets:

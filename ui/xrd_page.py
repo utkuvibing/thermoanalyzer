@@ -37,6 +37,7 @@ from ui.components.plot_builder import (
     create_thermal_plot,
     fig_to_bytes,
 )
+from ui.components.workflow_guide import render_analysis_workflow_guide
 from utils.diagnostics import record_exception
 from utils.i18n import t, tx
 from utils.license_manager import APP_VERSION
@@ -1538,12 +1539,7 @@ def _save_xrd_graph_snapshot_to_session(
 def render():
     lang = st.session_state.get("ui_language", "tr")
     render_page_header(t("xrd.title"), t("xrd.caption"), badge=t("xrd.hero_badge"))
-    st.info(
-        tx(
-            "Kararlı XRD akışı axis normalizasyonu, pik çıkarımı ve nitel faz adayı eşleşmesini deterministik parametrelerle çalıştırır.",
-            "Stable XRD flow executes axis normalization, peak extraction, and qualitative phase-candidate matching with deterministic parameters.",
-        )
-    )
+    render_analysis_workflow_guide("XRD")
 
     xrd_datasets = _get_xrd_datasets()
     if not xrd_datasets:

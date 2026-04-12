@@ -25,6 +25,34 @@ def test_dta_page_uses_shared_header_chrome():
     assert 'st.title(tx("DTA Analizi", "DTA Analysis"))' not in dta_page
 
 
+def test_stable_analysis_pages_render_workflow_guides():
+    dsc_page = _repo_text("ui/dsc_page.py")
+    dta_page = _repo_text("ui/dta_page.py")
+    tga_page = _repo_text("ui/tga_page.py")
+    spectral_page = _repo_text("ui/spectral_page.py")
+    xrd_page = _repo_text("ui/xrd_page.py")
+    guides = _repo_text("ui/components/workflow_guide.py")
+
+    assert 'render_analysis_workflow_guide("DSC")' in dsc_page
+    assert 'render_analysis_workflow_guide("DTA")' in dta_page
+    assert 'render_tga_workflow_guide()' in tga_page
+    assert "render_analysis_workflow_guide(token)" in spectral_page
+    assert 'render_analysis_workflow_guide("XRD")' in xrd_page
+    for token in ['"DSC"', '"DTA"', '"TGA"', '"FTIR"', '"RAMAN"', '"XRD"']:
+        assert token in guides
+
+
+def test_analysis_hero_copy_uses_full_modality_expansions():
+    i18n = _repo_text("utils/i18n.py")
+
+    assert "Differential Scanning Calorimetry Workflow" in i18n
+    assert "Thermogravimetric Analysis Workflow" in i18n
+    assert "Differential Thermal Analysis Workflow" in i18n
+    assert "Fourier Transform Infrared Workflow" in i18n
+    assert "Raman Spectroscopy Workflow" in i18n
+    assert "X-Ray Diffraction Workflow" in i18n
+
+
 def test_project_page_sidebar_hint_matches_sidebar_actions():
     project_page = _repo_text("ui/project_page.py")
     i18n = _repo_text("utils/i18n.py")
