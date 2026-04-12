@@ -64,6 +64,12 @@ def test_project_page_sidebar_hint_matches_sidebar_actions():
     assert 'overview_tab, actions_tab = st.tabs(' in project_page
     assert 'key="project_prepare_page"' in project_page
     assert 'key="project_load_btn_page"' in project_page
+    assert 'action_cards_col, upload_panel_col = st.columns([1.6, 1.0], gap="large")' in project_page
+    assert 'st.subheader(_tx(lang, "Hızlı İşlemler", "Quick Actions"))' in project_page
+    assert 'st.subheader(_tx(lang, "Proje Yükle", "Load Project"))' in project_page
+    assert 'status_lines = [' in project_page
+    assert 'st.session_state["project_confirm_clear"] = True' in project_page
+    assert 'st.session_state["project_confirm_load"] = True' in project_page
 
 
 def test_about_page_is_navigation_item_not_license_tab():

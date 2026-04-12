@@ -262,43 +262,44 @@ div[data-testid="stFileUploader"] > div:first-child:hover {
     border-left-color: rgba(148, 196, 215, 0.88) !important;
     background: linear-gradient(90deg, rgba(148,196,215,0.11) 0%, rgba(148,196,215,0.03) 100%) !important;
 }
-
-.sidebar-nav-link,
-.sidebar-nav-item-active {
-    display: grid;
-    grid-template-columns: 1rem 1fr;
-    align-items: center;
-    column-gap: 0.6rem;
-    padding: 0.38rem 0.45rem 0.38rem 0.7rem;
-    margin: 0.06rem 0 0.16rem 0;
-    border-left: 2px solid transparent;
-    border-radius: 0 10px 10px 0;
-    text-decoration: none !important;
-    transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] {
+    margin: 0.06rem 0 0.16rem 0 !important;
 }
-
-.sidebar-nav-link:hover {
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] a,
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] span[aria-disabled="true"] {
+    display: grid !important;
+    grid-template-columns: 1rem 1fr !important;
+    align-items: center !important;
+    column-gap: 0.6rem !important;
+    padding: 0.38rem 0.45rem 0.38rem 0.7rem !important;
+    margin: 0 !important;
+    border-left: 2px solid transparent !important;
+    border-radius: 0 10px 10px 0 !important;
+    text-decoration: none !important;
+    transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease !important;
+    min-height: 2.1rem !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] a:hover {
     background: rgba(255,255,255,0.04) !important;
     border-left-color: rgba(201, 212, 227, 0.45) !important;
 }
-
-.sidebar-nav-icon {
-    width: 1rem;
-    text-align: center;
-    font-size: 0.92rem;
-    opacity: 0.9;
-}
-
-.sidebar-nav-label {
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] a p,
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] span[aria-disabled="true"] p {
     color: #DCE5F1 !important;
-    font-size: 0.92rem;
-    font-weight: 500;
-    line-height: 1.22;
+    font-size: 0.92rem !important;
+    font-weight: 500 !important;
+    line-height: 1.22 !important;
+    margin: 0 !important;
 }
-
-.sidebar-nav-item-active .sidebar-nav-label {
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] a[data-current-page="true"],
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] span[aria-disabled="true"] {
+    border-left-color: rgba(148, 196, 215, 0.88) !important;
+    background: linear-gradient(90deg, rgba(148,196,215,0.11) 0%, rgba(148,196,215,0.03) 100%) !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] a[data-current-page="true"] p,
+section[data-testid="stSidebar"] div[data-testid="stPageLink-NavLink"] span[aria-disabled="true"] p {
     color: #F2F6FB !important;
-    font-weight: 600;
+    font-weight: 600 !important;
 }
 
 /* Expander styling */
@@ -411,27 +412,8 @@ with st.sidebar:
 def _render_sidebar_page_section(title: str, page_items: list[tuple], current_path: str, *, collapsible: bool = False, expanded: bool = True) -> None:
     """Render one grouped sidebar navigation section."""
     def _render_items() -> None:
-        for _, label, icon, path in page_items:
-            if path == current_path:
-                st.markdown(
-                    (
-                        '<div class="sidebar-nav-item-active">'
-                        f'<span class="sidebar-nav-icon">{icon}</span>'
-                        f'<span class="sidebar-nav-label">{label}</span>'
-                        "</div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    (
-                        f'<a class="sidebar-nav-link" href="/{path}">'
-                        f'<span class="sidebar-nav-icon">{icon}</span>'
-                        f'<span class="sidebar-nav-label">{label}</span>'
-                        "</a>"
-                    ),
-                    unsafe_allow_html=True,
-                )
+        for page, label, icon, path in page_items:
+            st.page_link(page, label=label, icon=icon, disabled=(path == current_path))
 
     if collapsible:
         with st.expander(title, expanded=expanded):
