@@ -154,6 +154,7 @@ This repo includes a production `Dockerfile` for Coolify-style deployments.
 The container starts:
 - the FastAPI backend on `127.0.0.1:8000`
 - the Streamlit UI on `0.0.0.0:8501`
+- Streamlit waits for backend health before the UI process starts
 
 For web deployment:
 - deploy with `Dockerfile`
@@ -172,6 +173,12 @@ MATERIALSCOPE_OPENALEX_API_KEY=
 ```
 
 Set `MATERIALSCOPE_ENABLE_PREVIEW_MODULES=true` only in builds where kinetics and deconvolution should be exposed.
+
+Optional runtime tuning:
+
+```dotenv
+BACKEND_STARTUP_TIMEOUT_SECONDS=30
+```
 
 ---
 
