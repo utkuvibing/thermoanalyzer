@@ -183,6 +183,10 @@ TRANSLATIONS = {
         "tr": "Oturum Yönetimi",
         "en": "Session Management",
     },
+    "project.sidebar_hint": {
+        "tr": "Sidebar içindeki `Proje` panelinden `Yeni Proje`, `Proje Dosyasını Hazırla`, `Projeyi Yükle` ve `Seçili Projeyi Aç` eylemlerini kullan.",
+        "en": "Use the sidebar `Project` panel for `New Project`, `Prepare Project File`, `Load Project`, and `Load Selected Project` actions.",
+    },
     "license.title": {
         "tr": "Lisans ve Marka",
         "en": "License & Branding",
@@ -210,6 +214,18 @@ TRANSLATIONS = {
     "tga.caption": {
         "tr": "Kütle kaybı adımlarını, DTG eğrisini ve kalıntı yüzdesini tek iş akışında çıkar.",
         "en": "Extract mass-loss steps, DTG curves, and residue metrics in one workflow.",
+    },
+    "dta.title": {
+        "tr": "DTA Analizi",
+        "en": "DTA Analysis",
+    },
+    "dta.caption": {
+        "tr": "DTA sinyalini yumuşatma, baseline düzeltme ve pik yorumu ile aynı kararlı rapor akışında işle.",
+        "en": "Process DTA signals with smoothing, baseline correction, and peak interpretation inside the same stable reporting flow.",
+    },
+    "dta.hero_badge": {
+        "tr": "Termal Fark İş Akışı",
+        "en": "Thermal Difference Workflow",
     },
     "xrd.title": {
         "tr": "XRD Analizi",

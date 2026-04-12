@@ -24,13 +24,14 @@ from core.processing_schema import (
 )
 from core.result_serialization import serialize_dta_result
 from core.validation import validate_thermal_dataset
+from ui.components.chrome import render_page_header
 from ui.components.literature_compare_panel import render_literature_compare_panel
 from ui.components.plot_builder import create_dta_plot, create_thermal_plot, fig_to_bytes, PLOTLY_CONFIG
 from ui.components.history_tracker import _log_event
 from ui.components.preset_manager import render_processing_preset_panel, seed_pending_workflow_template
 from ui.components.quality_dashboard import render_quality_dashboard
 from utils.reference_data import render_reference_comparison
-from utils.i18n import tx
+from utils.i18n import t, tx
 from utils.session_state import (
     advance_analysis_render_revision,
     init_analysis_state_history,
@@ -135,8 +136,8 @@ def _store_dta_result(selected_key, dataset, temperature, signal, state):
 # ---------------------------------------------------------------------------
 
 def render():
-    st.title(tx("DTA Analizi", "DTA Analysis"))
-    st.info(
+    render_page_header(t("dta.title"), t("dta.caption"), badge=t("dta.hero_badge"))
+    st.caption(
         tx(
             "Kararlı DTA iş akışı: DTA sonuçları proje kalıcılığı, raporlama ve export akışıyla aynı kararlı kapsamda yönetilir.",
             "Stable DTA workflow: DTA results are handled in the same stable scope for project persistence, reporting, and export flows.",

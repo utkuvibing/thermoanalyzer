@@ -71,9 +71,5 @@ def render():
         for issue in issues:
             st.caption(f"- {issue}")
 
-    st.info(
-        "Sidebar’daki `Proje` panelinden yeni proje açabilir, dosyaya kaydedebilir ve proje yükleyebilirsin."
-        if lang == "tr"
-        else "Use the sidebar `Project` panel for `New Project`, `Save Project to File`, and `Load Project`."
-    )
+    st.info(t("project.sidebar_hint"))
 
