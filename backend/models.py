@@ -264,6 +264,7 @@ class DatasetImportRequest(BaseModel):
     file_name: str = Field(..., min_length=1)
     file_base64: str = Field(..., min_length=1)
     data_type: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ValidationSummary(BaseModel):

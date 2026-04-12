@@ -18,6 +18,15 @@ def _to_base64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
+def _import_metadata(thermal_dataset) -> dict[str, object]:
+    return {
+        "sample_name": thermal_dataset.metadata.get("sample_name"),
+        "sample_mass": thermal_dataset.metadata.get("sample_mass"),
+        "heating_rate": thermal_dataset.metadata.get("heating_rate"),
+        "instrument": thermal_dataset.metadata.get("instrument"),
+    }
+
+
 def test_workspace_import_run_analysis_and_save_roundtrip(thermal_dataset):
     app = create_app(api_token="workflow-token")
     client = TestClient(app)
@@ -35,6 +44,7 @@ def test_workspace_import_run_analysis_and_save_roundtrip(thermal_dataset):
             "file_name": "synthetic_dsc.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "DSC",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert import_response.status_code == 200
@@ -126,6 +136,7 @@ def test_workspace_import_run_dta_analysis_roundtrip(thermal_dataset):
             "file_name": "synthetic_dta.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "DTA",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert import_response.status_code == 200
@@ -171,6 +182,7 @@ def test_workspace_compare_batch_run_with_dta_stable_template(thermal_dataset):
             "file_name": "batch_dta_a.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "DTA",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     imported_b = client.post(
@@ -181,6 +193,7 @@ def test_workspace_compare_batch_run_with_dta_stable_template(thermal_dataset):
             "file_name": "batch_dta_b.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "DTA",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert imported_a.status_code == 200
@@ -226,6 +239,7 @@ def test_workspace_compare_spectral_lane_filters_incompatible_dataset_selection(
             "file_name": "spectral_ftir.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "FTIR",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     imported_raman = client.post(
@@ -236,6 +250,7 @@ def test_workspace_compare_spectral_lane_filters_incompatible_dataset_selection(
             "file_name": "spectral_raman.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "RAMAN",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert imported_ftir.status_code == 200
@@ -282,6 +297,7 @@ def test_workspace_compare_xrd_lane_filters_incompatible_dataset_selection(therm
             "file_name": "xrd_compare.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "XRD",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     imported_ftir = client.post(
@@ -292,6 +308,7 @@ def test_workspace_compare_xrd_lane_filters_incompatible_dataset_selection(therm
             "file_name": "ftir_compare.csv",
             "file_base64": _to_base64(csv_bytes),
             "data_type": "FTIR",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert imported_xrd.status_code == 200
@@ -330,6 +347,7 @@ def test_stable_compare_batch_report_and_project_roundtrip_smoke(thermal_dataset
             "file_name": "stable_smoke_a.csv",
             "file_base64": _to_base64(first_csv),
             "data_type": "DSC",
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert first_import.status_code == 200
@@ -346,6 +364,7 @@ def test_stable_compare_batch_report_and_project_roundtrip_smoke(thermal_dataset
             "file_name": "stable_smoke_b.csv",
             "file_base64": _to_base64(second_csv),
             "data_type": "DSC",
+            "metadata": _import_metadata(second_dataset),
         },
     )
     assert second_import.status_code == 200
