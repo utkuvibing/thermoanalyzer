@@ -83,6 +83,13 @@ section[data-testid="stSidebar"] {
     color: #E2E8F0 !important;
     border-right: 1px solid rgba(255,255,255,0.06);
 }
+section[data-testid="stSidebar"] div[data-testid="stSidebarHeader"] {
+    padding-top: 0.15rem !important;
+    padding-bottom: 0.15rem !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+    padding-top: 0.2rem !important;
+}
 section[data-testid="stSidebar"] * {
     color: #E2E8F0 !important;
 }
@@ -90,6 +97,10 @@ section[data-testid="stSidebar"] .stSelectbox label,
 section[data-testid="stSidebar"] .stRadio label,
 section[data-testid="stSidebar"] .stSegmentedControl label {
     color: #A9B8CC !important;
+}
+section[data-testid="stSidebar"] .stSegmentedControl {
+    margin-top: 0 !important;
+    margin-bottom: 0.35rem !important;
 }
 section[data-testid="stSidebar"] hr {
     border-color: rgba(255,255,255,0.1) !important;
@@ -198,12 +209,18 @@ div[data-testid="stFileUploader"] > div:first-child:hover {
     font-size: 1.05rem;
     letter-spacing: 0.12em;
     color: #FFFFFF !important;
-    padding: 8px 0 4px 0;
+    padding: 0.1rem 0 0.2rem 0;
 }
 .sidebar-version {
     font-size: 0.7rem;
     color: #94A3B8 !important;
     letter-spacing: 0.05em;
+    line-height: 1.35;
+}
+.sidebar-license {
+    font-size: 0.78rem;
+    color: #B8C5D6 !important;
+    margin-top: 0.28rem;
 }
 .sidebar-badge {
     display: inline-block;
@@ -218,7 +235,7 @@ div[data-testid="stFileUploader"] > div:first-child:hover {
 }
 
 .sidebar-section-label {
-    margin: 1rem 0 0.45rem 0;
+    margin: 0.5rem 0 0.35rem 0;
     color: #8FA3BF !important;
     font-size: 0.7rem;
     font-weight: 700;
@@ -308,7 +325,8 @@ with st.sidebar:
     }.get(license_state.get("status"), t("app.license.development"))
     st.markdown(
         f'<div class="sidebar-brand">{t("app.brand")}</div>'
-        f'<div class="sidebar-version">{t("app.tagline")}</div>',
+        f'<div class="sidebar-version">{t("app.tagline")}</div>'
+        f'<div class="sidebar-license">License: {license_label}</div>',
         unsafe_allow_html=True,
     )
     n_datasets = len(st.session_state.get("datasets", {}))
@@ -317,8 +335,6 @@ with st.sidebar:
             f'<div class="sidebar-badge">{n_datasets} dataset{"s" if n_datasets != 1 else ""} loaded</div>',
             unsafe_allow_html=True,
         )
-    st.caption(f"License: {license_label}")
-    st.markdown("---")
 
 
 def _render_project_sidebar():
