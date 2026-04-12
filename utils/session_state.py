@@ -9,6 +9,7 @@ import streamlit as st
 
 SESSION_DEFAULTS = {
     "ui_language": "tr",
+    "ui_theme": "light",
     "datasets": {},
     "active_dataset": None,
     "results": {},
@@ -58,6 +59,15 @@ def ensure_session_state() -> None:
     for key, default in SESSION_DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = copy.deepcopy(default)
+
+
+def get_ui_theme() -> str:
+    """Return the active UI theme without requiring a Streamlit runtime context."""
+    try:
+        theme = str(st.session_state.get("ui_theme", "light")).strip().lower()
+    except Exception:
+        return "light"
+    return theme if theme in {"light", "dark"} else "light"
 
 
 def clear_project_state() -> None:

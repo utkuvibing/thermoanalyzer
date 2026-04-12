@@ -27,6 +27,10 @@ TRANSLATIONS = {
         "tr": "Kinetik ve dekonvolüsyon sayfalarını pilot değerlendirme için açar.",
         "en": "Expose kinetics and deconvolution pages used for pilot evaluations.",
     },
+    "app.preview_disabled": {
+        "tr": "Laboratuvar önizleme modülleri bu dağıtım profilinde kapalı.",
+        "en": "Lab preview modules are disabled in this deployment profile.",
+    },
     "app.language": {
         "tr": "Dil",
         "en": "Language",
@@ -54,6 +58,18 @@ TRANSLATIONS = {
     "nav.import": {
         "tr": "Veri Al",
         "en": "Import Runs",
+    },
+    "nav.primary": {
+        "tr": "Ana Akış",
+        "en": "Primary Flow",
+    },
+    "nav.analyses": {
+        "tr": "Analizler",
+        "en": "Analyses",
+    },
+    "nav.management": {
+        "tr": "Yönetim",
+        "en": "Management",
     },
     "nav.compare": {
         "tr": "Karşılaştırma",
@@ -91,9 +107,25 @@ TRANSLATIONS = {
         "tr": "Lisans ve Marka",
         "en": "License & Branding",
     },
+    "nav.about": {
+        "tr": "Hakkında",
+        "en": "About",
+    },
     "nav.preview": {
         "tr": "Laboratuvar Önizlemesi",
         "en": "Lab Preview",
+    },
+    "about.title": {
+        "tr": "Hakkında",
+        "en": "About",
+    },
+    "about.caption": {
+        "tr": "MaterialScope’un neyi çözdüğünü, bugün hangi kapsamın kararlı olduğunu ve ürün yönünü tek sayfada özetle.",
+        "en": "Summarize what MaterialScope solves, which scope is stable today, and the current product direction in one page.",
+    },
+    "about.hero_badge": {
+        "tr": "Ürün Bağlamı",
+        "en": "Product Context",
     },
     "sidebar.project": {
         "tr": "Proje",
@@ -179,6 +211,10 @@ TRANSLATIONS = {
         "tr": "Oturum Yönetimi",
         "en": "Session Management",
     },
+    "project.sidebar_hint": {
+        "tr": "`Proje İşlemleri` sekmesinden `Yeni Proje`, `Proje Dosyasını Hazırla`, `Projeyi Yükle` ve `Seçili Projeyi Aç` eylemlerini kullan.",
+        "en": "Use the `Project Actions` tab for `New Project`, `Prepare Project File`, `Load Project`, and `Load Selected Project` actions.",
+    },
     "license.title": {
         "tr": "Lisans ve Marka",
         "en": "License & Branding",
@@ -196,52 +232,72 @@ TRANSLATIONS = {
         "en": "DSC Analysis",
     },
     "dsc.caption": {
-        "tr": "Ham sinyalden Tg, baseline ve peak karakterizasyonuna kadar DSC akışını yönet.",
-        "en": "Run the DSC workflow from raw signal through Tg, baseline, and peak characterization.",
+        "tr": "Diferansiyel Taramalı Kalorimetri (DSC) koşularında ham sinyal, Tg, baseline ve pik karakterizasyonunu tek kararlı iş akışında yönet.",
+        "en": "Run Differential Scanning Calorimetry (DSC) from raw signal through Tg, baseline, and peak characterization in one stable workflow.",
+    },
+    "dsc.hero_badge": {
+        "tr": "Diferansiyel Taramalı Kalorimetri İş Akışı",
+        "en": "Differential Scanning Calorimetry Workflow",
     },
     "tga.title": {
         "tr": "TGA Analizi",
         "en": "TGA Analysis",
     },
     "tga.caption": {
-        "tr": "Kütle kaybı adımlarını, DTG eğrisini ve kalıntı yüzdesini tek iş akışında çıkar.",
-        "en": "Extract mass-loss steps, DTG curves, and residue metrics in one workflow.",
+        "tr": "Termogravimetrik Analiz (TGA) koşularında kütle kaybı adımlarını, DTG eğrisini ve kalıntı metriklerini tek kararlı iş akışında çıkar.",
+        "en": "Extract mass-loss steps, DTG curves, and residue metrics for Thermogravimetric Analysis (TGA) in one stable workflow.",
+    },
+    "tga.hero_badge": {
+        "tr": "Termogravimetrik Analiz İş Akışı",
+        "en": "Thermogravimetric Analysis Workflow",
+    },
+    "dta.title": {
+        "tr": "DTA Analizi",
+        "en": "DTA Analysis",
+    },
+    "dta.caption": {
+        "tr": "Diferansiyel Termal Analiz (DTA) sinyalini yumuşatma, baseline düzeltme ve pik yorumu ile aynı kararlı rapor akışında işle.",
+        "en": "Process Differential Thermal Analysis (DTA) signals with smoothing, baseline correction, and peak interpretation inside the same stable reporting flow.",
+    },
+    "dta.hero_badge": {
+        "tr": "Diferansiyel Termal Analiz İş Akışı",
+        "en": "Differential Thermal Analysis Workflow",
     },
     "xrd.title": {
         "tr": "XRD Analizi",
         "en": "XRD Analysis",
     },
     "xrd.caption": {
-        "tr": "XRD desenlerinde ön işleme, pik çıkarımı ve nitel faz adayı eşlemesini kararlı akışta çalıştır.",
-        "en": "Run stable XRD preprocessing, peak extraction, and qualitative phase-candidate matching workflows.",
+        "tr": "X-Işını Difraksiyonu (XRD) desenlerinde ön işleme, pik çıkarımı ve nitel faz adayı eşlemesini kararlı akışta çalıştır.",
+        "en": "Run stable preprocessing, peak extraction, and qualitative phase-candidate matching for X-Ray Diffraction (XRD).",
     },
     "xrd.hero_badge": {
-        "tr": "Difraksiyon İş Akışı",
-        "en": "Diffraction Workflow",
+        "tr": "X-Işını Difraksiyonu İş Akışı",
+        "en": "X-Ray Diffraction Workflow",
     },
     "ftir.title": {
         "tr": "FTIR Analizi",
         "en": "FTIR Analysis",
     },
     "ftir.caption": {
-        "tr": "FTIR spektrumlarında ön işleme, pik çıkarımı ve nitel benzerlik adayı sıralamasını kararlı akışta çalıştır.",
-        "en": "Run stable FTIR preprocessing, peak extraction, and qualitative similarity-candidate ranking workflows.",
+        "tr": "Fourier Dönüşümlü Kızılötesi (FTIR) spektrumlarında ön işleme, pik çıkarımı ve nitel benzerlik adayı sıralamasını kararlı akışta çalıştır.",
+        "en": "Run stable preprocessing, peak extraction, and qualitative similarity-candidate ranking for Fourier Transform Infrared (FTIR) spectra.",
     },
     "ftir.hero_badge": {
-        "tr": "FTIR İş Akışı",
-        "en": "FTIR Workflow",
+        "tr": "Fourier Dönüşümlü Kızılötesi İş Akışı",
+        "en": "Fourier Transform Infrared Workflow",
     },
     "raman.title": {
         "tr": "Raman Analizi",
         "en": "Raman Analysis",
     },
     "raman.caption": {
-        "tr": "Raman spektrumlarında ön işleme, pik çıkarımı ve nitel benzerlik adayı sıralamasını kararlı akışta çalıştır.",
-        "en": "Run stable Raman preprocessing, peak extraction, and qualitative similarity-candidate ranking workflows.",
+        "tr": "Raman Spektroskopisi spektrumlarında ön işleme, pik çıkarımı ve nitel benzerlik adayı sıralamasını kararlı akışta çalıştır.",
+        "en": "Run stable preprocessing, peak extraction, and qualitative similarity-candidate ranking for Raman Spectroscopy spectra.",
     },
     "raman.hero_badge": {
-        "tr": "Raman İş Akışı",
-        "en": "Raman Workflow",
+        "tr": "Raman Spektroskopisi İş Akışı",
+        "en": "Raman Spectroscopy Workflow",
     },
 }
 

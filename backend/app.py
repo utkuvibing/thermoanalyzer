@@ -761,7 +761,7 @@ def create_app(
         source.name = request.file_name
 
         try:
-            dataset = read_thermal_data(source, data_type=request.data_type)
+            dataset = read_thermal_data(source, data_type=request.data_type, metadata=request.metadata)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Dataset import failed: {exc}") from exc
 

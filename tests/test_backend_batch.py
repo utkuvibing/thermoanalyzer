@@ -17,6 +17,15 @@ def _as_b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
+def _import_metadata(thermal_dataset) -> dict[str, object]:
+    return {
+        "sample_name": thermal_dataset.metadata.get("sample_name"),
+        "sample_mass": thermal_dataset.metadata.get("sample_mass"),
+        "heating_rate": thermal_dataset.metadata.get("heating_rate"),
+        "instrument": thermal_dataset.metadata.get("instrument"),
+    }
+
+
 def _import_dataset(client: TestClient, project_id: str, thermal_dataset, file_name: str, data_type: str) -> str:
     csv_bytes = thermal_dataset.data.to_csv(index=False).encode("utf-8")
     imported = client.post(
@@ -27,6 +36,7 @@ def _import_dataset(client: TestClient, project_id: str, thermal_dataset, file_n
             "file_name": file_name,
             "file_base64": _as_b64(csv_bytes),
             "data_type": data_type,
+            "metadata": _import_metadata(thermal_dataset),
         },
     )
     assert imported.status_code == 200

@@ -6,27 +6,49 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from utils.session_state import get_ui_theme
 
 THERMAL_COLORS = [
-    "#1F3B5B",
-    "#C45A5A",
-    "#4E7A64",
-    "#7A5C9E",
-    "#D08B45",
-    "#2C7DA0",
-    "#A44A3F",
-    "#667085",
+    "#0F766E",
+    "#2563EB",
+    "#DC2626",
+    "#7C3AED",
+    "#D97706",
+    "#0891B2",
+    "#65A30D",
+    "#475569",
 ]
 
-BASELINE_COLOR = "#697586"
+BASELINE_COLOR = "#64748B"
 _PLOT_FONT_FAMILY = "Aptos, Segoe UI, Arial, sans-serif"
-_PLOT_TEXT_COLOR = "#1F2937"
-_PLOT_SUBTLE_TEXT = "#64748B"
-_PLOT_PAPER_BG = "#FCFCF8"
-_PLOT_AREA_BG = "#FFFFFF"
-_PLOT_GRID_COLOR = "#E7ECF3"
-_PLOT_AXIS_COLOR = "#AAB4C3"
-_PLOT_HOVER_BORDER = "#CBD5E1"
+_PLOT_THEME = {
+    "light": {
+        "template": "plotly_white",
+        "text": "#102033",
+        "subtle_text": "#516072",
+        "paper_bg": "#F7FAFC",
+        "plot_bg": "#FFFFFF",
+        "grid": "#D8E1EA",
+        "axis": "#A8B6C7",
+        "hover_border": "#C7D2DF",
+        "legend_bg": "rgba(255,255,255,0.84)",
+        "annotation_bg": "rgba(255,255,255,0.90)",
+        "annotation_border": "rgba(120,138,160,0.24)",
+    },
+    "dark": {
+        "template": "plotly_dark",
+        "text": "#E5EEF8",
+        "subtle_text": "#B8C6D8",
+        "paper_bg": "#0F172A",
+        "plot_bg": "#111C30",
+        "grid": "#314055",
+        "axis": "#6F829B",
+        "hover_border": "#44566F",
+        "legend_bg": "rgba(15,23,42,0.82)",
+        "annotation_bg": "rgba(15,23,42,0.88)",
+        "annotation_border": "rgba(122,150,182,0.28)",
+    },
+}
 _DEFAULT_EXPORT_WIDTH = 1400
 _DEFAULT_EXPORT_HEIGHT = 840
 _DEFAULT_DISPLAY_SETTINGS = {
@@ -62,71 +84,77 @@ PLOTLY_CONFIG = dict(
     ),
 )
 
-DEFAULT_LAYOUT = dict(
-    template="plotly_white",
-    colorway=THERMAL_COLORS,
-    font=dict(family=_PLOT_FONT_FAMILY, size=12, color=_PLOT_TEXT_COLOR),
-    hoverlabel=dict(
-        bgcolor="#FFFFFF",
-        bordercolor=_PLOT_HOVER_BORDER,
-        font_size=12,
-        font_family=_PLOT_FONT_FAMILY,
-        font_color=_PLOT_TEXT_COLOR,
-    ),
-    legend=dict(
-        orientation="h",
-        yanchor="bottom",
-        y=1.02,
-        xanchor="left",
-        x=0.0,
-        bgcolor="rgba(255,255,255,0.68)",
-        bordercolor="rgba(0,0,0,0)",
-        borderwidth=0,
-        font=dict(size=10.5, color=_PLOT_SUBTLE_TEXT),
-        title=dict(text=""),
-        itemsizing="constant",
-    ),
-    title=dict(
-        x=0.0,
-        xanchor="left",
-        y=0.98,
-        yanchor="top",
-        pad=dict(b=10),
-        font=dict(size=18, color=_PLOT_TEXT_COLOR),
-    ),
-    margin=dict(l=76, r=44, t=88, b=68),
-    paper_bgcolor=_PLOT_PAPER_BG,
-    plot_bgcolor=_PLOT_AREA_BG,
-    autosize=True,
-    xaxis=dict(
-        gridcolor=_PLOT_GRID_COLOR,
-        gridwidth=1,
-        ticks="outside",
-        tickcolor=_PLOT_AXIS_COLOR,
-        ticklen=5,
-        showline=True,
-        linecolor=_PLOT_AXIS_COLOR,
-        linewidth=1.1,
-        zeroline=False,
-        mirror=False,
-        automargin=True,
-        title_standoff=12,
-    ),
-    yaxis=dict(
-        gridcolor=_PLOT_GRID_COLOR,
-        gridwidth=1,
-        ticks="outside",
-        tickcolor=_PLOT_AXIS_COLOR,
-        ticklen=5,
-        showline=True,
-        linecolor=_PLOT_AXIS_COLOR,
-        linewidth=1.1,
-        zeroline=False,
-        mirror=False,
-        automargin=True,
-        title_standoff=12,
-    ),
-)
+def _plot_tokens() -> dict[str, str]:
+    return _PLOT_THEME[get_ui_theme()]
+
+
+def _default_layout() -> dict:
+    tokens = _plot_tokens()
+    return dict(
+        template=tokens["template"],
+        colorway=THERMAL_COLORS,
+        font=dict(family=_PLOT_FONT_FAMILY, size=12, color=tokens["text"]),
+        hoverlabel=dict(
+            bgcolor=tokens["plot_bg"],
+            bordercolor=tokens["hover_border"],
+            font_size=12,
+            font_family=_PLOT_FONT_FAMILY,
+            font_color=tokens["text"],
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0.0,
+            bgcolor=tokens["legend_bg"],
+            bordercolor="rgba(0,0,0,0)",
+            borderwidth=0,
+            font=dict(size=10.5, color=tokens["subtle_text"]),
+            title=dict(text=""),
+            itemsizing="constant",
+        ),
+        title=dict(
+            x=0.0,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            pad=dict(b=10),
+            font=dict(size=18, color=tokens["text"]),
+        ),
+        margin=dict(l=76, r=44, t=88, b=68),
+        paper_bgcolor=tokens["paper_bg"],
+        plot_bgcolor=tokens["plot_bg"],
+        autosize=True,
+        xaxis=dict(
+            gridcolor=tokens["grid"],
+            gridwidth=1,
+            ticks="outside",
+            tickcolor=tokens["axis"],
+            ticklen=5,
+            showline=True,
+            linecolor=tokens["axis"],
+            linewidth=1.1,
+            zeroline=False,
+            mirror=False,
+            automargin=True,
+            title_standoff=12,
+        ),
+        yaxis=dict(
+            gridcolor=tokens["grid"],
+            gridwidth=1,
+            ticks="outside",
+            tickcolor=tokens["axis"],
+            ticklen=5,
+            showline=True,
+            linecolor=tokens["axis"],
+            linewidth=1.1,
+            zeroline=False,
+            mirror=False,
+            automargin=True,
+            title_standoff=12,
+        ),
+    )
 
 
 def default_plot_display_settings(settings: dict | None = None, **overrides) -> dict:
@@ -192,6 +220,7 @@ def build_plotly_config(settings: dict | None = None, *, filename: str | None = 
     return config
 
 def _legend_layout(trace_count: int, *, legend_mode: str, compact: bool) -> tuple[bool, dict]:
+    tokens = _plot_tokens()
     if legend_mode == "hidden":
         return False, {}
     font_size = 10 if compact else 10.5
@@ -202,11 +231,11 @@ def _legend_layout(trace_count: int, *, legend_mode: str, compact: bool) -> tupl
             y=1.0,
             xanchor="left",
             x=1.02,
-            bgcolor="rgba(255,255,255,0.72)",
+            bgcolor=tokens["legend_bg"],
             bordercolor="rgba(0,0,0,0)",
             borderwidth=0,
             tracegroupgap=4,
-            font=dict(size=font_size, color=_PLOT_SUBTLE_TEXT),
+            font=dict(size=font_size, color=tokens["subtle_text"]),
             title=dict(text=""),
             itemsizing="constant",
         )
@@ -216,10 +245,10 @@ def _legend_layout(trace_count: int, *, legend_mode: str, compact: bool) -> tupl
         y=1.02,
         xanchor="left",
         x=0.0,
-        bgcolor="rgba(255,255,255,0.60)",
+        bgcolor=tokens["legend_bg"],
         bordercolor="rgba(0,0,0,0)",
         borderwidth=0,
-        font=dict(size=font_size, color=_PLOT_SUBTLE_TEXT),
+        font=dict(size=font_size, color=tokens["subtle_text"]),
         title=dict(text=""),
         itemsizing="constant",
     )
@@ -255,7 +284,7 @@ def _compose_title(title: str | None, subtitle: str | None, *, compact: bool) ->
     if not sub:
         return base
     sub_size = 11 if compact else 12
-    return f"{base}<br><span style='font-size:{sub_size}px;color:{_PLOT_SUBTLE_TEXT}'>{sub}</span>"
+    return f"{base}<br><span style='font-size:{sub_size}px;color:{_plot_tokens()['subtle_text']}'>{sub}</span>"
 
 
 def _style_trace_defaults(fig, *, compact: bool) -> None:
@@ -293,10 +322,11 @@ def apply_professional_plot_theme(
     subtitle: str | None = None,
 ):
     """Apply a shared publication-style theme across Plotly figures."""
+    tokens = _plot_tokens()
     trace_count = sum(1 for trace in fig.data if getattr(trace, "showlegend", True) is not False)
     showlegend, legend = _legend_layout(trace_count, legend_mode=legend_mode, compact=compact)
     final_title = title if title is not None else getattr(fig.layout.title, "text", "")
-    layout = dict(DEFAULT_LAYOUT)
+    layout = _default_layout()
     layout.update(
         title=dict(
             text=_compose_title(final_title, subtitle, compact=compact),
@@ -305,7 +335,7 @@ def apply_professional_plot_theme(
             y=0.98,
             yanchor="top",
             pad=dict(b=10),
-            font=dict(size=16 if compact else 18, color=_PLOT_TEXT_COLOR, family=_PLOT_FONT_FAMILY),
+            font=dict(size=16 if compact else 18, color=tokens["text"], family=_PLOT_FONT_FAMILY),
         ),
         showlegend=showlegend,
         legend=legend,
@@ -326,30 +356,30 @@ def apply_professional_plot_theme(
         fig.update_layout(width=_DEFAULT_EXPORT_WIDTH, height=_DEFAULT_EXPORT_HEIGHT)
     fig.update_xaxes(
         showspikes=True,
-        spikecolor=_PLOT_AXIS_COLOR,
+        spikecolor=tokens["axis"],
         spikethickness=1,
         spikedash="dot",
         spikemode="across",
-        gridcolor=_PLOT_GRID_COLOR,
-        linecolor=_PLOT_AXIS_COLOR,
-        tickfont=dict(size=11, color=_PLOT_TEXT_COLOR),
-        title_font=dict(size=12, color=_PLOT_TEXT_COLOR, family=_PLOT_FONT_FAMILY),
+        gridcolor=tokens["grid"],
+        linecolor=tokens["axis"],
+        tickfont=dict(size=11, color=tokens["text"]),
+        title_font=dict(size=12, color=tokens["text"], family=_PLOT_FONT_FAMILY),
     )
     fig.update_yaxes(
         showspikes=True,
-        spikecolor=_PLOT_AXIS_COLOR,
+        spikecolor=tokens["axis"],
         spikethickness=1,
         spikedash="dot",
         spikemode="across",
-        gridcolor=_PLOT_GRID_COLOR,
-        linecolor=_PLOT_AXIS_COLOR,
-        tickfont=dict(size=11, color=_PLOT_TEXT_COLOR),
-        title_font=dict(size=12, color=_PLOT_TEXT_COLOR, family=_PLOT_FONT_FAMILY),
+        gridcolor=tokens["grid"],
+        linecolor=tokens["axis"],
+        tickfont=dict(size=11, color=tokens["text"]),
+        title_font=dict(size=12, color=tokens["text"], family=_PLOT_FONT_FAMILY),
     )
     fig.update_annotations(
-        font=dict(size=10.5 if compact else 11, color=_PLOT_SUBTLE_TEXT, family=_PLOT_FONT_FAMILY),
-        bgcolor="rgba(255,255,255,0.78)",
-        bordercolor="rgba(148,163,184,0.24)",
+        font=dict(size=10.5 if compact else 11, color=tokens["subtle_text"], family=_PLOT_FONT_FAMILY),
+        bgcolor=tokens["annotation_bg"],
+        bordercolor=tokens["annotation_border"],
         borderwidth=0,
         borderpad=2,
     )
@@ -406,17 +436,18 @@ def apply_plot_display_settings(
 
 def apply_plotly_config(fig):
     """Apply shared crosshair and hover behavior without overriding layout composition."""
+    tokens = _plot_tokens()
     fig.update_layout(hovermode="x unified", hoverdistance=80, spikedistance=1000)
     fig.update_xaxes(
         showspikes=True,
-        spikecolor=_PLOT_AXIS_COLOR,
+        spikecolor=tokens["axis"],
         spikethickness=1,
         spikedash="dot",
         spikemode="across",
     )
     fig.update_yaxes(
         showspikes=True,
-        spikecolor=_PLOT_AXIS_COLOR,
+        spikecolor=tokens["axis"],
         spikethickness=1,
         spikedash="dot",
         spikemode="across",
@@ -426,6 +457,7 @@ def apply_plotly_config(fig):
 
 def _add_exo_annotation(fig):
     """Add 'exo up' annotation to DSC/DTA plots (industry standard)."""
+    tokens = _plot_tokens()
     fig.add_annotation(
         text="exo \u2191",
         xref="paper", yref="paper",
@@ -433,7 +465,7 @@ def _add_exo_annotation(fig):
         xanchor="left",
         yanchor="bottom",
         showarrow=False,
-        font=dict(size=11, color=_PLOT_SUBTLE_TEXT, family=_PLOT_FONT_FAMILY),
+        font=dict(size=11, color=tokens["subtle_text"], family=_PLOT_FONT_FAMILY),
     )
 
 
@@ -457,12 +489,13 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
                     y_label="Heat Flow (mW/mg)", baseline=None,
                     peaks=None, smoothed=None, display_settings: dict | None = None):
     """Create a DSC plot with optional baseline and peak markers."""
+    tokens = _plot_tokens()
     fig = go.Figure()
 
     if smoothed is not None:
         fig.add_trace(go.Scatter(
             x=temperature, y=heat_flow, mode="lines", name="Raw",
-            line=dict(color="#CCCCCC", width=1),
+            line=dict(color=tokens["axis"], width=1),
             opacity=0.5,
         ))
         fig.add_trace(go.Scatter(
@@ -499,7 +532,7 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
             marker=dict(color=THERMAL_COLORS[3], size=9, symbol="diamond"),
             text=[f"{t:.1f}°C" for t in peak_temps],
             textposition="top center",
-            textfont=dict(size=10.5, color=_PLOT_SUBTLE_TEXT),
+            textfont=dict(size=10.5, color=tokens["subtle_text"]),
             hovertext=hover_texts,
             hoverinfo="text",
         ))
@@ -508,9 +541,9 @@ def create_dsc_plot(temperature, heat_flow, title="DSC Curve",
             if p.onset_temperature is not None:
                 fig.add_vline(
                     x=p.onset_temperature, line_dash="dot",
-                    line_color=_PLOT_AXIS_COLOR, opacity=0.55,
+                    line_color=tokens["axis"], opacity=0.55,
                     annotation_text=f"Onset {p.onset_temperature:.1f}°C",
-                    annotation=dict(font=dict(size=10, color=_PLOT_SUBTLE_TEXT, family=_PLOT_FONT_FAMILY)),
+                    annotation=dict(font=dict(size=10, color=tokens["subtle_text"], family=_PLOT_FONT_FAMILY)),
                 )
 
     fig.update_layout(xaxis_title="Temperature (°C)", yaxis_title=y_label)
@@ -535,6 +568,7 @@ def create_tga_plot(
     display_settings: dict | None = None,
 ):
     """Create a TGA plot with optional DTG overlay and step markers."""
+    tokens = _plot_tokens()
     if dtg is not None:
         fig = make_subplots(specs=[[{"secondary_y": True}]])
     else:
@@ -560,7 +594,7 @@ def create_tga_plot(
                 opacity=0.08, line_width=0,
                 annotation_text=f"{step_prefix} {i+1}: {step.mass_loss_percent:.1f}%",
                 annotation_position="top left",
-                annotation=dict(font=dict(size=10, color=_PLOT_SUBTLE_TEXT, family=_PLOT_FONT_FAMILY)),
+                annotation=dict(font=dict(size=10, color=tokens["subtle_text"], family=_PLOT_FONT_FAMILY)),
             )
 
     fig.update_layout(xaxis_title=x_label, yaxis_title=y_label)

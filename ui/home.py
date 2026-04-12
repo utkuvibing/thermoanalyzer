@@ -94,10 +94,10 @@ def render():
 
     render_page_header(t("home.title"), t("home.caption"), badge=t("home.hero_badge"))
     render_home_workflow_guide()
-    st.info(
+    st.caption(
         tx(
-            "Bu beta build'de kararlı akış Veri Alma -> Karşılaştırma Alanı -> DSC/TGA/DTA/FTIR/RAMAN/XRD Analizi -> Toplu Şablon Uygulayıcı -> Rapor/Proje Kaydı zinciridir. Kinetik ve dekonvolüsyon modülleri önizleme kapsamındadır.",
-            "In this beta build, the stable workflow is Import -> Compare Workspace -> DSC/TGA/DTA/FTIR/RAMAN/XRD Analysis -> Batch Template Runner -> Report/Project Save. Kinetics and deconvolution remain preview modules.",
+            "Kararlı ürün yüzeyi şu zincire odaklanır: Veri Al -> Karşılaştırma Alanı -> DSC/TGA/DTA/FTIR/RAMAN/XRD Analizi -> Rapor Merkezi / Proje Alanı.",
+            "The stable product surface focuses on this chain: Import Runs -> Compare Workspace -> DSC/TGA/DTA/FTIR/RAMAN/XRD Analysis -> Report Center / Project Workspace.",
         )
     )
 
@@ -114,8 +114,6 @@ def render():
         m1.metric(tx("Yüklü Koşu", "Loaded Runs"), str(len(datasets)))
         m2.metric("D / T / DTA / F / R / X", f"{dsc_count} / {tga_count} / {dta_count} / {ftir_count} / {raman_count} / {xrd_count}")
         m3.metric(tx("Vendor Sayısı", "Vendors"), str(len(vendors)))
-
-    st.header(t("home.title"))
 
     upload_tab, sample_tab = st.tabs(
         [

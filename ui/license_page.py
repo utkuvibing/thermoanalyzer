@@ -151,7 +151,6 @@ def render():
             if branding.get("logo_name"):
                 st.caption(f"Mevcut logo: {branding['logo_name']}" if lang == "tr" else f"Current logo: {branding['logo_name']}")
 
-
 def _status_label(state, lang):
     labels = {
         "development": "Geliştirme Build'i" if lang == "tr" else "Development Build",

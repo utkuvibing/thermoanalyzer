@@ -180,7 +180,7 @@ def _store_tga_result(selected_key, dataset, temperature, mass_signal, result):
 
 
 def render():
-    render_page_header(t("tga.title"), t("tga.caption"))
+    render_page_header(t("tga.title"), t("tga.caption"), badge=t("tga.hero_badge"))
     render_tga_workflow_guide()
 
     tga_datasets = _get_tga_datasets()
