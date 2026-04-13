@@ -16,6 +16,20 @@ import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, dcc, html
 import plotly.graph_objects as go
 
+from dash_app.components.analysis_page import (
+    analysis_page_stores,
+    dataset_selection_card,
+    dataset_selector_block,
+    eligible_datasets,
+    empty_result_msg,
+    execute_card,
+    interpret_run_result,
+    metrics_row,
+    no_data_figure_msg,
+    processing_details_section,
+    result_placeholder_card,
+    workflow_template_card,
+)
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
 
@@ -29,6 +43,8 @@ _DSC_WORKFLOW_TEMPLATES = [
 
 _TEMPLATE_OPTIONS = [{"label": t["label"], "value": t["id"]} for t in _DSC_WORKFLOW_TEMPLATES]
 
+_DSC_ELIGIBLE_TYPES = {"DSC", "DTA", "UNKNOWN"}
+
 _PEAK_TYPE_COLORS = {
     "endotherm": "#0E7490",
     "exotherm": "#DC2626",
@@ -41,11 +57,9 @@ _PEAK_TYPE_ICONS = {
 }
 
 
-def _metric_card(label: str, value: str) -> dbc.Card:
-    return dbc.Card(
-        dbc.CardBody([html.Small(label, className="text-muted text-uppercase"), html.H4(value, className="mb-0")])
-    )
-
+# ---------------------------------------------------------------------------
+# DSC-specific cards
+# ---------------------------------------------------------------------------
 
 def _tg_card(midpoint: float, onset: float, endset: float, delta_cp: float, idx: int = 0) -> dbc.Card:
     return dbc.Card(
@@ -116,22 +130,13 @@ def _peak_card(row: dict, idx: int) -> dbc.Card:
     )
 
 
-def _eligible_datasets(datasets: list[dict]) -> list[dict]:
-    eligible_types = {"DSC", "DTA", "UNKNOWN"}
-    return [d for d in datasets if (d.get("data_type") or "").upper() in eligible_types]
-
-
-def _dataset_options(datasets: list[dict]) -> list[dict]:
-    return [
-        {"label": f"{d.get('display_name', d.get('key', '?'))} ({d.get('data_type', '?')})", "value": d["key"]}
-        for d in datasets
-    ]
-
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
 
 layout = html.Div(
-    [
-        dcc.Store(id="dsc-refresh", data=0),
-        dcc.Store(id="dsc-latest-result-id"),
+    analysis_page_stores("dsc-refresh", "dsc-latest-result-id")
+    + [
         page_header(
             "DSC Analysis",
             "Select a DSC-eligible dataset, choose a workflow template, and run thermal analysis.",
@@ -141,74 +146,24 @@ layout = html.Div(
             [
                 dbc.Col(
                     [
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.H5("Dataset Selection", className="mb-3"),
-                                    html.Div(id="dsc-dataset-selector-area"),
-                                ]
-                            ),
-                            className="mb-4",
+                        dataset_selection_card("dsc-dataset-selector-area"),
+                        workflow_template_card(
+                            "dsc-template-select",
+                            "dsc-template-description",
+                            _TEMPLATE_OPTIONS,
+                            "dsc.general",
                         ),
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.H5("Workflow Template", className="mb-3"),
-                                    dbc.Select(
-                                        id="dsc-template-select",
-                                        options=_TEMPLATE_OPTIONS,
-                                        value="dsc.general",
-                                    ),
-                                    html.P(
-                                        "General DSC: smoothing + baseline + peak detection + Tg detection.",
-                                        className="text-muted small mt-2",
-                                        id="dsc-template-description",
-                                    ),
-                                ]
-                            ),
-                            className="mb-4",
-                        ),
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.H5("Execute", className="mb-3"),
-                                    html.Div(id="dsc-run-status"),
-                                    dbc.Button(
-                                        "Run DSC Analysis",
-                                        id="dsc-run-btn",
-                                        color="primary",
-                                        className="w-100",
-                                        disabled=True,
-                                    ),
-                                ]
-                            ),
-                            className="mb-4",
-                        ),
+                        execute_card("dsc-run-status", "dsc-run-btn", "Run DSC Analysis"),
                     ],
                     md=4,
                 ),
                 dbc.Col(
                     [
-                        dbc.Card(
-                            dbc.CardBody(html.Div(id="dsc-result-metrics")),
-                            className="mb-4",
-                        ),
-                        dbc.Card(
-                            dbc.CardBody(html.Div(id="dsc-result-tg-cards")),
-                            className="mb-4",
-                        ),
-                        dbc.Card(
-                            dbc.CardBody(html.Div(id="dsc-result-figure")),
-                            className="mb-4",
-                        ),
-                        dbc.Card(
-                            dbc.CardBody(html.Div(id="dsc-result-table")),
-                            className="mb-4",
-                        ),
-                        dbc.Card(
-                            dbc.CardBody(html.Div(id="dsc-result-processing")),
-                            className="mb-4",
-                        ),
+                        result_placeholder_card("dsc-result-metrics"),
+                        result_placeholder_card("dsc-result-tg-cards"),
+                        result_placeholder_card("dsc-result-figure"),
+                        result_placeholder_card("dsc-result-table"),
+                        result_placeholder_card("dsc-result-processing"),
                     ],
                     md=8,
                 ),
@@ -251,30 +206,14 @@ def load_eligible_datasets(project_id, _refresh):
         return dbc.Alert(f"Error loading datasets: {exc}", color="danger"), True
 
     all_datasets = payload.get("datasets", [])
-    eligible = _eligible_datasets(all_datasets)
-
-    if not eligible:
-        return html.P("No DSC-eligible datasets found. Import a DSC file first.", className="text-muted"), True
-
-    options = _dataset_options(eligible)
-    active = payload.get("active_dataset")
-    default_value = None
-    if active:
-        eligible_keys = {d["key"] for d in eligible}
-        if active in eligible_keys:
-            default_value = active
-
-    selector = dbc.Select(
-        id="dsc-dataset-select",
-        options=options,
-        value=default_value or (options[0]["value"] if options else None),
+    return dataset_selector_block(
+        selector_id="dsc-dataset-select",
+        empty_msg="Import a DSC file first.",
+        eligible=eligible_datasets(all_datasets, _DSC_ELIGIBLE_TYPES),
+        all_datasets=all_datasets,
+        eligible_types=_DSC_ELIGIBLE_TYPES,
+        active_dataset=payload.get("active_dataset"),
     )
-    info = html.P(
-        f"{len(eligible)} of {len(all_datasets)} datasets are DSC-eligible "
-        f"(types: DSC, DTA, UNKNOWN).",
-        className="text-muted small mt-2",
-    )
-    return html.Div([selector, info]), False
 
 
 @callback(
@@ -306,24 +245,11 @@ def run_dsc_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val
     except Exception as exc:
         return dbc.Alert(f"Analysis failed: {exc}", color="danger"), dash.no_update, dash.no_update, dash.no_update
 
-    status = result.get("execution_status", "unknown")
-    result_id = result.get("result_id")
-    failure = result.get("failure_reason")
-    validation = result.get("validation", {})
-
-    if status == "saved" and result_id:
-        msg = dbc.Alert(
-            f"Analysis saved (result: {result_id}). "
-            f"Validation: {validation.get('status', 'N/A')}, "
-            f"warnings: {validation.get('warning_count', 0)}.",
-            color="success",
-        )
-        return msg, (refresh_val or 0) + 1, result_id, (global_refresh or 0) + 1
-
-    if status == "blocked":
-        return dbc.Alert(f"Analysis blocked: {failure}", color="warning"), (refresh_val or 0) + 1, dash.no_update, dash.no_update
-
-    return dbc.Alert(f"Analysis failed: {failure or 'Unknown error'}", color="danger"), (refresh_val or 0) + 1, dash.no_update, dash.no_update
+    alert, saved, result_id = interpret_run_result(result)
+    refresh = (refresh_val or 0) + 1
+    if saved:
+        return alert, refresh, result_id, (global_refresh or 0) + 1
+    return alert, refresh, dash.no_update, dash.no_update
 
 
 @callback(
@@ -337,11 +263,11 @@ def run_dsc_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val
     State("project-id", "data"),
 )
 def display_result(result_id, _refresh, project_id):
-    empty_msg = html.P("Run an analysis to see results here.", className="text-muted")
+    empty_msg = empty_result_msg()
     if not result_id or not project_id:
         return empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
 
-    from dash_app.api_client import workspace_result_detail, analysis_state_curves
+    from dash_app.api_client import workspace_result_detail
 
     try:
         detail = workspace_result_detail(project_id, result_id)
@@ -358,20 +284,12 @@ def display_result(result_id, _refresh, project_id):
     peak_count = summary.get("peak_count", 0)
     tg_count = summary.get("glass_transition_count", 0)
     sample_name = summary.get("sample_name") or result_meta.get("dataset_key", "N/A")
-    metrics = html.Div(
-        [
-            html.H5("Result Summary", className="mb-3"),
-            dbc.Row(
-                [
-                    dbc.Col(_metric_card("Peaks", str(peak_count)), md=3),
-                    dbc.Col(_metric_card("Glass Transitions", str(tg_count)), md=3),
-                    dbc.Col(_metric_card("Template", str(processing.get("workflow_template_label", "N/A"))), md=3),
-                    dbc.Col(_metric_card("Sample", str(sample_name)), md=3),
-                ],
-                className="g-3",
-            ),
-        ]
-    )
+    metrics = metrics_row([
+        ("Peaks", str(peak_count)),
+        ("Glass Transitions", str(tg_count)),
+        ("Template", str(processing.get("workflow_template_label", "N/A"))),
+        ("Sample", str(sample_name)),
+    ])
 
     # --- Tg metric cards ---
     tg_cards = _build_tg_cards(summary)
@@ -386,10 +304,22 @@ def display_result(result_id, _refresh, project_id):
     table_area = _build_peak_section(rows)
 
     # --- Processing info ---
-    proc_view = _build_processing_section(processing)
+    proc_view = processing_details_section(
+        processing,
+        extra_lines=[
+            html.P(f"Baseline: {processing.get('signal_pipeline', {}).get('baseline', {})}"),
+            html.P(f"Peak Detection: {processing.get('analysis_steps', {}).get('peak_detection', {})}"),
+            html.P(f"Tg Detection: {processing.get('analysis_steps', {}).get('glass_transition', {})}"),
+            html.P(f"Sign Convention: {processing.get('method_context', {}).get('sign_convention_label', 'N/A')}", className="mb-0"),
+        ],
+    )
 
     return metrics, tg_cards, figure_area, table_area, proc_view
 
+
+# ---------------------------------------------------------------------------
+# DSC-specific builders
+# ---------------------------------------------------------------------------
 
 def _build_tg_cards(summary: dict) -> html.Div:
     tg_mid = summary.get("tg_midpoint")
@@ -404,7 +334,6 @@ def _build_tg_cards(summary: dict) -> html.Div:
         )
 
     cards = [html.H5("Glass Transitions", className="mb-3")]
-    # summary only carries the first Tg; show it as a single card
     cards.append(_tg_card(tg_mid, tg_onset, tg_endset, delta_cp, idx=0))
     if tg_count > 1:
         cards.append(html.P(f"... and {tg_count - 1} more transition(s).", className="text-muted small"))
@@ -427,7 +356,7 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: l
     has_overlay = curves.get("has_smoothed") or curves.get("has_baseline") or curves.get("has_corrected")
 
     if not temperature:
-        return html.P("No data available for plotting.", className="text-muted")
+        return no_data_figure_msg()
 
     tg_midpoint = summary.get("tg_midpoint")
     tg_onset = summary.get("tg_onset")
@@ -437,57 +366,30 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: l
 
     fig = go.Figure()
 
-    # Raw signal (faint when overlay exists)
     raw_alpha = 0.35 if has_overlay else 1.0
     raw_width = 1.0 if has_overlay else 1.5
     fig.add_trace(
         go.Scatter(
-            x=temperature,
-            y=raw_signal,
-            mode="lines",
-            name="Raw Signal",
-            line=dict(color="#94A3B8", width=raw_width),
-            opacity=raw_alpha,
+            x=temperature, y=raw_signal, mode="lines", name="Raw Signal",
+            line=dict(color="#94A3B8", width=raw_width), opacity=raw_alpha,
         )
     )
 
-    # Smoothed signal
     if smoothed and len(smoothed) == len(temperature):
         fig.add_trace(
-            go.Scatter(
-                x=temperature,
-                y=smoothed,
-                mode="lines",
-                name="Smoothed",
-                line=dict(color="#0E7490", width=1.5),
-            )
+            go.Scatter(x=temperature, y=smoothed, mode="lines", name="Smoothed", line=dict(color="#0E7490", width=1.5))
         )
 
-    # Baseline
     if baseline and len(baseline) == len(temperature):
         fig.add_trace(
-            go.Scatter(
-                x=temperature,
-                y=baseline,
-                mode="lines",
-                name="Baseline",
-                line=dict(color="#6B7280", width=1, dash="dash"),
-            )
+            go.Scatter(x=temperature, y=baseline, mode="lines", name="Baseline", line=dict(color="#6B7280", width=1, dash="dash"))
         )
 
-    # Corrected (baseline-subtracted)
     if corrected and len(corrected) == len(temperature):
         fig.add_trace(
-            go.Scatter(
-                x=temperature,
-                y=corrected,
-                mode="lines",
-                name="Corrected",
-                line=dict(color="#059669", width=1.5),
-            )
+            go.Scatter(x=temperature, y=corrected, mode="lines", name="Corrected", line=dict(color="#059669", width=1.5))
         )
 
-    # Peak markers with type-based coloring
     for row in peak_rows:
         pt = row.get("peak_temperature")
         if pt is None:
@@ -498,19 +400,14 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: l
         if idx is not None:
             fig.add_trace(
                 go.Scatter(
-                    x=[temperature[idx]],
-                    y=[raw_signal[idx]],
-                    mode="markers+text",
+                    x=[temperature[idx]], y=[raw_signal[idx]], mode="markers+text",
                     marker=dict(size=10, color=color, symbol="diamond"),
-                    text=[f"{pt:.1f}"],
-                    textposition="bottom center",
+                    text=[f"{pt:.1f}"], textposition="bottom center",
                     textfont=dict(size=9, color=color),
-                    name=f"{peak_type.title()} {pt:.1f} C",
-                    showlegend=False,
+                    name=f"{peak_type.title()} {pt:.1f} C", showlegend=False,
                 )
             )
 
-    # Tg vertical lines
     if tg_count > 0 and tg_midpoint is not None:
         fig.add_vline(x=tg_midpoint, line=dict(color="#EF4444", width=2, dash="dash"), annotation_text=f"Tg mid {tg_midpoint:.1f}")
         if tg_onset is not None:
@@ -519,12 +416,9 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: l
             fig.add_vline(x=tg_endset, line=dict(color="#F59E0B", width=1, dash="dot"), annotation_text=f"Endset {tg_endset:.1f}")
 
     fig.update_layout(
-        title=f"DSC - {sample_name}",
-        template="plotly_white",
-        xaxis_title="Temperature (C)",
-        yaxis_title="Heat Flow (a.u.)",
-        margin=dict(l=56, r=24, t=56, b=48),
-        height=480,
+        title=f"DSC - {sample_name}", template="plotly_white",
+        xaxis_title="Temperature (C)", yaxis_title="Heat Flow (a.u.)",
+        margin=dict(l=56, r=24, t=56, b=48), height=480,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True})
@@ -534,12 +428,10 @@ def _build_peak_section(rows: list) -> html.Div:
     if not rows:
         return html.Div([html.H5("Detected Peaks", className="mb-3"), html.P("No peaks detected.", className="text-muted")])
 
-    # Individual peak cards for richer display
     cards = [html.H5("Detected Peaks", className="mb-3")]
     for idx, row in enumerate(rows):
         cards.append(_peak_card(row, idx))
 
-    # Also include the data table for copy/export
     cards.append(html.Hr(className="my-3"))
     cards.append(dataset_table(
         rows,
@@ -547,20 +439,3 @@ def _build_peak_section(rows: list) -> html.Div:
         table_id="dsc-peaks-table",
     ))
     return html.Div(cards)
-
-
-def _build_processing_section(processing: dict) -> html.Div:
-    signal_pipeline = processing.get("signal_pipeline", {})
-    analysis_steps = processing.get("analysis_steps", {})
-    method_context = processing.get("method_context", {})
-    return html.Div(
-        [
-            html.H5("Processing Details", className="mb-3"),
-            html.P(f"Workflow: {processing.get('workflow_template_label', 'N/A')} (v{processing.get('workflow_template_version', '?')})"),
-            html.P(f"Smoothing: {signal_pipeline.get('smoothing', {})}"),
-            html.P(f"Baseline: {signal_pipeline.get('baseline', {})}"),
-            html.P(f"Peak Detection: {analysis_steps.get('peak_detection', {})}"),
-            html.P(f"Tg Detection: {analysis_steps.get('glass_transition', {})}"),
-            html.P(f"Sign Convention: {method_context.get('sign_convention_label', 'N/A')}", className="mb-0"),
-        ]
-    )
