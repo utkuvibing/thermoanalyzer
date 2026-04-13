@@ -575,6 +575,7 @@ def create_app(
         smoothed = _to_list(analysis_state.get("smoothed"))
         baseline = _to_list(analysis_state.get("baseline"))
         corrected = _to_list(analysis_state.get("corrected"))
+        dtg = _to_list(analysis_state.get("dtg"))
 
         return AnalysisStateCurvesResponse(
             project_id=project_id,
@@ -585,9 +586,11 @@ def create_app(
             smoothed=smoothed,
             baseline=baseline,
             corrected=corrected,
+            dtg=dtg,
             has_smoothed=bool(smoothed),
             has_baseline=bool(baseline),
             has_corrected=bool(corrected),
+            has_dtg=bool(dtg),
         )
 
     @app.post("/workspace/{project_id}/results/{result_id}/literature/compare", response_model=LiteratureCompareResponse)
@@ -1021,6 +1024,7 @@ def create_app(
                 analysis_type=request.analysis_type,
                 workflow_template_id=request.workflow_template_id,
                 app_version=APP_VERSION,
+                unit_mode=request.unit_mode,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

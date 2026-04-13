@@ -37,6 +37,7 @@ class ModalityAdapter(Protocol):
         analyst_name: str | None = None,
         app_version: str | None = None,
         batch_run_id: str | None = None,
+        unit_mode: str | None = None,
     ) -> dict[str, Any]: ...
 
 

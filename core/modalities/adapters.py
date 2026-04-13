@@ -53,6 +53,7 @@ class StableBatchAdapter:
         analyst_name: str | None = None,
         app_version: str | None = None,
         batch_run_id: str | None = None,
+        unit_mode: str | None = None,
     ) -> dict[str, Any]:
         return execute_batch_template(
             dataset_key=dataset_key,
@@ -64,6 +65,7 @@ class StableBatchAdapter:
             analyst_name=analyst_name,
             app_version=app_version,
             batch_run_id=batch_run_id,
+            unit_mode=unit_mode,
         )
 
 

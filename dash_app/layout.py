@@ -15,7 +15,7 @@ NAV_PRIMARY = [
 
 NAV_ANALYSIS = [
     {"label": "DSC", "icon": "bi-graph-up", "href": "/dsc"},
-    {"label": "TGA", "icon": "bi-graph-down", "href": "/tga", "disabled": True},
+    {"label": "TGA", "icon": "bi-graph-down", "href": "/tga"},
     {"label": "DTA", "icon": "bi-bar-chart", "href": "/dta", "disabled": True},
     {"label": "FTIR", "icon": "bi-border-style", "href": "/ftir", "disabled": True},
     {"label": "RAMAN", "icon": "bi-lightbulb", "href": "/raman", "disabled": True},

@@ -138,6 +138,7 @@ def analysis_run(
     dataset_key: str,
     analysis_type: str,
     workflow_template_id: str | None = None,
+    unit_mode: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "project_id": project_id,
@@ -146,6 +147,8 @@ def analysis_run(
     }
     if workflow_template_id:
         payload["workflow_template_id"] = workflow_template_id
+    if unit_mode:
+        payload["unit_mode"] = unit_mode
     with _client() as c:
         r = c.post("/analysis/run", json=payload)
         r.raise_for_status()

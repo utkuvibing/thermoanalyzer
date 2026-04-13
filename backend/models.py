@@ -286,6 +286,7 @@ class AnalysisRunRequest(BaseModel):
     dataset_key: str = Field(..., min_length=1)
     analysis_type: str = Field(..., min_length=1)
     workflow_template_id: str | None = None
+    unit_mode: str | None = None
 
 
 class AnalysisRunResponse(BaseModel):
@@ -486,9 +487,11 @@ class AnalysisStateCurvesResponse(BaseModel):
     smoothed: list[float] = Field(default_factory=list)
     baseline: list[float] = Field(default_factory=list)
     corrected: list[float] = Field(default_factory=list)
+    dtg: list[float] = Field(default_factory=list)
     has_smoothed: bool = False
     has_baseline: bool = False
     has_corrected: bool = False
+    has_dtg: bool = False
 
 
 class BatchRunResponse(BaseModel):

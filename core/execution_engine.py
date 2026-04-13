@@ -121,6 +121,7 @@ def run_single_analysis(
     workflow_template_id: str | None,
     app_version: str | None,
     run_id: str | None = None,
+    unit_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run one stable modality analysis against one dataset."""
     spec = require_stable_modality(analysis_type)
@@ -150,6 +151,7 @@ def run_single_analysis(
             analyst_name=((state.get("branding") or {}).get("analyst_name") or ""),
             app_version=app_version,
             batch_run_id=execution_id,
+            unit_mode=unit_mode,
         )
     except Exception as exc:  # pragma: no cover - covered by API-level tests
         message = str(exc)

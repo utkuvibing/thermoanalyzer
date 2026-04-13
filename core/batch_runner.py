@@ -15,6 +15,7 @@ from core.peak_analysis import characterize_peaks
 from core.processing_schema import (
     ensure_processing_payload,
     get_workflow_templates,
+    set_tga_unit_mode,
     update_method_context,
     update_processing_step,
     update_tga_unit_context,
@@ -177,6 +178,7 @@ def execute_batch_template(
     analyst_name: str | None = None,
     app_version: str | None = None,
     batch_run_id: str | None = None,
+    unit_mode: str | None = None,
 ) -> dict[str, Any]:
     """Execute one batch template against one dataset without UI dependencies."""
     normalized_type = (analysis_type or "UNKNOWN").upper()
@@ -227,6 +229,7 @@ def execute_batch_template(
             analyst_name=analyst_name,
             app_version=app_version,
             batch_run_id=batch_run_id,
+            unit_mode=unit_mode,
         )
     if normalized_type == "DTA":
         return _execute_dta_batch(
@@ -420,10 +423,13 @@ def _execute_tga_batch(
     analyst_name: str | None,
     app_version: str | None,
     batch_run_id: str | None,
+    unit_mode: str | None = None,
 ) -> dict[str, Any]:
     temperature = dataset.data["temperature"].values
     signal = dataset.data["signal"].values
     initial_mass_mg = dataset.metadata.get("sample_mass")
+    if unit_mode:
+        processing = set_tga_unit_mode(processing, unit_mode)
     processing, unit_context = _resolve_batch_tga_processing(processing, dataset)
 
     smoothing = copy.deepcopy((processing.get("signal_pipeline") or {}).get("smoothing") or {})
