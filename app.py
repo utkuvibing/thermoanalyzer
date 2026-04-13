@@ -36,17 +36,17 @@ def _theme_tokens(theme_mode: str) -> dict[str, str]:
     if theme_mode == "dark":
         return {
             "ink": "#E5EEF8",
-            "muted": "#B8C6D8",
-            "border": "#38506B",
-            "panel": "rgba(17,24,39,0.84)",
-            "panel_strong": "#121A2C",
+            "muted": "#9CA3AF",
+            "border": "#4B4B52",
+            "panel": "rgba(47,47,52,0.84)",
+            "panel_strong": "#2A2A2F",
             "accent": "#1597A8",
             "accent_strong": "#0F6E86",
             "gold": "#F59E0B",
-            "bg_top": "#0A1422",
-            "bg_bottom": "#132235",
-            "sidebar_top": "#020817",
-            "sidebar_bottom": "#0D1727",
+            "bg_top": "#36363B",
+            "bg_bottom": "#36363B",
+            "sidebar_top": "rgba(28,26,26,0.92)",
+            "sidebar_bottom": "rgba(28,26,26,0.85)",
             "sidebar_text": "#E2E8F0",
             "sidebar_muted": "#9FB0C7",
             "metric_bg": "linear-gradient(180deg, rgba(21,30,48,0.92) 0%, rgba(17,24,39,0.88) 100%)",
@@ -59,8 +59,8 @@ def _theme_tokens(theme_mode: str) -> dict[str, str]:
             "status_text": "#D5E1F0",
             "disabled_bg": "#314359",
             "disabled_ink": "#D6E0EB",
-            "input_bg": "rgba(18,29,46,0.92)",
-            "input_border": "#4A607B",
+            "input_bg": "rgba(54,54,59,0.95)",
+            "input_border": "#4B4B52",
             "hero_start": "rgba(16,24,38,0.97)",
             "hero_overlay": "rgba(245,158,11,0.14)",
             "hero_end": "rgba(35,31,34,0.92)",
@@ -184,6 +184,11 @@ theme_root_css = "\n".join(
 st.markdown(
     """
 <style>
+/* FORCE SIDEBAR GLASSY BLACK - STREAMLIT OVERRIDE */
+[data-testid="stSidebar"] { 
+    background: linear-gradient(180deg, rgba(28,26,26,0.92) 0%, rgba(28,26,26,0.85) 100%) !important; 
+}
+
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
@@ -214,12 +219,15 @@ html, body, [class*="css"] {
     background: transparent !important;
 }
 
-/* Dark sidebar - NETZSCH / TA Instruments style */
+/* Dark sidebar - always glassy #1C1A1A regardless of theme - OVERRIDE EVERYTHING */
 section[data-testid="stSidebar"] {
-    background:
-        linear-gradient(180deg, var(--ta-sidebar-top) 0%, var(--ta-sidebar-bottom) 100%) !important;
-    color: var(--ta-sidebar-text) !important;
-    border-right: 1px solid rgba(255,255,255,0.06);
+    background: linear-gradient(180deg, rgba(28,26,26,0.92) 0%, rgba(28,26,26,0.85) 100%) !important;
+    background-color: rgba(28,26,26,0.92) !important;
+    color: #E2E8F0 !important;
+    border-right: 1px solid rgba(255,255,255,0.06) !important;
+}
+section[data-testid="stSidebar"] > div {
+    background: transparent !important;
 }
 section[data-testid="stSidebar"] div[data-testid="stSidebarHeader"] {
     padding-top: 0 !important;
@@ -232,12 +240,12 @@ section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] > div:f
     margin-top: -0.55rem !important;
 }
 section[data-testid="stSidebar"] * {
-    color: var(--ta-sidebar-text) !important;
+    color: #E2E8F0 !important;
 }
 section[data-testid="stSidebar"] .stSelectbox label,
 section[data-testid="stSidebar"] .stRadio label,
 section[data-testid="stSidebar"] .stSegmentedControl label {
-    color: var(--ta-sidebar-muted) !important;
+    color: #9FB0C7 !important;
 }
 section[data-testid="stSidebar"] .stSegmentedControl {
     margin-top: 0 !important;
@@ -268,23 +276,23 @@ section[data-testid="stSidebar"] .stSegmentedControl [role="radio"] {
     line-height: 1 !important;
     border-radius: 4px !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
-    background: rgba(18, 29, 46, 0.72) !important;
-    color: var(--ta-sidebar-text) !important;
+    background: rgba(45, 45, 50, 0.72) !important;
+    color: #E2E8F0 !important;
     box-shadow: none !important;
 }
 section[data-testid="stSidebar"] .stSegmentedControl button[aria-pressed="true"],
 section[data-testid="stSidebar"] [data-baseweb="button-group"] button[aria-pressed="true"],
 section[data-testid="stSidebar"] [data-baseweb="button-group"] button[class*="segmented_controlActive"],
 section[data-testid="stSidebar"] .stSegmentedControl [role="radio"][aria-checked="true"] {
-    background: linear-gradient(180deg, var(--ta-accent) 0%, var(--ta-accent-strong) 100%) !important;
+    background: linear-gradient(180deg, #1597A8 0%, #0F6E86 100%) !important;
     color: #F8FAFC !important;
     border-color: rgba(255,255,255,0.12) !important;
 }
 section[data-testid="stSidebar"] .stSegmentedControl button[aria-pressed="false"],
 section[data-testid="stSidebar"] [data-baseweb="button-group"] button[aria-pressed="false"],
 section[data-testid="stSidebar"] .stSegmentedControl [role="radio"]:not([aria-checked="true"]) {
-    background: rgba(18, 29, 46, 0.72) !important;
-    color: var(--ta-sidebar-text) !important;
+    background: rgba(45, 45, 50, 0.72) !important;
+    color: #E2E8F0 !important;
 }
 section[data-testid="stSidebar"] .stSegmentedControl button *,
 section[data-testid="stSidebar"] [data-baseweb="button-group"] button *,
@@ -297,13 +305,13 @@ section[data-testid="stSidebar"] hr {
     border-color: rgba(255,255,255,0.1) !important;
 }
 
-/* Metric cards - clean scientific style */
+/* Metric cards - sharp flat style */
 div[data-testid="stMetric"] {
-    background: var(--ta-metric-bg);
-    border: 1px solid var(--ta-border);
-    border-radius: 16px;
+    background: var(--ta-panel);
+    border: none;
+    border-radius: 4px;
     padding: 14px 18px;
-    box-shadow: 0 10px 28px var(--ta-shadow);
+    box-shadow: none;
 }
 div[data-testid="stMetric"] label {
     font-size: 0.7rem !important;
@@ -318,11 +326,11 @@ div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
     color: var(--ta-ink) !important;
 }
 
-/* Tab ribbon - professional grey background */
+/* Tab ribbon - sharp flat style */
 div[data-testid="stTabs"] > div:first-child {
-    background-color: var(--ta-tab-bg);
-    border: 1px solid var(--ta-border);
-    border-radius: 14px;
+    background-color: var(--ta-panel);
+    border: none;
+    border-radius: 4px;
     padding: 4px 8px;
 }
 button[data-baseweb="tab"] {
@@ -383,14 +391,14 @@ div.stDownloadButton > button:hover {
     transform: translateY(-1px);
 }
 
-/* File uploader - dashed border, clean */
+/* File uploader - sharp flat style */
 div[data-testid="stFileUploader"] > div:first-child,
 div[data-testid="stFileUploaderDropzone"] {
-    border: 2px dashed var(--ta-input-border) !important;
-    border-radius: 18px !important;
+    border: 1px dashed var(--ta-input-border) !important;
+    border-radius: 4px !important;
     background: var(--ta-input-bg) !important;
     transition: border-color 0.2s !important;
-    box-shadow: inset 0 1px 0 var(--ta-field-gloss);
+    box-shadow: none;
     color: var(--ta-ink) !important;
 }
 /* Target the inner dropzone specifically */
@@ -424,6 +432,17 @@ div[data-testid="stFileUploader"] span:not([data-testid="stBaseButton-secondary"
 div[data-testid="stFileUploader"] svg {
     color: var(--ta-accent) !important;
     stroke: currentColor !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+/* Remove frame from file uploader icons */
+[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] svg,
+[data-testid="stFileUploader"] [data-testid="stFileUploaderFileRow"] svg {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: transparent !important;
 }
 /* Browse files button */
 [data-testid="stFileUploader"] [data-testid="stBaseButton-secondary"] {
@@ -437,14 +456,15 @@ div[data-testid="stFileUploader"] svg {
     color: white !important;
 }
 
-/* Status bar class - plot footer info bar */
+/* Status bar - sharp flat style */
 .status-bar {
     font-family: 'IBM Plex Mono', 'Consolas', 'Monaco', monospace;
     font-size: 0.75rem;
     color: var(--ta-status-text);
-    background: var(--ta-status-bg);
-    border: 1px solid var(--ta-border);
-    border-radius: 0 0 14px 14px;
+    background: var(--ta-panel);
+    border: none;
+    border-top: 1px solid var(--ta-border);
+    border-radius: 0;
     padding: 8px 14px;
     margin-top: -8px;
     margin-bottom: 16px;
@@ -568,17 +588,20 @@ section[data-testid="stSidebar"] details[data-testid="stExpander"] {
 section[data-testid="stSidebar"] details[data-testid="stExpander"] summary {
     padding-top: 0.2rem !important;
     padding-bottom: 0.2rem !important;
+    color: #E2E8F0 !important;
 }
+/* Expander - sharp flat style */
 details[data-testid="stExpander"] {
-    background: var(--ta-panel) !important;
-    border: 1px solid var(--ta-border) !important;
-    border-radius: 16px !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    border-bottom: 1px solid var(--ta-border) !important;
 }
 
-/* Dataframe styling */
+/* Dataframe styling - sharp flat style */
 div[data-testid="stDataFrame"] {
-    border: 1px solid var(--ta-border);
-    border-radius: 16px;
+    border: none;
+    border-radius: 0;
     overflow: hidden;
 }
 
@@ -591,16 +614,19 @@ div[data-testid="stCaptionContainer"] p {
     color: var(--ta-muted) !important;
 }
 
+/* Vertical blocks - sharp flat style */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    background: linear-gradient(180deg, var(--ta-panel) 0%, var(--ta-panel-strong) 100%) !important;
-    border: 1px solid var(--ta-border) !important;
-    box-shadow: 0 10px 28px var(--ta-shadow);
+    background: var(--ta-panel) !important;
+    border: none !important;
+    box-shadow: none;
 }
 
+/* Alerts - sharp flat style */
 div[data-baseweb="notification"],
 div[data-testid="stAlert"] {
-    border-radius: 16px !important;
-    border: 1px solid var(--ta-border) !important;
+    border-radius: 4px !important;
+    border: none !important;
+    border-left: 3px solid var(--ta-accent) !important;
     background: var(--ta-panel) !important;
 }
 div[data-baseweb="notification"] *,
@@ -644,17 +670,68 @@ div[data-testid="stTextArea"] textarea {
     color: var(--ta-muted) !important;
 }
 
+/* AGGRESSIVE SELECTBOX/DROPDOWN STYLING - OVERRIDE STREAMLIT DEFAULTS */
+[data-testid="stSelectbox"] > div,
+[data-testid="stSelectbox"] > div > div,
+[data-baseweb="select"] > div,
+[data-baseweb="select"] > div > div,
+[data-baseweb="select"] [data-baseweb="input-container"],
+[data-baseweb="select"] [data-baseweb="input-container"] > div {
+    background: var(--ta-input-bg) !important;
+    background-color: var(--ta-input-bg) !important;
+    border-color: var(--ta-input-border) !important;
+    color: var(--ta-ink) !important;
+}
+
+/* Dropdown button/icon colors */
+[data-baseweb="select"] [role="button"],
+[data-baseweb="select"] [data-baseweb="icon"],
+[data-baseweb="select"] svg,
+[data-testid="stSelectbox"] svg {
+    color: var(--ta-ink) !important;
+    fill: var(--ta-ink) !important;
+    background: transparent !important;
+}
+
+/* Dropdown menu/popover - FORCE DARK BACKGROUND */
+[data-baseweb="popover"],
+[data-baseweb="popover"] > div,
+[data-baseweb="popover"] [data-baseweb="menu"],
+[data-baseweb="popover"] [role="listbox"] {
+    background: var(--ta-panel) !important;
+    background-color: var(--ta-panel) !important;
+    border: 1px solid var(--ta-border) !important;
+    border-radius: 4px !important;
+}
+
+/* Dropdown options */
+[data-baseweb="popover"] [data-baseweb="menu"] li,
+[data-baseweb="popover"] [data-baseweb="menu"] [role="option"],
+[data-baseweb="popover"] [role="option"] {
+    color: var(--ta-ink) !important;
+    background: var(--ta-panel) !important;
+    background-color: var(--ta-panel) !important;
+}
+
+/* Dropdown hover state */
+[data-baseweb="popover"] [data-baseweb="menu"] li:hover,
+[data-baseweb="popover"] [data-baseweb="menu"] [role="option"]:hover,
+[data-baseweb="popover"] [role="option"]:hover {
+    background: var(--ta-accent) !important;
+    background-color: var(--ta-accent) !important;
+    color: white !important;
+}
+
+/* Hero section - sharp flat style */
 .ta-hero {
     position: relative;
     overflow: hidden;
     margin: 0 0 1.4rem 0;
     padding: 1.5rem 1.6rem;
-    border-radius: 26px;
-    border: 1px solid var(--ta-border);
-    background:
-        radial-gradient(circle at top right, var(--ta-hero-overlay), transparent 26%),
-        linear-gradient(135deg, var(--ta-hero-start) 0%, var(--ta-hero-end) 100%);
-    box-shadow: 0 20px 40px var(--ta-shadow);
+    border-radius: 4px;
+    border: none;
+    background: var(--ta-panel);
+    box-shadow: none;
 }
 
 .ta-hero-badge {
@@ -689,6 +766,65 @@ div[data-testid="stTextArea"] textarea {
 }
 </style>
 """,
+    unsafe_allow_html=True,
+)
+
+# --- FORCE SIDEBAR COLOR OVERRIDE (applied after all other CSS) ---
+st.markdown(
+    """
+    <style>
+    /* ULTIMATE SIDEBAR OVERRIDE - MUST BE LAST */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > div,
+    [data-testid="stSidebar"] > div > div {
+        background: linear-gradient(180deg, rgba(28,26,26,0.92) 0%, rgba(28,26,26,0.85) 100%) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# --- FORCE DROPDOWN STYLING OVERRIDE ---
+# Use hardcoded colors based on current theme
+theme_for_dropdowns = "dark" if theme_mode == "dark" else "light"
+dropdown_bg = "rgba(54,54,59,0.95)" if theme_for_dropdowns == "dark" else "#FAFBFC"
+dropdown_panel = "rgba(47,47,52,0.84)" if theme_for_dropdowns == "dark" else "#FFFFFF"
+dropdown_ink = "#E5EEF8" if theme_for_dropdowns == "dark" else "#0F172A"
+
+st.markdown(
+    f"""
+    <style>
+    /* HARDCODED SELECTBOX STYLING - NO CSS VARIABLES */
+    
+    [data-testid="stSelectbox"] > div,
+    [data-testid="stSelectbox"] > div > div,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div {{
+        background-color: {dropdown_bg} !important;
+    }}
+    
+    [data-testid="stSelectbox"] [data-baseweb="input-container"],
+    [data-testid="stSelectbox"] [data-baseweb="input-container"] > div {{
+        background-color: {dropdown_bg} !important;
+    }}
+    
+    /* POPUP MENU - HARDCODED */
+    [data-baseweb="popover"],
+    [data-baseweb="popover"] > div,
+    [data-baseweb="popover"] [role="listbox"] {{
+        background-color: {dropdown_panel} !important;
+    }}
+    
+    [data-baseweb="popover"] [role="option"] {{
+        background-color: {dropdown_panel} !important;
+        color: {dropdown_ink} !important;
+    }}
+    
+    [data-baseweb="popover"] [role="option"]:hover {{
+        background-color: #1597A8 !important;
+        color: white !important;
+    }}
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
