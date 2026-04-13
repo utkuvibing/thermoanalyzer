@@ -14,3 +14,5 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 httpx>=0.27.0
 python-dotenv>=1.0.0
+dash>=2.18.0
+dash-bootstrap-components>=1.6.0
