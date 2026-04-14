@@ -1,0 +1,74 @@
+# Keep Cursor focused on source code, docs, tests, and migration-relevant context.
+# Deliberately keep visible:
+# - backend/
+# - core/
+# - dash_app/
+# - tests/
+# - ui/
+# - sample_data/
+# - test_data/
+# - app.py
+# - README.md
+
+# Python caches and packaging artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments and secrets
+.env
+.env.*
+.venv/
+venv/
+env/
+.streamlit/secrets.toml
+
+# Build, release, and generated outputs
+dist/
+build/
+release/
+packaging/windows/build/
+packaging/windows/dist/
+
+# Test and coverage artifacts
+.pytest_cache/
+.pytest-temp/
+.coverage
+.coverage.*
+htmlcov/
+*.log
+
+# Repo-local temp / agent artifact folders
+.artifacts/
+.bg-shell/
+.codex/
+.gsd/
+.planning/
+.tmp/
+.tmp_*/
+.tmp_demo_review/
+.ptmp/
+.ptmp_full_*/
+pytest_temp/
+
+# Dependency and indexing-heavy generated folders
+.git/
+**/node_modules/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+.cache/
+.ipynb_checkpoints/
+
+# Local OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+
+# Local stray binary / tool artifacts
+python3

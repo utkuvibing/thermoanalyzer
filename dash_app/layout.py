@@ -18,7 +18,7 @@ NAV_ANALYSIS = [
     {"label": "TGA", "icon": "bi-graph-down", "href": "/tga"},
     {"label": "DTA", "icon": "bi-bar-chart", "href": "/dta"},
     {"label": "FTIR", "icon": "bi-border-style", "href": "/ftir"},
-    {"label": "RAMAN", "icon": "bi-lightbulb", "href": "/raman", "disabled": True},
+    {"label": "RAMAN", "icon": "bi-lightbulb", "href": "/raman"},
     {"label": "XRD", "icon": "bi-bullseye", "href": "/xrd", "disabled": True},
 ]
 
