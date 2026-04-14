@@ -427,6 +427,32 @@ def _xrd_source_hint_score(source_name: str | None) -> int:
     return score
 
 
+_SPECTRAL_SOURCE_HINTS = (
+    "ftir",
+    "ir_",
+    "infrared",
+    "raman",
+    "cnt",
+    "nanotube",
+    "graphene",
+)
+
+
+def _spectral_source_hint_score(source_name: str | None) -> tuple[int, str | None]:
+    """Return (bonus, suggested_type) based on source file name for spectral modalities."""
+    token = str(source_name or "").strip().lower()
+    if not token:
+        return 0, None
+    if "ftir" in token or "ir_" in token or "infrared" in token:
+        return 10, "FTIR"
+    if "raman" in token:
+        return 10, "RAMAN"
+    for hint in _SPECTRAL_SOURCE_HINTS:
+        if hint in token:
+            return 4, None
+    return 0, None
+
+
 def _looks_like_jcamp(source_name: str, text: str) -> bool:
     source_lower = str(source_name or "").lower()
     if source_lower.endswith(_JCAMP_EXTENSIONS):
@@ -751,6 +777,7 @@ def _find_header_and_data_rows(
         except ValueError:
             return False
 
+    first_data_row_index = None
     for i, line in enumerate(lines):
         if not line.strip():
             continue
@@ -766,15 +793,21 @@ def _find_header_and_data_rows(
             header_row = i
         else:
             # First predominantly numeric row is where data starts
+            first_data_row_index = i
             data_start_row = i
             break
     else:
         # All lines appear non-numeric — keep defaults
         pass
 
-    # Ensure data_start_row > header_row
-    if data_start_row <= header_row:
-        data_start_row = header_row + 1
+    # If the very first line is all-numeric, there is no header row
+    if first_data_row_index is not None and first_data_row_index == 0:
+        header_row = None
+
+    # Ensure data_start_row > (header_row or 0)
+    effective_header = header_row if header_row is not None else -1
+    if data_start_row <= effective_header:
+        data_start_row = effective_header + 1
 
     return header_row, data_start_row
 
@@ -837,6 +870,7 @@ def guess_columns(df: pd.DataFrame, source_name: str | None = None) -> dict:
         return ranked
 
     xrd_source_bonus = _xrd_source_hint_score(source_name)
+    spectral_source_bonus, spectral_source_suggested_type = _spectral_source_hint_score(source_name)
 
     temp_ranked = _rank_role("temperature", prefer_monotonic=True)
     time_ranked = _rank_role("time", prefer_monotonic=True)
@@ -950,6 +984,11 @@ def guess_columns(df: pd.DataFrame, source_name: str | None = None) -> dict:
                 score += xrd_source_bonus
                 if _is_xrd_axis_hint(str(result.get("temperature") or "")):
                     score += 12
+            if analysis_type in {"FTIR", "RAMAN"} and spectral_source_bonus > 0:
+                if spectral_source_suggested_type and analysis_type == spectral_source_suggested_type:
+                    score += spectral_source_bonus
+                elif not spectral_source_suggested_type:
+                    score += spectral_source_bonus
             type_scores.append((analysis_type, score, str(top["column"]), str(top["signal_unit"])))
     type_scores.sort(key=lambda item: (item[1], item[0]), reverse=True)
 
@@ -960,6 +999,8 @@ def guess_columns(df: pd.DataFrame, source_name: str | None = None) -> dict:
         if best_type == "XRD" and (
             _is_xrd_axis_hint(str(result.get("temperature") or "")) or xrd_source_bonus >= 8
         ):
+            ambiguity_margin = 1
+        if best_type in {"FTIR", "RAMAN"} and spectral_source_bonus >= 10:
             ambiguity_margin = 1
         if len(type_scores) > 1 and (type_scores[1][1] >= best_score - ambiguity_margin and type_scores[1][1] > 0):
             ambiguous_type = True
@@ -1511,11 +1552,12 @@ def _load_text(
 
     # pandas read_csv from StringIO
     try:
-        # Try with detected header row
+        # When header_row is None the file has no header row
+        pd_header = header_row if header_row is not None else None
         df = pd.read_csv(
             string_buf,
             sep=delimiter,
-            header=header_row,
+            header=pd_header,
             decimal=decimal_sep,
             engine="python",
             skip_blank_lines=True,
@@ -1528,7 +1570,7 @@ def _load_text(
             df_alt = pd.read_csv(
                 string_buf,
                 sep=r"\s+",
-                header=header_row,
+                header=pd_header,
                 decimal=decimal_sep,
                 engine="python",
                 skip_blank_lines=True,
@@ -1539,6 +1581,11 @@ def _load_text(
 
     except Exception as exc:
         raise ValueError(f"Failed to parse text file: {exc}") from exc
+
+    # Rename integer column indices to human-readable "Column N" names,
+    # consistent with the import preview in the Dash UI.
+    if all(isinstance(col, int) for col in df.columns):
+        df.columns = [f"Column {index + 1}" for index in range(len(df.columns))]
 
     return df, source_name
 

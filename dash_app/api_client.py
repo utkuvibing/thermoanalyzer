@@ -28,73 +28,88 @@ def _client() -> httpx.Client:
     return httpx.Client(base_url=_BASE_URL, headers=_headers(), timeout=_TIMEOUT)
 
 
+def _raise_with_detail(r: httpx.Response) -> None:
+    """Like ``_raise_with_detail(r)`` but includes the backend error detail."""
+    if r.is_success:
+        return
+    try:
+        body = r.json().get("detail", r.text)
+    except Exception:
+        body = r.text
+    raise httpx.HTTPStatusError(
+        f"{r.status_code} {r.reason_phrase}: {body}",
+        request=r.request,
+        response=r,
+    )
+
+
 def workspace_new() -> dict[str, Any]:
     with _client() as c:
         r = c.post("/workspace/new")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_summary(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_datasets(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/datasets")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_dataset_detail(project_id: str, dataset_key: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/datasets/{dataset_key}")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_dataset_data(project_id: str, dataset_key: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/datasets/{dataset_key}/data")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_delete_dataset(project_id: str, dataset_key: str) -> dict[str, Any]:
     with _client() as c:
         r = c.delete(f"/workspace/{project_id}/datasets/{dataset_key}")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_results(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/results")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_result_detail(project_id: str, result_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/results/{result_id}")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def analysis_state_curves(project_id: str, analysis_type: str, dataset_key: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/analysis-state/{analysis_type}/{dataset_key}")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_context(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/context")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -104,7 +119,7 @@ def workspace_set_active_dataset(project_id: str, dataset_key: str) -> dict[str,
             f"/workspace/{project_id}/active-dataset",
             json={"dataset_key": dataset_key},
         )
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -112,7 +127,7 @@ def dataset_import(
     project_id: str,
     file_name: str,
     file_base64: str,
-    data_type: str = "auto",
+    data_type: str | None = None,
     *,
     column_mapping: dict[str, str] | None = None,
     metadata: dict[str, Any] | None = None,
@@ -129,7 +144,7 @@ def dataset_import(
                 "metadata": metadata or {},
             },
         )
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -151,14 +166,14 @@ def analysis_run(
         payload["unit_mode"] = unit_mode
     with _client() as c:
         r = c.post("/analysis/run", json=payload)
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def export_preparation(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/exports/preparation")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -171,7 +186,7 @@ def export_results_csv(
             f"/workspace/{project_id}/exports/results-csv",
             json={"selected_result_ids": selected_result_ids},
         )
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -184,7 +199,7 @@ def export_results_xlsx(
             f"/workspace/{project_id}/exports/results-xlsx",
             json={"selected_result_ids": selected_result_ids},
         )
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -202,7 +217,7 @@ def export_report_docx(
                 "include_figures": include_figures,
             },
         )
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -220,28 +235,28 @@ def export_report_pdf(
                 "include_figures": include_figures,
             },
         )
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def workspace_branding(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/branding")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def update_workspace_branding(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         r = c.put(f"/workspace/{project_id}/branding", json=payload)
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def compare_workspace(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/compare")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
@@ -261,26 +276,26 @@ def update_compare_workspace(
         payload["notes"] = notes
     with _client() as c:
         r = c.put(f"/workspace/{project_id}/compare", json=payload)
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def project_save(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.post("/project/save", json={"project_id": project_id})
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def project_load(archive_base64: str) -> dict[str, Any]:
     with _client() as c:
         r = c.post("/project/load", json={"archive_base64": archive_base64})
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()
 
 
 def health() -> dict[str, Any]:
     with _client() as c:
         r = c.get("/health")
-        r.raise_for_status()
+        _raise_with_detail(r)
         return r.json()

@@ -490,8 +490,14 @@ def import_with_mapping(
             metadata=metadata,
         )
     except Exception as exc:
+        exc_msg = str(exc)
+        hint = ""
+        if "thermal-analysis bounds" in exc_msg or "Temperature range" in exc_msg:
+            hint = " Hint: the axis range looks like wavenumber data -- try selecting FTIR or RAMAN as the data type."
+        elif "strictly increasing" in exc_msg:
+            hint = " Hint: the axis is not monotonic -- check column mapping or try FTIR/RAMAN for spectral data."
         return (
-            dbc.Alert(f"Import failed: {exc}", color="danger", dismissable=True),
+            dbc.Alert(f"Import failed: {exc_msg}{hint}", color="danger", dismissable=True),
             dash.no_update,
             dash.no_update,
             dash.no_update,
