@@ -302,6 +302,15 @@ def test_workspace_import_run_ftir_analysis_with_mixed_axis_order():
     assert run_payload["validation"]["status"] == "warn"
     assert run_payload["validation"]["warning_count"] >= 1
 
+    curves_response = client.get(
+        f"/workspace/{project_id}/analysis-state/FTIR/{dataset_key}",
+        headers=_headers(),
+    )
+    assert curves_response.status_code == 200
+    curves = curves_response.json()
+    assert curves["temperature"] == sorted(curves["temperature"])
+    assert len(curves["temperature"]) == len(curves["raw_signal"])
+
 
 def test_workspace_compare_batch_run_with_dta_stable_template(thermal_dataset):
     app = create_app(api_token="workflow-token")

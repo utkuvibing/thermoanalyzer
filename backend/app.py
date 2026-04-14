@@ -558,19 +558,35 @@ def create_app(
 
         import numpy as np
 
-        frame = getattr(dataset, "data", None)
-        temperature = []
-        raw_signal = []
-        if frame is not None and "temperature" in frame.columns:
-            temperature = frame["temperature"].tolist()
-            raw_signal = frame["signal"].tolist() if "signal" in frame.columns else []
-
         def _to_list(arr: Any) -> list[float]:
             if arr is None:
                 return []
             a = np.asarray(arr, dtype=float)
             a = np.where(np.isfinite(a), a, None)
             return a.tolist()
+
+        frame = getattr(dataset, "data", None)
+        temperature = []
+        raw_signal = []
+        if frame is not None and "temperature" in frame.columns and "signal" in frame.columns:
+            raw_axis = np.asarray(frame["temperature"], dtype=float)
+            raw_values = np.asarray(frame["signal"], dtype=float)
+            finite_mask = np.isfinite(raw_axis) & np.isfinite(raw_values)
+            raw_axis = raw_axis[finite_mask]
+            raw_values = raw_values[finite_mask]
+            if raw_axis.size:
+                order = np.argsort(raw_axis)
+                raw_axis = raw_axis[order]
+                raw_values = raw_values[order]
+                unique_axis, unique_idx = np.unique(raw_axis, return_index=True)
+                temperature = unique_axis.tolist()
+                raw_signal = raw_values[unique_idx].tolist()
+
+        state_axis = _to_list(analysis_state.get("axis"))
+        if state_axis:
+            temperature = state_axis
+            if raw_signal and len(raw_signal) != len(temperature):
+                raw_signal = []
 
         smoothed = _to_list(analysis_state.get("smoothed"))
         baseline = _to_list(analysis_state.get("baseline"))
