@@ -1,0 +1,67 @@
+---
+description: MaterialScope project rules for Dash migration
+globs:
+  - "**/*.py"
+  - "**/*.md"
+alwaysApply: true
+---
+
+# MaterialScope Rules
+
+## Project direction
+We are incrementally migrating MaterialScope from Streamlit to Dash + Plotly.
+
+## Architecture
+- Keep `core/` as the scientific engine
+- Keep `backend/` as the FastAPI/workspace/API layer
+- Use `dash_app/` as the new web UI layer
+- Streamlit remains fallback/reference for now
+- Reuse backend/core logic first
+- Only add backend endpoints when a real missing data path blocks the Dash page
+
+## Hard constraints
+- Do not propose React rewrites
+- Do not discuss PR/merge work unless explicitly asked
+- Do not widen scope unnecessarily
+- Prefer backend-driven flows over duplicating scientific logic in Dash
+- Keep implementation incremental and slice-based
+- Keep UI practical and scientific, not flashy SaaS style
+- Avoid broad refactors unrelated to the current task
+
+## Current migration state
+- Non-analysis Dash parity exists: Import, Project Workspace, Report Center, Compare Workspace Core
+- Dash DSC exists
+- Dash TGA exists
+- Dash FTIR exists
+- Dash DTA exists but needs hardening
+- Shared analysis-page primitives exist in `dash_app/components/analysis_page.py`
+
+## Coding rules
+- For multi-file work, first produce a short implementation plan
+- Then implement only the approved slice
+- Keep modality-specific logic inside each page
+- Reuse shared analysis-page primitives where possible
+- Minimize unrelated file changes
+- Do not touch unrelated pages unless necessary for shared behavior
+
+## Testing rules
+- After meaningful changes, run targeted tests first
+- Then run broader tests if stable
+- Preferred command:
+  `python -m pytest tests/ -q --tb=short -x`
+
+## Output format
+Always return:
+- exact files changed
+- what now works
+- what remains deferred
+- exact test commands used
+
+## Current priority
+Before new modality expansion, prefer hardening weak existing Dash pages when their UX/readability is poor.
+For DTA specifically:
+- fix information hierarchy
+- make the figure the primary result surface
+- fix summary metric correctness
+- reduce event-card clutter
+- fix sample-name resolution

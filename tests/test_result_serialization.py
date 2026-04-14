@@ -115,8 +115,13 @@ def test_serialize_dta_result_stable_status_and_context_wording():
 
     assert record["status"] == "stable"
     assert record["summary"]["sample_name"] == "SyntheticDTA"
+    assert record["summary"]["display_name"] == "Synthetic DTA Run"
     assert record["summary"]["sample_mass"] == 5.0
     assert record["summary"]["heating_rate"] == 10.0
+    assert record["summary"]["exotherm_count"] == 1
+    assert record["summary"]["endotherm_count"] == 0
+    assert record["rows"][0]["direction"] == "exo"
+    assert record["rows"][0]["peak_type"] == "exo"
     assert record["scientific_context"]["methodology"]["workflow_template"] == "General DTA"
     limitations = " ".join(record["scientific_context"]["limitations"]).lower()
     assert "outside stable reporting guarantees" not in limitations

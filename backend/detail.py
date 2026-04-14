@@ -102,6 +102,7 @@ def build_result_detail(state: dict[str, Any], result_id: str) -> dict[str, Any]
         "literature_claims": copy.deepcopy(record.get("literature_claims") or []),
         "literature_comparisons": copy.deepcopy(record.get("literature_comparisons") or []),
         "citations": copy.deepcopy(record.get("citations") or []),
+        "rows": copy.deepcopy(rows),
         "rows_preview": _records_payload(frame, limit=20) if not frame.empty else [],
         "row_count": len(rows),
     }

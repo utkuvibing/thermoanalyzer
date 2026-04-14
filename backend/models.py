@@ -331,6 +331,7 @@ class ResultDetailResponse(BaseModel):
     literature_claims: list[dict[str, Any]] = Field(default_factory=list)
     literature_comparisons: list[dict[str, Any]] = Field(default_factory=list)
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
     rows_preview: list[dict[str, Any]]
     row_count: int
 

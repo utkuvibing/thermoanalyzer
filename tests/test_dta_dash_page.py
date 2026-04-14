@@ -14,7 +14,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import dcc, html
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +112,12 @@ def test_layout_contains_key_div_ids():
         assert div_id in layout_str, f"Missing layout element: {div_id}"
 
 
+def test_layout_places_figure_before_peak_cards():
+    mod = _import_dta_page()
+    layout_str = str(mod.layout)
+    assert layout_str.index("dta-result-figure") < layout_str.index("dta-result-peak-cards")
+
+
 # ---------------------------------------------------------------------------
 # Peak card rendering
 # ---------------------------------------------------------------------------
@@ -194,6 +200,89 @@ def test_build_peak_cards_with_data():
     assert "Endo" in result_html
 
 
+def test_build_peak_cards_compacts_secondary_events():
+    mod = _import_dta_page()
+
+    rows = [
+        {
+            "direction": "exo" if idx % 2 == 0 else "endo",
+            "peak_temperature": 120.0 + idx * 15.0,
+            "onset_temperature": 115.0 + idx * 15.0,
+            "endset_temperature": 125.0 + idx * 15.0,
+            "area": float(10 - idx),
+            "height": float(5 - idx * 0.2),
+        }
+        for idx in range(6)
+    ]
+    result = mod._build_peak_cards(rows)
+    result_html = str(result)
+    assert result_html.count("Peak ") == 4
+    assert "Show 2 additional event(s)" in result_html
+
+
+def test_derive_event_metrics_falls_back_to_rows_when_summary_counts_missing():
+    mod = _import_dta_page()
+
+    peak_count, exo_count, endo_count = mod._derive_event_metrics(
+        {"peak_count": 3},
+        [
+            {"peak_type": "exo"},
+            {"peak_type": "endotherm"},
+            {"direction": "exo"},
+        ],
+    )
+
+    assert peak_count == 3
+    assert exo_count == 2
+    assert endo_count == 1
+
+
+def test_derive_event_metrics_prefers_rows_over_stale_summary_counts():
+    mod = _import_dta_page()
+
+    peak_count, exo_count, endo_count = mod._derive_event_metrics(
+        {"peak_count": 9, "exotherm_count": 0, "endotherm_count": 0},
+        [
+            {"direction": "exo"},
+            {"direction": "endo"},
+        ],
+    )
+
+    assert peak_count == 2
+    assert exo_count == 1
+    assert endo_count == 1
+
+
+def test_resolve_dta_sample_name_prefers_dataset_display_name_over_unknown():
+    mod = _import_dta_page()
+
+    sample_name = mod._resolve_dta_sample_name(
+        {"sample_name": "Unknown"},
+        {"dataset_key": "dta_run.csv"},
+        {
+            "dataset": {"display_name": "Ore Blend DTA Run"},
+            "metadata": {"sample_name": "Ore Blend"},
+        },
+    )
+
+    assert sample_name == "Ore Blend DTA Run"
+
+
+def test_resolve_dta_sample_name_prefers_sample_name_over_file_name():
+    mod = _import_dta_page()
+
+    sample_name = mod._resolve_dta_sample_name(
+        {"sample_name": "Unknown"},
+        {"dataset_key": "dta_run.csv"},
+        {
+            "dataset": {"display_name": ""},
+            "metadata": {"file_name": "raw_run.csv", "sample_name": "Ore Blend"},
+        },
+    )
+
+    assert sample_name == "Ore Blend"
+
+
 def test_build_peak_table_empty():
     mod = _import_dta_page()
 
@@ -211,7 +300,76 @@ def test_build_peak_table_with_data():
     ]
     result = mod._build_peak_table(rows)
     result_html = str(result)
-    assert "Event Data Table" in result_html
+    assert "All Event Details" in result_html
+
+
+def test_build_figure_uses_corrected_as_primary_trace(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 150.0, 200.0, 250.0],
+            "raw_signal": [0.0, 1.2, -0.3, 0.6],
+            "smoothed": [0.1, 1.0, -0.1, 0.5],
+            "baseline": [0.05, 0.05, 0.05, 0.05],
+            "corrected": [0.05, 0.95, -0.15, 0.45],
+        },
+    )
+
+    graph = mod._build_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        [
+            {
+                "direction": "exo",
+                "peak_temperature": 150.0,
+                "onset_temperature": 140.0,
+                "endset_temperature": 165.0,
+                "area": 2.5,
+                "height": 0.8,
+            }
+        ],
+    )
+
+    assert isinstance(graph, dcc.Graph)
+    corrected_trace = next(trace for trace in graph.figure.data if trace.name == "Corrected Signal")
+    raw_trace = next(trace for trace in graph.figure.data if trace.name == "Raw Signal")
+    assert corrected_trace.line.width == 2.8
+    assert raw_trace.opacity < 0.3
+    assert graph.figure.layout.height == 560
+    assert graph.figure.layout.yaxis.range is not None
+    assert len(graph.figure.layout.shapes) >= 2
+
+
+def test_build_figure_handles_missing_primary_signal(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 150.0, 200.0],
+            "raw_signal": [0.0, 1.0],
+            "smoothed": [],
+            "baseline": [0.1, 0.1, 0.1],
+            "corrected": [],
+        },
+    )
+
+    result = mod._build_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        [{"direction": "exo", "peak_temperature": 150.0}],
+    )
+
+    assert isinstance(result, html.P)
+    assert "No processed DTA signal is available" in str(result)
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +446,10 @@ def test_dta_dash_page_import_and_run_via_server():
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["processing"]["workflow_template_id"] == "dta.general"
+    assert isinstance(detail["rows"], list)
+    assert detail["row_count"] == len(detail["rows"])
+    assert "exotherm_count" in detail["summary"]
+    assert "endotherm_count" in detail["summary"]
 
     # Fetch analysis-state curves
     curves_response = client.get(f"/workspace/{project_id}/analysis-state/DTA/{dataset_key}")

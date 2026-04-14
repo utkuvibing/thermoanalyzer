@@ -12,6 +12,8 @@ Lets the user:
 
 from __future__ import annotations
 
+import math
+
 import dash
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, dcc, html
@@ -48,9 +50,9 @@ _DTA_ELIGIBLE_TYPES = {"DTA", "UNKNOWN"}
 
 _DIRECTION_COLORS = {
     "exo": "#DC2626",
-    "endo": "#0E7490",
+    "endo": "#2563EB",
     "exotherm": "#DC2626",
-    "endotherm": "#0E7490",
+    "endotherm": "#2563EB",
 }
 _DIRECTION_ICONS = {
     "exo": "bi-arrow-up-circle",
@@ -58,8 +60,152 @@ _DIRECTION_ICONS = {
     "exotherm": "bi-arrow-up-circle",
     "endotherm": "bi-arrow-down-circle",
 }
+_DIRECTION_GUIDE_COLORS = {
+    "exo": "rgba(220, 38, 38, 0.22)",
+    "endo": "rgba(37, 99, 235, 0.22)",
+    "exotherm": "rgba(220, 38, 38, 0.22)",
+    "endotherm": "rgba(37, 99, 235, 0.22)",
+}
 
 _ANNOTATION_MIN_SEP = 15.0  # degC -- suppress label when peaks are too close
+_PRIMARY_EVENT_LIMIT = 4
+_EMPTY_SAMPLE_TOKENS = {"", "unknown", "n/a", "na", "none", "null", "unnamed"}
+
+
+def _clean_sample_token(value) -> str | None:
+    token = str(value or "").strip()
+    if not token or token.lower() in _EMPTY_SAMPLE_TOKENS:
+        return None
+    return token
+
+
+def _normalize_direction(value) -> str:
+    token = str(value or "").strip().lower()
+    if token.startswith("exo"):
+        return "exotherm"
+    if token.startswith("endo"):
+        return "endotherm"
+    return token
+
+
+def _direction_label(direction: str) -> str:
+    normalized = _normalize_direction(direction)
+    if normalized == "exotherm":
+        return "Exo"
+    if normalized == "endotherm":
+        return "Endo"
+    return normalized.title() or "Unknown"
+
+
+def _coerce_float(value) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _event_rows(rows: list[dict]) -> list[dict]:
+    return [dict(row) for row in (rows or []) if isinstance(row, dict)]
+
+
+def _derive_event_metrics(summary: dict, rows: list[dict]) -> tuple[int, int, int]:
+    derived_exo = 0
+    derived_endo = 0
+    for row in rows:
+        direction = _normalize_direction(row.get("direction", row.get("peak_type")))
+        if direction == "exotherm":
+            derived_exo += 1
+        elif direction == "endotherm":
+            derived_endo += 1
+
+    peak_count = len(rows) or int(summary.get("peak_count") or 0)
+    exo_count = derived_exo
+    endo_count = derived_endo
+    if not rows:
+        exo_count = int(summary.get("exotherm_count", summary.get("exo_count")) or 0)
+        endo_count = int(summary.get("endotherm_count", summary.get("endo_count")) or 0)
+        if peak_count <= 0 and (exo_count or endo_count):
+            peak_count = exo_count + endo_count
+    return peak_count, exo_count, endo_count
+
+
+def _resolve_dta_sample_name(summary: dict, result_meta: dict, dataset_detail: dict | None = None) -> str:
+    dataset_detail = dataset_detail or {}
+    dataset_summary = dataset_detail.get("dataset", {}) or {}
+    metadata = dataset_detail.get("metadata", {}) or {}
+
+    fallback_display = (
+        _clean_sample_token(dataset_summary.get("display_name"))
+        or _clean_sample_token(metadata.get("display_name"))
+        or _clean_sample_token(summary.get("display_name"))
+        or _clean_sample_token(dataset_summary.get("sample_name"))
+        or _clean_sample_token(metadata.get("sample_name"))
+        or _clean_sample_token(metadata.get("file_name"))
+    )
+    normalized_summary = dict(summary or {})
+    normalized_summary["sample_name"] = _clean_sample_token(normalized_summary.get("sample_name"))
+    return resolve_sample_name(normalized_summary, result_meta or {}, fallback_display_name=fallback_display)
+
+
+def _event_priority(row: dict) -> tuple[float, float, float]:
+    area = abs(_coerce_float(row.get("area")) or 0.0)
+    height = abs(_coerce_float(row.get("height")) or 0.0)
+    peak_temp = _coerce_float(row.get("peak_temperature"))
+    return area, height, -(peak_temp if peak_temp is not None else float("inf"))
+
+
+def _sort_events_by_temperature(rows: list[dict]) -> list[dict]:
+    return sorted(
+        rows,
+        key=lambda row: (_coerce_float(row.get("peak_temperature")) is None, _coerce_float(row.get("peak_temperature")) or 0.0),
+    )
+
+
+def _split_primary_events(rows: list[dict], limit: int = _PRIMARY_EVENT_LIMIT) -> tuple[list[dict], list[dict]]:
+    if len(rows) <= limit:
+        return _sort_events_by_temperature(rows), []
+
+    indexed_rows = list(enumerate(rows))
+    selected = sorted(indexed_rows, key=lambda item: _event_priority(item[1]), reverse=True)[:limit]
+    selected_indices = {index for index, _row in selected}
+    primary = _sort_events_by_temperature([row for index, row in indexed_rows if index in selected_indices])
+    secondary = _sort_events_by_temperature([row for index, row in indexed_rows if index not in selected_indices])
+    return primary, secondary
+
+
+def _series_values(series: list) -> list[float]:
+    values: list[float] = []
+    for item in series or []:
+        parsed = _coerce_float(item)
+        if parsed is not None:
+            values.append(parsed)
+    return values
+
+
+def _series_for_temperature(series: list, temperature: list[float]) -> list[float]:
+    return series if series and len(series) == len(temperature) else []
+
+
+def _compute_y_axis_range(*series_collection: list[float]) -> list[float] | None:
+    values: list[float] = []
+    for series in series_collection:
+        values.extend(_series_values(series))
+    if not values:
+        return None
+
+    lower = min(values)
+    upper = max(values)
+    span = upper - lower
+    if span <= 0:
+        pad = max(abs(upper) * 0.12, 1.0)
+    else:
+        pad = span * 0.12
+    return [lower - pad, upper + pad]
 
 
 # ---------------------------------------------------------------------------
@@ -67,10 +213,10 @@ _ANNOTATION_MIN_SEP = 15.0  # degC -- suppress label when peaks are too close
 # ---------------------------------------------------------------------------
 
 def _peak_card(row: dict, idx: int) -> dbc.Card:
-    direction = str(row.get("direction", row.get("peak_type", "unknown")).lower())
+    direction = _normalize_direction(row.get("direction", row.get("peak_type", "unknown")))
     color = _DIRECTION_COLORS.get(direction, "#6B7280")
     icon = _DIRECTION_ICONS.get(direction, "bi-circle")
-    direction_label = direction.replace("exotherm", "exo").replace("endotherm", "endo").title()
+    direction_label = _direction_label(direction)
 
     pt = row.get("peak_temperature")
     onset = row.get("onset_temperature")
@@ -114,7 +260,7 @@ def _peak_card(row: dict, idx: int) -> dbc.Card:
                 ),
             ]
         ),
-        className="mb-2",
+        className="mb-2 h-100",
     )
 
 
@@ -148,8 +294,8 @@ layout = html.Div(
                 dbc.Col(
                     [
                         result_placeholder_card("dta-result-metrics"),
-                        result_placeholder_card("dta-result-peak-cards"),
                         result_placeholder_card("dta-result-figure"),
+                        result_placeholder_card("dta-result-peak-cards"),
                         result_placeholder_card("dta-result-table"),
                         result_placeholder_card("dta-result-processing"),
                     ],
@@ -253,7 +399,7 @@ def display_result(result_id, _refresh, project_id):
     if not result_id or not project_id:
         return empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
 
-    from dash_app.api_client import workspace_result_detail
+    from dash_app.api_client import workspace_dataset_detail, workspace_result_detail
 
     try:
         detail = workspace_result_detail(project_id, result_id)
@@ -264,16 +410,22 @@ def display_result(result_id, _refresh, project_id):
     summary = detail.get("summary", {})
     result_meta = detail.get("result", {})
     processing = detail.get("processing", {})
-    rows = detail.get("rows_preview", [])
+    rows = _event_rows(detail.get("rows") or detail.get("rows_preview") or [])
+    dataset_key = result_meta.get("dataset_key")
+
+    dataset_detail = {}
+    if dataset_key:
+        try:
+            dataset_detail = workspace_dataset_detail(project_id, dataset_key)
+        except Exception:
+            dataset_detail = {}
 
     # --- Metrics row ---
-    peak_count = summary.get("peak_count", 0)
-    exo_count = summary.get("exotherm_count", summary.get("exo_count", 0))
-    endo_count = summary.get("endotherm_count", summary.get("endo_count", 0))
-    sample_name = resolve_sample_name(summary, result_meta)
+    peak_count, exo_count, endo_count = _derive_event_metrics(summary, rows)
+    sample_name = _resolve_dta_sample_name(summary, result_meta, dataset_detail)
 
     metrics = metrics_row([
-        ("Peaks", str(peak_count)),
+        ("Events", str(peak_count)),
         ("Exothermic", str(exo_count)),
         ("Endothermic", str(endo_count)),
         ("Sample", sample_name),
@@ -283,10 +435,9 @@ def display_result(result_id, _refresh, project_id):
     peak_cards = _build_peak_cards(rows)
 
     # --- Figure with smoothed/baseline/corrected overlay ---
-    dataset_key = result_meta.get("dataset_key")
     figure_area = empty_msg
     if dataset_key:
-        figure_area = _build_figure(project_id, dataset_key, summary, rows)
+        figure_area = _build_figure(project_id, dataset_key, sample_name, rows)
 
     # --- Peak table ---
     table_area = _build_peak_table(rows)
@@ -312,16 +463,44 @@ def display_result(result_id, _refresh, project_id):
 def _build_peak_cards(rows: list) -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("Detected Events", className="mb-3"), html.P("No thermal events detected.", className="text-muted")]
+            [html.H5("Key Thermal Events", className="mb-3"), html.P("No thermal events detected.", className="text-muted")]
         )
 
-    cards = [html.H5("Detected Events", className="mb-3")]
-    for idx, row in enumerate(rows):
-        cards.append(_peak_card(row, idx))
+    primary_rows, secondary_rows = _split_primary_events(rows)
+    cards = [
+        html.H5("Key Thermal Events", className="mb-2"),
+        html.P(
+            f"Showing {len(primary_rows)} event card(s) with the strongest resolved signatures. "
+            f"The full event table below keeps all {len(rows)} event(s).",
+            className="text-muted small mb-3",
+        ),
+        dbc.Row(
+            [dbc.Col(_peak_card(row, idx), md=6) for idx, row in enumerate(primary_rows)],
+            className="g-3",
+        ),
+    ]
+
+    if secondary_rows:
+        cards.append(
+            html.Details(
+                [
+                    html.Summary(f"Show {len(secondary_rows)} additional event(s)", className="small"),
+                    html.Div(
+                        dataset_table(
+                            secondary_rows,
+                            ["direction", "peak_temperature", "onset_temperature", "endset_temperature", "area", "height"],
+                            table_id="dta-secondary-events-table",
+                        ),
+                        className="mt-3",
+                    ),
+                ],
+                className="mt-3",
+            )
+        )
     return html.Div(cards)
 
 
-def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: list) -> html.Div:
+def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows: list) -> html.Div:
     from dash_app.api_client import analysis_state_curves
 
     try:
@@ -330,73 +509,145 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: l
         curves = {}
 
     temperature = curves.get("temperature", [])
-    raw_signal = curves.get("raw_signal", [])
-    smoothed = curves.get("smoothed", [])
-    baseline = curves.get("baseline", [])
-    corrected = curves.get("corrected", [])
-    has_overlay = curves.get("has_smoothed") or curves.get("has_baseline") or curves.get("has_corrected")
+    raw_signal = _series_for_temperature(curves.get("raw_signal", []), temperature)
+    smoothed = _series_for_temperature(curves.get("smoothed", []), temperature)
+    baseline = _series_for_temperature(curves.get("baseline", []), temperature)
+    corrected = _series_for_temperature(curves.get("corrected", []), temperature)
 
     if not temperature:
         return no_data_figure_msg()
 
-    sample_name = resolve_sample_name(summary, {}, fallback_display_name=dataset_key)
+    primary_signal = corrected or smoothed or raw_signal
+    if not primary_signal:
+        return no_data_figure_msg("No processed DTA signal is available for plotting.")
 
     fig = go.Figure()
+    primary_name = "Corrected Signal" if corrected else ("Smoothed Signal" if smoothed else "Raw Signal")
+    primary_color = "#047857" if corrected else ("#0E7490" if smoothed else "#475569")
+    y_range = _compute_y_axis_range(primary_signal, baseline, smoothed if corrected else [], raw_signal if not (corrected or smoothed) else [])
 
-    raw_alpha = 0.35 if has_overlay else 1.0
-    raw_width = 1.0 if has_overlay else 1.5
+    if raw_signal:
+        fig.add_trace(
+            go.Scatter(
+                x=temperature,
+                y=raw_signal,
+                mode="lines",
+                name="Raw Signal",
+                line=dict(color="#94A3B8", width=1.0 if primary_name != "Raw Signal" else 1.8),
+                opacity=0.24 if primary_name != "Raw Signal" else 0.9,
+            )
+        )
+
+    if smoothed and primary_name != "Smoothed Signal":
+        fig.add_trace(
+            go.Scatter(
+                x=temperature,
+                y=smoothed,
+                mode="lines",
+                name="Smoothed",
+                line=dict(color="#0891B2", width=1.5),
+                opacity=0.9,
+            )
+        )
+
+    if baseline:
+        fig.add_trace(
+            go.Scatter(
+                x=temperature,
+                y=baseline,
+                mode="lines",
+                name="Baseline",
+                line=dict(color="#64748B", width=1.0, dash="dot"),
+                opacity=0.8,
+            )
+        )
+
     fig.add_trace(
         go.Scatter(
-            x=temperature, y=raw_signal, mode="lines", name="Raw Signal",
-            line=dict(color="#94A3B8", width=raw_width), opacity=raw_alpha,
+            x=temperature,
+            y=primary_signal,
+            mode="lines",
+            name=primary_name,
+            line=dict(color=primary_color, width=2.8),
+            opacity=1.0,
         )
     )
 
-    if smoothed and len(smoothed) == len(temperature):
-        fig.add_trace(
-            go.Scatter(x=temperature, y=smoothed, mode="lines", name="Smoothed", line=dict(color="#0E7490", width=1.5))
-        )
-
-    if baseline and len(baseline) == len(temperature):
-        fig.add_trace(
-            go.Scatter(x=temperature, y=baseline, mode="lines", name="Baseline", line=dict(color="#6B7280", width=1, dash="dash"))
-        )
-
-    if corrected and len(corrected) == len(temperature):
-        fig.add_trace(
-            go.Scatter(x=temperature, y=corrected, mode="lines", name="Corrected", line=dict(color="#059669", width=1.5))
-        )
-
-    # Peak markers with direction-colored diamonds
+    primary_rows, _secondary_rows = _split_primary_events(peak_rows, limit=min(_PRIMARY_EVENT_LIMIT, len(peak_rows) or 0))
+    primary_ids = {id(row) for row in primary_rows}
+    guide_rows = primary_rows if len(peak_rows) > _PRIMARY_EVENT_LIMIT else _sort_events_by_temperature(peak_rows)
+    annotate_guides = len(guide_rows) <= 3
     annotated_temps: list[float] = []
 
-    for row in peak_rows:
-        pt = row.get("peak_temperature")
-        if pt is None:
-            continue
-        direction = str(row.get("direction", row.get("peak_type", "unknown")).lower())
-        color = _DIRECTION_COLORS.get(direction, "#B45309")
-        idx = min(range(len(temperature)), key=lambda i: abs(temperature[i] - pt)) if temperature else None
-        if idx is not None:
-            too_close = any(abs(pt - t) < _ANNOTATION_MIN_SEP for t in annotated_temps)
-            text_str = f"{pt:.1f}" if not too_close else ""
-            fig.add_trace(
-                go.Scatter(
-                    x=[temperature[idx]], y=[raw_signal[idx]], mode="markers+text",
-                    marker=dict(size=10, color=color, symbol="diamond"),
-                    text=[text_str], textposition="bottom center",
-                    textfont=dict(size=9, color=color),
-                    name=f"{direction.title()} {pt:.1f} C", showlegend=False,
-                )
+    for row in guide_rows:
+        direction = _normalize_direction(row.get("direction", row.get("peak_type")))
+        guide_color = _DIRECTION_GUIDE_COLORS.get(direction, "rgba(100, 116, 139, 0.18)")
+        onset = _coerce_float(row.get("onset_temperature"))
+        endset = _coerce_float(row.get("endset_temperature"))
+        if onset is not None:
+            fig.add_vline(
+                x=onset,
+                line=dict(color=guide_color, width=1, dash="dot"),
+                annotation_text=f"On {onset:.1f}" if annotate_guides else None,
+                annotation_position="top left",
             )
-            if text_str:
-                annotated_temps.append(pt)
+        if endset is not None:
+            fig.add_vline(
+                x=endset,
+                line=dict(color=guide_color, width=1, dash="dot"),
+                annotation_text=f"End {endset:.1f}" if annotate_guides else None,
+                annotation_position="top left",
+            )
+
+    for row in _sort_events_by_temperature(peak_rows):
+        pt = _coerce_float(row.get("peak_temperature"))
+        if pt is None or not temperature:
+            continue
+        direction = _normalize_direction(row.get("direction", row.get("peak_type", "unknown")))
+        color = _DIRECTION_COLORS.get(direction, "#B45309")
+        idx = min(range(len(temperature)), key=lambda i: abs(temperature[i] - pt))
+        too_close = any(abs(pt - t) < _ANNOTATION_MIN_SEP for t in annotated_temps)
+        is_primary = id(row) in primary_ids
+        text_str = f"{pt:.1f}" if is_primary and not too_close else ""
+        fig.add_trace(
+            go.Scatter(
+                x=[temperature[idx]],
+                y=[primary_signal[idx]],
+                mode="markers+text",
+                marker=dict(
+                    size=11 if is_primary else 8,
+                    color=color,
+                    symbol="diamond",
+                    line=dict(color="white", width=1.2),
+                ),
+                text=[text_str],
+                textposition="top center",
+                textfont=dict(size=9, color=color),
+                name=f"{_direction_label(direction)} {pt:.1f} C",
+                showlegend=False,
+            )
+        )
+        if text_str:
+            annotated_temps.append(pt)
 
     fig.update_layout(
-        title=f"DTA - {sample_name}", template="plotly_white",
-        xaxis_title="Temperature (C)", yaxis_title="Delta-T (a.u.)",
-        margin=dict(l=56, r=24, t=56, b=48), height=480,
+        title=f"DTA - {sample_name}",
+        template="plotly_white",
+        xaxis_title="Temperature (C)",
+        yaxis_title="Delta-T (a.u.)",
+        hovermode="x unified",
+        margin=dict(l=56, r=24, t=56, b=48),
+        height=560,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_xaxes(showline=True, linecolor="#CBD5E1", gridcolor="rgba(148, 163, 184, 0.18)")
+    fig.update_yaxes(
+        showline=True,
+        linecolor="#CBD5E1",
+        gridcolor="rgba(148, 163, 184, 0.14)",
+        zeroline=True,
+        zerolinecolor="rgba(100, 116, 139, 0.28)",
+        range=y_range,
     )
     return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True})
 
@@ -404,7 +655,7 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, peak_rows: l
 def _build_peak_table(rows: list) -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("Event Data Table", className="mb-3"), html.P("No event data.", className="text-muted")]
+            [html.H5("All Event Details", className="mb-3"), html.P("No event data.", className="text-muted")]
         )
 
     columns = [
@@ -418,7 +669,7 @@ def _build_peak_table(rows: list) -> html.Div:
     ]
     return html.Div(
         [
-            html.H5("Event Data Table", className="mb-3"),
+            html.H5("All Event Details", className="mb-3"),
             dataset_table(rows, columns, table_id="dta-peaks-table"),
         ]
     )
