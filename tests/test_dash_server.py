@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from dash_app.sample_data import resolve_sample_request
 from dash_app.server import create_combined_app
 
+# Broader import→run→workspace/export/compare coverage lives in
+# tests/test_dash_workflow_regression.py
+
 
 def test_combined_dash_app_startup_and_sample_import_smoke():
     app = create_combined_app()
