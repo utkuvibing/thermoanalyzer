@@ -215,7 +215,9 @@ def render_sidebar(locale: str | None, theme: str | None) -> html.Div:
     State("ui-theme", "data"),
     prevent_initial_call=True,
 )
-def toggle_ui_theme(_n_clicks: int, current: str | None) -> str:
+def toggle_ui_theme(n_clicks: int | None, current: str | None) -> str:
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
     cur = current if current in ("light", "dark") else "light"
     return "dark" if cur == "light" else "light"
 
