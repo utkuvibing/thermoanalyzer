@@ -13,6 +13,12 @@ import pandas as pd
 
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
+from dash_app.components.page_guidance import (
+    guidance_block,
+    next_step_block,
+    prereq_or_empty_help,
+    typical_workflow_block,
+)
 
 dash.register_page(__name__, path="/export", title="Export - MaterialScope")
 
@@ -24,6 +30,29 @@ layout = html.Div(
             "Report Center",
             "Preview report payloads, edit branding, export data/results, and generate branded reports.",
             badge="Export",
+        ),
+        html.Div(
+            [
+                guidance_block(
+                    "What this page does",
+                    body=(
+                        "Prepare export artifacts from the active workspace: raw data tables, normalized results, "
+                        "and branded DOCX/PDF reports."
+                    ),
+                ),
+                typical_workflow_block(
+                    [
+                        "Verify workspace readiness in Project (datasets/results available).",
+                        "Set branding fields and confirm export selections.",
+                        "Export data/results or generate the report package.",
+                    ],
+                    title="Typical workflow",
+                ),
+                next_step_block(
+                    "If exports are incomplete, save missing analysis results first and return to this page."
+                ),
+            ],
+            className="mb-2",
         ),
         dbc.Row(
             [
@@ -142,7 +171,10 @@ layout = html.Div(
 )
 def load_report_center(project_id, _refresh, _global_refresh):
     if not project_id:
-        empty = html.P("No workspace active.", className="text-muted")
+        empty = prereq_or_empty_help(
+            "No active workspace. Import data and save results before preparing exports.",
+            title="Workspace required",
+        )
         return empty, [], [], [], [], [], []
 
     from dash_app.api_client import export_preparation, workspace_datasets
@@ -198,7 +230,13 @@ def load_report_center(project_id, _refresh, _global_refresh):
     if result_rows:
         preview_children.extend([html.H5("Report Package", className="mt-3 mb-2"), dataset_table(result_rows, ["id", "analysis_type", "status", "dataset_key", "saved_at_utc"], table_id="report-package-table")])
     else:
-        preview_children.append(html.P("No normalized result records are saved yet.", className="text-muted"))
+        preview_children.append(
+            prereq_or_empty_help(
+                "No normalized result records are saved yet. Run analyses and save results before exporting result tables or reports.",
+                tone="secondary",
+                title="Results required for report outputs",
+            )
+        )
     if skipped:
         preview_children.append(dbc.Alert([html.Div("Some saved records are incomplete and will be skipped."), html.Ul([html.Li(issue) for issue in skipped])], color="warning"))
 
@@ -294,9 +332,17 @@ def save_branding(n_clicks, project_id, report_title, company_name, lab_name, an
 )
 def export_data_files(n_clicks, project_id, export_format, dataset_keys):
     if not n_clicks or not project_id:
+        if n_clicks and not project_id:
+            return prereq_or_empty_help(
+                "No active workspace. Load datasets before exporting raw/imported data.",
+                title="Workspace required",
+            ), dash.no_update
         raise dash.exceptions.PreventUpdate
     if not dataset_keys:
-        return dbc.Alert("Select at least one dataset.", color="warning"), dash.no_update
+        return prereq_or_empty_help(
+            "Select at least one dataset for raw/imported data export.",
+            title="Dataset selection required",
+        ), dash.no_update
 
     from dash_app.api_client import workspace_dataset_data
 
@@ -342,7 +388,17 @@ def export_data_files(n_clicks, project_id, export_format, dataset_keys):
 )
 def export_result_files(n_clicks, project_id, export_format, selected_result_ids):
     if not n_clicks or not project_id:
+        if n_clicks and not project_id:
+            return prereq_or_empty_help(
+                "No active workspace. Save analysis results before exporting result tables.",
+                title="Workspace required",
+            ), dash.no_update
         raise dash.exceptions.PreventUpdate
+    if not selected_result_ids:
+        return prereq_or_empty_help(
+            "Select at least one saved result record for result export.",
+            title="Result selection required",
+        ), dash.no_update
     from dash_app.api_client import export_results_csv, export_results_xlsx
 
     try:
@@ -365,7 +421,17 @@ def export_result_files(n_clicks, project_id, export_format, selected_result_ids
 )
 def export_report_files(n_clicks, project_id, export_format, selected_result_ids, include_figures):
     if not n_clicks or not project_id:
+        if n_clicks and not project_id:
+            return prereq_or_empty_help(
+                "No active workspace. Save analysis results before generating reports.",
+                title="Workspace required",
+            ), dash.no_update
         raise dash.exceptions.PreventUpdate
+    if not selected_result_ids:
+        return prereq_or_empty_help(
+            "Select at least one saved result record to generate a report.",
+            title="Result selection required",
+        ), dash.no_update
     from dash_app.api_client import export_report_docx, export_report_pdf
 
     try:

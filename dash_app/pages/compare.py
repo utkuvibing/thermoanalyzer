@@ -12,6 +12,12 @@ from core.processing_schema import get_workflow_templates
 from dash_app.compare_curve_utils import axis_titles, pick_best_series
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
+from dash_app.components.page_guidance import (
+    guidance_block,
+    next_step_block,
+    prereq_or_empty_help,
+    typical_workflow_block,
+)
 from dash_app.theme import apply_figure_theme
 
 dash.register_page(__name__, path="/compare", title="Compare - MaterialScope")
@@ -32,6 +38,21 @@ def _available_types(datasets: list[dict]) -> list[str]:
     return options
 
 
+def _compare_prereq_state(datasets: list[dict], analysis_type: str | None, selected_runs: list[str] | None) -> str | None:
+    """Return a human-readable prerequisite state for compare guidance."""
+    if not datasets:
+        return "no_datasets"
+    available_types = _available_types(datasets)
+    if not available_types:
+        return "no_eligible_types"
+    if not analysis_type:
+        return "select_analysis_type"
+    run_count = len(selected_runs or [])
+    if run_count < 2:
+        return "insufficient_overlay_runs"
+    return None
+
+
 layout = html.Div(
     [
         dcc.Store(id="compare-refresh", data=0),
@@ -39,6 +60,35 @@ layout = html.Div(
             "Compare Workspace",
             "Overlay runs with best-available processed curves or raw import data; run batch templates across selected datasets.",
             badge="Compare",
+        ),
+        html.Div(
+            [
+                guidance_block(
+                    "What this page does",
+                    body=(
+                        "Build a reusable compare workspace by selecting analysis type and runs, then "
+                        "overlaying curves in best-available or raw mode."
+                    ),
+                ),
+                typical_workflow_block(
+                    [
+                        "Choose an analysis type compatible with your imported runs.",
+                        "Select runs and review the overlay (2+ runs recommended for comparison).",
+                        "Save compare workspace, then open Report Center to include compare context.",
+                    ],
+                    title="Typical workflow",
+                ),
+                guidance_block(
+                    "Usage notes",
+                    bullets=[
+                        "Overlay comparison requires at least two selected runs.",
+                        "Batch execution can run with one or more selected runs.",
+                    ],
+                    tone="secondary",
+                ),
+                next_step_block("Save Compare Workspace before generating report outputs."),
+            ],
+            className="mb-2",
         ),
         dbc.Row(
             [
@@ -271,10 +321,10 @@ def render_compare_workspace(
     project_id, analysis_type, selected_runs, signal_mode, _compare_refresh, _workspace_refresh, ui_theme
 ):
     if not project_id:
-        empty = html.P("No workspace active.", className="text-muted")
-        return empty, empty, empty, empty
-    if not analysis_type:
-        empty = html.P("Select an analysis type.", className="text-muted")
+        empty = prereq_or_empty_help(
+            "No active workspace. Import datasets and save analysis results before using Compare.",
+            title="Workspace required",
+        )
         return empty, empty, empty, empty
 
     from dash_app.api_client import (
@@ -294,9 +344,34 @@ def render_compare_workspace(
         if item.get("analysis_type") == analysis_type
     }
     cmp = compare_workspace(project_id).get("compare_workspace", {})
+    prereq_state = _compare_prereq_state(list(datasets.values()), analysis_type, selected_runs)
+
+    if prereq_state == "no_datasets":
+        empty = prereq_or_empty_help(
+            "No datasets loaded. Import runs first, then return to build compare overlays.",
+            title="Datasets required",
+        )
+        return empty, empty, empty, empty
+    if prereq_state == "no_eligible_types":
+        empty = prereq_or_empty_help(
+            "Datasets are loaded but none are eligible for stable compare analysis types. Check dataset data types in Import/Project.",
+            title="No eligible analysis type",
+        )
+        return empty, empty, empty, empty
+    if prereq_state == "select_analysis_type":
+        empty = prereq_or_empty_help(
+            "Select an analysis type to load eligible runs and build the compare workspace.",
+            tone="secondary",
+            title="Analysis type required",
+        )
+        return empty, empty, empty, empty
 
     if len(selected_runs) < 2:
-        overlay = html.P("Select at least two runs to build an overlay workspace.", className="text-muted")
+        overlay = prereq_or_empty_help(
+            "Select at least two runs to build an overlay. Batch execution can still run with one selected run.",
+            tone="secondary",
+            title="More runs needed for overlay",
+        )
     else:
         fig = go.Figure()
         x_title, y_title = axis_titles(analysis_type)

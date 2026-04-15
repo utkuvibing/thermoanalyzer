@@ -11,6 +11,12 @@ from dash import Input, Output, State, callback, dcc, html
 from core.project_io import PROJECT_EXTENSION
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
+from dash_app.components.page_guidance import (
+    guidance_block,
+    next_step_block,
+    prereq_or_empty_help,
+    typical_workflow_block,
+)
 
 dash.register_page(__name__, path="/project", title="Project - MaterialScope")
 
@@ -38,6 +44,27 @@ layout = html.Div(
             "Project Workspace",
             "Save, load, reset, and inspect the current analysis workspace.",
             badge="Workspace",
+        ),
+        html.Div(
+            [
+                guidance_block(
+                    "What this page does",
+                    body=(
+                        "Use this page as the workspace checkpoint: verify loaded runs, review saved results, "
+                        "inspect compare state, and manage archive save/load operations."
+                    ),
+                ),
+                typical_workflow_block(
+                    [
+                        "Import datasets on the Import page.",
+                        "Use Project Workspace to verify dataset and saved-result counts.",
+                        "Proceed to Compare and Report when the workspace summary is ready.",
+                    ],
+                    title="Typical workflow",
+                ),
+                next_step_block("Use the workspace summary panel to identify the immediate next action."),
+            ],
+            className="mb-2",
         ),
         dbc.Row(
             [
@@ -112,7 +139,10 @@ def stage_project_upload(contents, file_name):
 )
 def load_workspace(project_id, _refresh, _global_refresh):
     if not project_id:
-        empty = html.P("No workspace active.", className="text-muted")
+        empty = prereq_or_empty_help(
+            "No active workspace. Go to Import to load runs or use Quick Actions here to start/load a workspace.",
+            title="Workspace required",
+        )
         return empty, empty, empty, empty, empty
 
     from dash_app.api_client import workspace_context, workspace_datasets, workspace_results
@@ -144,7 +174,7 @@ def load_workspace(project_id, _refresh, _global_refresh):
         ],
         className="mb-3",
     )
-    summary_block = html.Div([metrics, dbc.Alert(_next_step(summary, compare_workspace), color="info"), status_lines])
+    summary_block = html.Div([metrics, next_step_block(_next_step(summary, compare_workspace)), status_lines])
 
     dataset_rows = datasets_payload.get("datasets", [])
     if dataset_rows:
@@ -159,7 +189,16 @@ def load_workspace(project_id, _refresh, _global_refresh):
             ]
         )
     else:
-        dataset_table_view = html.Div([html.H5("Loaded Runs", className="mb-3"), html.P("No datasets loaded.", className="text-muted")])
+        dataset_table_view = html.Div(
+            [
+                html.H5("Loaded Runs", className="mb-3"),
+                prereq_or_empty_help(
+                    "No datasets loaded. Import runs first to populate this workspace.",
+                    tone="secondary",
+                    title="No loaded runs",
+                ),
+            ]
+        )
 
     result_rows = results_payload.get("results", [])
     if result_rows:
@@ -174,7 +213,16 @@ def load_workspace(project_id, _refresh, _global_refresh):
             ]
         )
     else:
-        results_view = html.Div([html.H5("Saved Result Records", className="mb-3"), html.P("No saved results yet.", className="text-muted")])
+        results_view = html.Div(
+            [
+                html.H5("Saved Result Records", className="mb-3"),
+                prereq_or_empty_help(
+                    "No saved results yet. Run analyses, then return here to confirm result records.",
+                    tone="secondary",
+                    title="No saved results",
+                ),
+            ]
+        )
 
     compare_view = html.Div(
         [
@@ -204,7 +252,16 @@ def load_workspace(project_id, _refresh, _global_refresh):
             ]
         )
     else:
-        history_view = html.Div([html.H5("Recent History", className="mb-3"), html.P("No history yet.", className="text-muted")])
+        history_view = html.Div(
+            [
+                html.H5("Recent History", className="mb-3"),
+                prereq_or_empty_help(
+                    "No workflow history yet. Actions such as import, analysis save, compare updates, and archive operations will appear here.",
+                    tone="secondary",
+                    title="No history entries",
+                ),
+            ]
+        )
 
     return summary_block, dataset_table_view, results_view, compare_view, history_view
 
@@ -349,7 +406,10 @@ def resolve_project_action(confirm_clicks, cancel_clicks, action, pending_upload
 )
 def save_project(n_clicks, project_id):
     if not project_id:
-        return dbc.Alert("No workspace to save.", color="warning"), dash.no_update
+        return prereq_or_empty_help(
+            "No active workspace to save. Import data or load a project archive first.",
+            title="Workspace required",
+        ), dash.no_update
 
     from dash_app.api_client import project_save
 

@@ -17,6 +17,12 @@ from dash_app.components.data_preview import (
     quick_plot,
     stats_table,
 )
+from dash_app.components.page_guidance import (
+    guidance_block,
+    next_step_block,
+    prereq_or_empty_help,
+    typical_workflow_block,
+)
 from dash_app.import_preview import build_import_preview
 from dash_app.sample_data import list_sample_specs, resolve_sample_request
 
@@ -81,6 +87,29 @@ layout = html.Div(
             "Data Import",
             "Upload, map, preview, and manage thermal analysis runs before analysis pages are migrated.",
             badge="Import",
+        ),
+        html.Div(
+            [
+                guidance_block(
+                    "What this page does",
+                    body=(
+                        "Import raw or sample datasets into the active workspace, "
+                        "validate column mapping, and inspect loaded runs before downstream work."
+                    ),
+                ),
+                typical_workflow_block(
+                    [
+                        "Upload a file (or load sample data), then preview and map axis/signal columns.",
+                        "Import the run and set an active dataset from the loaded dataset panel.",
+                        "Open Project Workspace to confirm workspace status before Compare or Report.",
+                    ],
+                    title="How to use this page",
+                ),
+                next_step_block(
+                    "After at least one dataset is loaded, use Project Workspace as the checkpoint for save/load and downstream readiness."
+                ),
+            ],
+            className="mb-2",
         ),
         html.Div(id="import-metrics"),
         dbc.Row(
@@ -302,7 +331,11 @@ def collect_pending_uploads(contents_list, filenames, pending_files):
 def pending_file_options(pending_files):
     items = pending_files or []
     options = [{"label": item["file_name"], "value": item["file_name"]} for item in items]
-    help_text = "Upload a file to preview and map its columns." if not items else f"{len(items)} pending file(s) ready for import."
+    help_text = (
+        "Upload a file to preview, map, and import into the workspace."
+        if not items
+        else f"{len(items)} pending file(s) ready for preview and import."
+    )
     return options, help_text
 
 
@@ -331,7 +364,11 @@ def build_pending_preview(selected_file, _ui_theme, pending_files):
         empty_options = _mapping_options([])
         return (
             None,
-            html.P("Select a pending file to preview.", className="text-muted"),
+            prereq_or_empty_help(
+                "Upload a file in the Upload File tab, then select it here to preview and map columns.",
+                tone="secondary",
+                title="No file selected",
+            ),
             "",
             "DSC",
             empty_options,
@@ -449,8 +486,31 @@ def import_with_mapping(
     xrd_wavelength,
     refresh_value,
 ):
-    if not n_clicks or not project_id or not preview:
+    if not n_clicks:
         raise dash.exceptions.PreventUpdate
+
+    if not project_id:
+        return (
+            prereq_or_empty_help(
+                "No active workspace. Open Project Workspace to start or load one, then import again.",
+                title="Workspace required",
+            ),
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
+
+    if not preview:
+        return (
+            prereq_or_empty_help(
+                "Select a pending file to build a preview before importing.",
+                tone="secondary",
+                title="Preview required",
+            ),
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
 
     if temp_col == _NONE_VALUE or signal_col == _NONE_VALUE:
         return (
@@ -515,7 +575,10 @@ def import_with_mapping(
     ds = result.get("dataset", {})
     return (
         dbc.Alert(
-            f"Imported: {ds.get('display_name', preview['file_name'])} ({ds.get('data_type', '?')})",
+            (
+                f"Imported: {ds.get('display_name', preview['file_name'])} ({ds.get('data_type', '?')}). "
+                "Next: confirm workspace status in Project Workspace."
+            ),
             color="success",
             dismissable=True,
         ),
@@ -536,7 +599,13 @@ def import_with_mapping(
 )
 def load_sample(_clicks, ids, project_id, refresh_value):
     if not project_id:
-        raise dash.exceptions.PreventUpdate
+        return (
+            prereq_or_empty_help(
+                "No active workspace. Open Project Workspace to start or load one, then load sample data.",
+                title="Workspace required",
+            ),
+            dash.no_update,
+        )
     ctx = dash.callback_context
     triggered = ctx.triggered_id
     if not triggered:
@@ -585,7 +654,15 @@ def load_sample(_clicks, ids, project_id, refresh_value):
 )
 def load_workspace_datasets(project_id, _refresh, _ui_theme):
     if not project_id:
-        return "", html.P("No workspace active.", className="text-muted"), [], None
+        return (
+            "",
+            prereq_or_empty_help(
+                "No active workspace. Open Project Workspace to create or load a workspace, then return to Import.",
+                title="Workspace required",
+            ),
+            [],
+            None,
+        )
 
     from dash_app.api_client import workspace_datasets
 
@@ -599,7 +676,11 @@ def load_workspace_datasets(project_id, _refresh, _ui_theme):
     if not datasets:
         return (
             _build_metrics([]),
-            html.P("No datasets loaded yet.", className="text-muted"),
+            prereq_or_empty_help(
+                "No datasets are loaded yet. Upload files or load sample datasets to populate this workspace.",
+                tone="secondary",
+                title="No datasets in workspace",
+            ),
             [],
             None,
         )
@@ -668,8 +749,17 @@ def remove_dataset(n_clicks, dataset_key, project_id, refresh_value):
     prevent_initial_call=False,
 )
 def load_active_dataset_detail(project_id, dataset_key, _refresh, ui_theme):
-    if not project_id or not dataset_key:
-        return html.P("Select a dataset to inspect its details.", className="text-muted")
+    if not project_id:
+        return prereq_or_empty_help(
+            "No active workspace. Start or load a workspace in Project, then import datasets here.",
+            title="Workspace required",
+        )
+    if not dataset_key:
+        return prereq_or_empty_help(
+            "Select an active dataset from the Loaded Datasets panel to inspect metadata, preview, and quick plot.",
+            tone="secondary",
+            title="Select a dataset",
+        )
 
     from dash_app.api_client import workspace_dataset_data, workspace_dataset_detail
 
