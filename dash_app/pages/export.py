@@ -71,7 +71,14 @@ layout = html.Div(
                                                             html.H5("Export Raw / Imported Data", className="mt-3 mb-3"),
                                                             dbc.Select(id="data-export-format", options=[{"label": "CSV", "value": "csv"}, {"label": "Excel (XLSX)", "value": "xlsx"}], value="xlsx"),
                                                             dbc.Label("Select datasets", className="mt-3"),
-                                                            dcc.Dropdown(id="data-export-datasets", multi=True, className="ta-dropdown"),
+                                                            html.Div(
+                                                                id="data-export-datasets-shell",
+                                                                children=dcc.Dropdown(
+                                                                    id="data-export-datasets",
+                                                                    multi=True,
+                                                                    className="ta-dropdown",
+                                                                ),
+                                                            ),
                                                             dbc.Button("Prepare Data Export", id="prepare-data-export-btn", color="primary", className="mt-3"),
                                                         ]
                                                     )
@@ -85,7 +92,14 @@ layout = html.Div(
                                                             html.H5("Export Normalized Results", className="mt-3 mb-3"),
                                                             dbc.Select(id="result-export-format", options=[{"label": "CSV", "value": "csv"}, {"label": "Excel (XLSX)", "value": "xlsx"}], value="csv"),
                                                             dbc.Label("Select result records", className="mt-3"),
-                                                            dcc.Dropdown(id="result-export-results", multi=True, className="ta-dropdown"),
+                                                            html.Div(
+                                                                id="result-export-results-shell",
+                                                                children=dcc.Dropdown(
+                                                                    id="result-export-results",
+                                                                    multi=True,
+                                                                    className="ta-dropdown",
+                                                                ),
+                                                            ),
                                                             dbc.Button("Prepare Result Export", id="prepare-result-export-btn", color="primary", className="mt-3"),
                                                         ]
                                                     )
@@ -101,7 +115,14 @@ layout = html.Div(
                                                             dbc.Checkbox(id="report-include-figures", value=True, className="mt-3"),
                                                             dbc.Label("Include figures", html_for="report-include-figures", className="ms-2"),
                                                             dbc.Label("Select result records", className="mt-3 d-block"),
-                                                            dcc.Dropdown(id="report-export-results", multi=True, className="ta-dropdown"),
+                                                            html.Div(
+                                                                id="report-export-results-shell",
+                                                                children=dcc.Dropdown(
+                                                                    id="report-export-results",
+                                                                    multi=True,
+                                                                    className="ta-dropdown",
+                                                                ),
+                                                            ),
                                                             dbc.Button("Prepare Report", id="prepare-report-export-btn", color="primary", className="mt-3"),
                                                         ]
                                                     )
@@ -155,6 +176,53 @@ layout = html.Div(
         ),
     ]
 )
+
+
+@callback(
+    Output("data-export-datasets-shell", "children"),
+    Output("result-export-results-shell", "children"),
+    Output("report-export-results-shell", "children"),
+    Input("ui-theme", "data"),
+    State("data-export-datasets", "options"),
+    State("data-export-datasets", "value"),
+    State("result-export-results", "options"),
+    State("result-export-results", "value"),
+    State("report-export-results", "options"),
+    State("report-export-results", "value"),
+    prevent_initial_call=True,
+)
+def remount_export_dropdowns(
+    _ui_theme,
+    data_options,
+    data_value,
+    result_options,
+    result_value,
+    report_options,
+    report_value,
+):
+    return (
+        dcc.Dropdown(
+            id="data-export-datasets",
+            multi=True,
+            className="ta-dropdown",
+            options=data_options or [],
+            value=data_value or [],
+        ),
+        dcc.Dropdown(
+            id="result-export-results",
+            multi=True,
+            className="ta-dropdown",
+            options=result_options or [],
+            value=result_value or [],
+        ),
+        dcc.Dropdown(
+            id="report-export-results",
+            multi=True,
+            className="ta-dropdown",
+            options=report_options or [],
+            value=report_value or [],
+        ),
+    )
 
 
 @callback(

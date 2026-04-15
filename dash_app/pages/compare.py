@@ -100,7 +100,14 @@ layout = html.Div(
                                     dbc.Label("Analysis Type"),
                                     dbc.Select(id="compare-analysis-type"),
                                     dbc.Label("Selected Runs", className="mt-3"),
-                                    dcc.Dropdown(id="compare-selected-runs", multi=True, className="ta-dropdown"),
+                                    html.Div(
+                                        id="compare-selected-runs-shell",
+                                        children=dcc.Dropdown(
+                                            id="compare-selected-runs",
+                                            multi=True,
+                                            className="ta-dropdown",
+                                        ),
+                                    ),
                                     dbc.Label("Overlay signal", className="mt-3"),
                                     dbc.RadioItems(
                                         id="compare-signal-mode",
@@ -189,6 +196,23 @@ def load_compare_workspace(project_id, _refresh, _global_refresh):
         run_options,
         selected,
         workspace.get("notes") or "",
+    )
+
+
+@callback(
+    Output("compare-selected-runs-shell", "children"),
+    Input("ui-theme", "data"),
+    State("compare-selected-runs", "options"),
+    State("compare-selected-runs", "value"),
+    prevent_initial_call=True,
+)
+def remount_compare_selected_runs_dropdown(_ui_theme, options, value):
+    return dcc.Dropdown(
+        id="compare-selected-runs",
+        multi=True,
+        className="ta-dropdown",
+        options=options or [],
+        value=value or [],
     )
 
 

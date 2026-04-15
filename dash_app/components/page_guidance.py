@@ -16,14 +16,20 @@ def guidance_block(
     tone: str = "info",
 ) -> dbc.Alert:
     """Generic guidance callout with optional body and bullet list."""
-    children: list = [html.H6(title, className="mb-2")]
+    tone_key = str(tone or "info").lower()
+    children: list = [html.H6(title, className="ta-guidance-title mb-2")]
     if body:
-        children.append(html.P(body, className="mb-2" if bullets else "mb-0"))
+        children.append(html.P(body, className=f"ta-guidance-body {'mb-2' if bullets else 'mb-0'}"))
     if bullets:
         items = [item for item in bullets if item]
         if items:
-            children.append(html.Ul([html.Li(item) for item in items], className="mb-0 ps-3"))
-    return dbc.Alert(children, color=tone, className="mb-3")
+            children.append(
+                html.Ul(
+                    [html.Li(item, className="ta-guidance-item") for item in items],
+                    className="ta-guidance-list mb-0 ps-3",
+                )
+            )
+    return dbc.Alert(children, color=tone_key, className=f"ta-guidance ta-guidance--{tone_key} mb-3")
 
 
 def typical_workflow_block(steps: Sequence[str], *, title: str = "Typical workflow") -> dbc.Alert:
@@ -31,11 +37,11 @@ def typical_workflow_block(steps: Sequence[str], *, title: str = "Typical workfl
     items = [step for step in steps if step]
     return dbc.Alert(
         [
-            html.H6(title, className="mb-2"),
-            html.Ol([html.Li(step) for step in items], className="mb-0 ps-3"),
+            html.H6(title, className="ta-guidance-title mb-2"),
+            html.Ol([html.Li(step, className="ta-guidance-item") for step in items], className="ta-guidance-list mb-0 ps-3"),
         ],
         color="secondary",
-        className="mb-3",
+        className="ta-guidance ta-guidance--secondary ta-guidance--workflow mb-3",
     )
 
 

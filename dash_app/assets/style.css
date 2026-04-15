@@ -956,6 +956,74 @@ html[data-theme="dark"] .main-content textarea.form-control {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Guidance blocks — non-analysis workflow help                               */
+/* -------------------------------------------------------------------------- */
+
+.ta-guidance {
+    border-radius: 6px !important;
+    border-width: 1px !important;
+    border-style: solid !important;
+    box-shadow: none !important;
+    padding: 0.9rem 1rem !important;
+}
+
+.ta-guidance-title {
+    color: var(--ta-ink) !important;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.ta-guidance-body,
+.ta-guidance-list,
+.ta-guidance-item {
+    color: var(--ta-ink) !important;
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+.ta-guidance-list {
+    margin-top: 0.35rem;
+}
+
+.ta-guidance--workflow .ta-guidance-list {
+    padding-left: 1.15rem !important;
+}
+
+html[data-theme="light"] .ta-guidance--info,
+html:not([data-theme]) .ta-guidance--info {
+    background: rgba(235, 219, 183, 0.28) !important;
+    border-color: rgba(102, 100, 94, 0.24) !important;
+}
+
+html[data-theme="light"] .ta-guidance--secondary,
+html:not([data-theme]) .ta-guidance--secondary {
+    background: #f7f6f3 !important;
+    border-color: #e0ddd6 !important;
+}
+
+html[data-theme="light"] .ta-guidance--warning,
+html:not([data-theme]) .ta-guidance--warning {
+    background: rgba(203, 184, 150, 0.28) !important;
+    border-color: rgba(154, 138, 90, 0.38) !important;
+}
+
+html[data-theme="dark"] .ta-guidance--info {
+    background: rgba(203, 184, 150, 0.16) !important;
+    border-color: rgba(203, 184, 150, 0.34) !important;
+}
+
+html[data-theme="dark"] .ta-guidance--secondary {
+    background: #1f1e1c !important;
+    border-color: #3d3b38 !important;
+}
+
+html[data-theme="dark"] .ta-guidance--warning {
+    background: rgba(203, 184, 150, 0.22) !important;
+    border-color: rgba(203, 184, 150, 0.4) !important;
+}
+
+/* -------------------------------------------------------------------------- */
 /* HARD OVERRIDE — Dash dcc.Dropdown legacy react-select dark mode fix        */
 /* Put this at the VERY END of style.css                                       */
 /* -------------------------------------------------------------------------- */
