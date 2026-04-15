@@ -260,6 +260,25 @@ def compare_workspace(project_id: str) -> dict[str, Any]:
         return r.json()
 
 
+def workspace_batch_run(
+    project_id: str,
+    *,
+    analysis_type: str,
+    workflow_template_id: str | None = None,
+    dataset_keys: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run stable batch analysis for compare workspace (uses selected datasets when keys omitted)."""
+    payload: dict[str, Any] = {"analysis_type": analysis_type}
+    if workflow_template_id:
+        payload["workflow_template_id"] = workflow_template_id
+    if dataset_keys is not None:
+        payload["dataset_keys"] = dataset_keys
+    with _client() as c:
+        r = c.post(f"/workspace/{project_id}/batch/run", json=payload)
+        _raise_with_detail(r)
+        return r.json()
+
+
 def update_compare_workspace(
     project_id: str,
     *,

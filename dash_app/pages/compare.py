@@ -1,4 +1,4 @@
-"""Compare workspace core page -- raw overlay only, no batch runner."""
+"""Compare workspace -- best-available analysis-state overlays, raw import mode, and batch runs."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from dash import Input, Output, State, callback, dcc, html
 import plotly.graph_objects as go
 
 from core.modalities import get_modality, stable_analysis_types
+from core.processing_schema import get_workflow_templates
+from dash_app.compare_curve_utils import axis_titles, pick_best_series
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
 
@@ -34,8 +36,8 @@ layout = html.Div(
         dcc.Store(id="compare-refresh", data=0),
         page_header(
             "Compare Workspace",
-            "Build a raw overlay workspace for eligible runs without entering modality-specific analysis flows.",
-            badge="Compare Core",
+            "Overlay runs with best-available processed curves or raw import data; run batch templates across selected datasets.",
+            badge="Compare",
         ),
         dbc.Row(
             [
@@ -48,10 +50,37 @@ layout = html.Div(
                                     dbc.Select(id="compare-analysis-type"),
                                     dbc.Label("Selected Runs", className="mt-3"),
                                     dcc.Dropdown(id="compare-selected-runs", multi=True),
+                                    dbc.Label("Overlay signal", className="mt-3"),
+                                    dbc.RadioItems(
+                                        id="compare-signal-mode",
+                                        options=[
+                                            {"label": "Best available (analysis state)", "value": "best"},
+                                            {"label": "Raw import data", "value": "raw"},
+                                        ],
+                                        value="best",
+                                        inline=False,
+                                    ),
                                     dbc.Label("Workspace Notes", className="mt-3"),
-                                    dbc.Textarea(id="compare-notes", style={"height": "140px"}),
+                                    dbc.Textarea(id="compare-notes", style={"height": "120px"}),
                                     dbc.Button("Save Compare Workspace", id="save-compare-workspace-btn", color="primary", className="mt-3"),
                                     html.Div(id="compare-status", className="mt-3"),
+                                ]
+                            ),
+                            className="mb-4",
+                        ),
+                        dbc.Card(
+                            dbc.CardBody(
+                                [
+                                    html.H5("Batch template", className="mb-3"),
+                                    dbc.Label("Workflow template"),
+                                    dbc.Select(id="compare-batch-template-select"),
+                                    dbc.Button(
+                                        "Run batch on selected runs",
+                                        id="compare-batch-run-btn",
+                                        color="secondary",
+                                        className="mt-3",
+                                    ),
+                                    html.Div(id="compare-batch-status", className="mt-3"),
                                 ]
                             ),
                             className="mb-4",
@@ -64,6 +93,7 @@ layout = html.Div(
                     [
                         dbc.Card(dbc.CardBody(html.Div(id="compare-summary-panel")), className="mb-4"),
                         dbc.Card(dbc.CardBody(html.Div(id="compare-saved-result-preview")), className="mb-4"),
+                        dbc.Card(dbc.CardBody(html.Div(id="compare-batch-summary-panel")), className="mb-4"),
                     ],
                     md=4,
                 ),
@@ -133,6 +163,23 @@ def update_compare_eligible_runs(analysis_type, project_id, selected_runs):
 
 
 @callback(
+    Output("compare-batch-template-select", "options"),
+    Output("compare-batch-template-select", "value"),
+    Input("compare-analysis-type", "value"),
+    Input("project-id", "data"),
+    Input("compare-refresh", "data"),
+    prevent_initial_call=False,
+)
+def load_batch_templates(analysis_type, project_id, _refresh):
+    if not project_id or not analysis_type:
+        return [], None
+    templates = get_workflow_templates(analysis_type)
+    options = [{"label": entry.get("label", entry["id"]), "value": entry["id"]} for entry in templates]
+    default_value = options[0]["value"] if options else None
+    return options, default_value
+
+
+@callback(
     Output("compare-status", "children"),
     Output("compare-refresh", "data", allow_duplicate=True),
     Input("save-compare-workspace-btn", "n_clicks"),
@@ -161,24 +208,78 @@ def save_compare_workspace(n_clicks, project_id, analysis_type, selected_runs, n
 
 
 @callback(
+    Output("compare-batch-status", "children"),
+    Output("compare-refresh", "data", allow_duplicate=True),
+    Output("workspace-refresh", "data", allow_duplicate=True),
+    Input("compare-batch-run-btn", "n_clicks"),
+    State("project-id", "data"),
+    State("compare-analysis-type", "value"),
+    State("compare-selected-runs", "value"),
+    State("compare-batch-template-select", "value"),
+    State("compare-refresh", "data"),
+    State("workspace-refresh", "data"),
+    prevent_initial_call=True,
+)
+def run_compare_batch(n_clicks, project_id, analysis_type, selected_runs, template_id, compare_refresh, workspace_refresh):
+    if not n_clicks or not project_id or not analysis_type:
+        raise dash.exceptions.PreventUpdate
+    selected_runs = selected_runs or []
+    if len(selected_runs) < 1:
+        return dbc.Alert("Select at least one dataset for batch run.", color="warning"), dash.no_update, dash.no_update
+
+    from dash_app.api_client import workspace_batch_run
+
+    try:
+        result = workspace_batch_run(
+            project_id,
+            analysis_type=analysis_type,
+            workflow_template_id=template_id,
+            dataset_keys=selected_runs,
+        )
+    except Exception as exc:
+        return dbc.Alert(f"Batch run failed: {exc}", color="danger"), dash.no_update, dash.no_update
+
+    outcomes = result.get("outcomes") or {}
+    msg = (
+        f"Batch complete: saved={outcomes.get('saved', 0)}, blocked={outcomes.get('blocked', 0)}, "
+        f"failed={outcomes.get('failed', 0)}."
+    )
+    alert = dbc.Alert(msg, color="success")
+    return (
+        alert,
+        int(compare_refresh or 0) + 1,
+        int(workspace_refresh or 0) + 1,
+    )
+
+
+@callback(
     Output("compare-overlay-panel", "children"),
     Output("compare-summary-panel", "children"),
     Output("compare-saved-result-preview", "children"),
+    Output("compare-batch-summary-panel", "children"),
     Input("project-id", "data"),
     Input("compare-analysis-type", "value"),
     Input("compare-selected-runs", "value"),
+    Input("compare-signal-mode", "value"),
     Input("compare-refresh", "data"),
+    Input("workspace-refresh", "data"),
     prevent_initial_call=False,
 )
-def render_compare_workspace(project_id, analysis_type, selected_runs, _refresh):
+def render_compare_workspace(project_id, analysis_type, selected_runs, signal_mode, _compare_refresh, _workspace_refresh):
     if not project_id:
         empty = html.P("No workspace active.", className="text-muted")
-        return empty, empty, empty
+        return empty, empty, empty, empty
     if not analysis_type:
         empty = html.P("Select an analysis type.", className="text-muted")
-        return empty, empty, empty
+        return empty, empty, empty, empty
 
-    from dash_app.api_client import workspace_dataset_data, workspace_datasets, workspace_results
+    from dash_app.api_client import (
+        analysis_state_curves,
+        compare_workspace,
+        workspace_dataset_data,
+        workspace_datasets,
+        workspace_results,
+    )
 
     datasets = {item.get("key"): item for item in workspace_datasets(project_id).get("datasets", [])}
     selected_runs = selected_runs or []
@@ -188,36 +289,90 @@ def render_compare_workspace(project_id, analysis_type, selected_runs, _refresh)
         for item in results
         if item.get("analysis_type") == analysis_type
     }
+    cmp = compare_workspace(project_id).get("compare_workspace", {})
 
     if len(selected_runs) < 2:
         overlay = html.P("Select at least two runs to build an overlay workspace.", className="text-muted")
     else:
         fig = go.Figure()
-        x_label = "Axis X"
-        y_label = "Axis Y"
+        x_title, y_title = axis_titles(analysis_type)
+        use_best = str(signal_mode or "best").lower() == "best"
+
         for dataset_key in selected_runs:
-            payload = workspace_dataset_data(project_id, dataset_key)
-            rows = payload.get("rows", [])
-            columns = payload.get("columns", [])
-            x_column = "temperature" if "temperature" in columns else (columns[0] if columns else None)
-            preferred_y = next((item for item in ["signal", "heat_flow", "mass_percent", "intensity", "absorbance"] if item in columns), None)
-            y_column = preferred_y or (columns[1] if len(columns) > 1 else None)
-            if x_column is None or y_column is None:
-                continue
-            x_label = x_column
-            y_label = y_column
-            x = [row.get(x_column) for row in rows]
-            y = [row.get(y_column) for row in rows]
-            fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=datasets.get(dataset_key, {}).get("display_name", dataset_key)))
-        fig.update_layout(
-            title=f"{analysis_type} Compare Workspace",
-            xaxis_title=x_label,
-            yaxis_title=y_label,
-            template="plotly_white",
-            margin=dict(l=48, r=24, t=56, b=48),
-            height=420,
-        )
-        overlay = dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True})
+            label_base = datasets.get(dataset_key, {}).get("display_name", dataset_key)
+            if use_best:
+                try:
+                    curves = analysis_state_curves(project_id, analysis_type, dataset_key)
+                except Exception:
+                    curves = {}
+                picked = pick_best_series(curves) if curves else None
+                if picked:
+                    xs, ys, src = picked
+                    fig.add_trace(
+                        go.Scatter(
+                            x=xs,
+                            y=ys,
+                            mode="lines",
+                            name=f"{label_base} ({src})",
+                        )
+                    )
+                else:
+                    payload = workspace_dataset_data(project_id, dataset_key)
+                    rows = payload.get("rows", [])
+                    columns = payload.get("columns", [])
+                    x_column = "temperature" if "temperature" in columns else (columns[0] if columns else None)
+                    preferred_y = next(
+                        (item for item in ["signal", "heat_flow", "mass_percent", "intensity", "absorbance"] if item in columns),
+                        None,
+                    )
+                    y_column = preferred_y or (columns[1] if len(columns) > 1 else None)
+                    if x_column and y_column:
+                        x = [row.get(x_column) for row in rows]
+                        y = [row.get(y_column) for row in rows]
+                        x_title = x_column
+                        y_title = y_column
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x,
+                                y=y,
+                                mode="lines",
+                                name=f"{label_base} (raw fallback)",
+                            )
+                        )
+            else:
+                payload = workspace_dataset_data(project_id, dataset_key)
+                rows = payload.get("rows", [])
+                columns = payload.get("columns", [])
+                x_column = "temperature" if "temperature" in columns else (columns[0] if columns else None)
+                preferred_y = next(
+                    (item for item in ["signal", "heat_flow", "mass_percent", "intensity", "absorbance"] if item in columns),
+                    None,
+                )
+                y_column = preferred_y or (columns[1] if len(columns) > 1 else None)
+                if x_column and y_column:
+                    x = [row.get(x_column) for row in rows]
+                    y = [row.get(y_column) for row in rows]
+                    x_title = x_column
+                    y_title = y_column
+                    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=f"{label_base} (raw)"))
+
+        mode_caption = "Best available (analysis state)" if use_best else "Raw import data"
+        if not fig.data:
+            overlay = html.P(
+                "Could not build an overlay for the current selection (missing data columns or empty analysis state).",
+                className="text-muted",
+            )
+        else:
+            fig.update_layout(
+                title=f"{analysis_type} Compare — {mode_caption}",
+                xaxis_title=x_title,
+                yaxis_title=y_title,
+                template="plotly_white",
+                margin=dict(l=48, r=24, t=56, b=48),
+                height=420,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            )
+            overlay = dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True})
 
     summary_rows = []
     for dataset_key in selected_runs:
@@ -259,4 +414,24 @@ def render_compare_workspace(project_id, analysis_type, selected_runs, _refresh)
             else html.P("No saved results for the selected runs yet.", className="text-muted"),
         ]
     )
-    return overlay, summary, preview
+
+    batch_children: list = [html.H5("Last batch", className="mb-3")]
+    feedback = cmp.get("batch_last_feedback") or {}
+    if feedback:
+        batch_children.append(
+            html.P(
+                f"Outcomes: saved={feedback.get('saved', 0)}, blocked={feedback.get('blocked', 0)}, failed={feedback.get('failed', 0)}.",
+                className="small",
+            )
+        )
+    if cmp.get("batch_template_id"):
+        batch_children.append(html.P(f"Template: {cmp.get('batch_template_label') or cmp.get('batch_template_id')}", className="small text-muted"))
+    batch_summary = cmp.get("batch_summary") or []
+    if batch_summary:
+        cols = [k for k in batch_summary[0].keys()][:8]
+        batch_children.append(dataset_table(batch_summary, cols, table_id="compare-batch-summary-table"))
+    else:
+        batch_children.append(html.P("No batch run recorded yet for this workspace.", className="text-muted small"))
+    batch_panel = html.Div(batch_children)
+
+    return overlay, summary, preview, batch_panel

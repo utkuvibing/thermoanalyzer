@@ -213,6 +213,20 @@ def test_downstream_workspace_export_compare_after_two_dsc_runs():
     assert cw["selected_datasets"] == [key_a, key_b]
     assert cw["notes"] == "dash workflow regression"
 
+    batch = client.post(
+        f"/workspace/{project_id}/batch/run",
+        json={
+            "analysis_type": "DSC",
+            "workflow_template_id": "dsc.general",
+            "dataset_keys": [key_a, key_b],
+        },
+    )
+    assert batch.status_code == 200
+    assert batch.json()["outcomes"]["saved"] == 2
+    cmp_after = client.get(f"/workspace/{project_id}/compare").json()["compare_workspace"]
+    assert cmp_after.get("batch_last_feedback", {}).get("saved") == 2
+    assert len(cmp_after.get("batch_summary") or []) >= 2
+
 
 def test_export_results_csv_smoke_combined_app():
     client = _client()
