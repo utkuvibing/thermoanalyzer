@@ -12,7 +12,8 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import Response
 
 from backend import BACKEND_API_VERSION
 from backend.detail import (
@@ -105,6 +106,7 @@ from core.project_io import PROJECT_EXTENSION, load_project_archive, save_projec
 from core.reference_library import ReferenceLibraryManager, get_reference_library_manager
 from core.result_serialization import split_valid_results
 from core.validation import validate_thermal_dataset
+from utils.diagnostics import get_default_log_file, serialize_support_snapshot
 from utils.license_manager import APP_VERSION, commercial_mode_enabled, load_license_state
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
@@ -131,10 +133,11 @@ def _model_payload(model: Any) -> dict[str, Any]:
 
 
 def _project_summary(project_state: dict) -> ProjectSummary:
+    valid_results, _issues = split_valid_results(project_state.get("results", {}) or {})
     return ProjectSummary(
         active_dataset=project_state.get("active_dataset"),
         dataset_count=len(project_state.get("datasets", {}) or {}),
-        result_count=len(project_state.get("results", {}) or {}),
+        result_count=len(valid_results),
         figure_count=len(project_state.get("figures", {}) or {}),
         analysis_history_count=len(project_state.get("analysis_history", []) or []),
     )
@@ -196,6 +199,20 @@ def create_app(
     cloud_library_service = ManagedLibraryCloudService(global_library_manager)
     literature_provider_registry = dict(literature_provider_registry or default_literature_provider_registry())
     app.state.cloud_library_bootstrap_status = dict(cloud_library_service.bootstrap_status or {})
+
+    @app.middleware("http")
+    async def _compatibility_header_aliases(request: Request, call_next):
+        # Accept MaterialScope header names while preserving legacy backend contracts.
+        headers = list(request.scope.get("headers") or [])
+        header_lookup = {key.lower(): value for key, value in headers}
+        materialscope_token = header_lookup.get(b"x-materialscope-token")
+        materialscope_license = header_lookup.get(b"x-materialscope-license")
+        if materialscope_token and b"x-ta-token" not in header_lookup:
+            headers.append((b"x-ta-token", materialscope_token))
+        if materialscope_license and b"x-ta-license" not in header_lookup:
+            headers.append((b"x-ta-license", materialscope_license))
+        request.scope["headers"] = headers
+        return await call_next(request)
 
     def _record_cloud_lookup_success(payload: dict[str, Any]) -> None:
         access_mode = str(payload.get("library_access_mode") or "").strip()
@@ -481,10 +498,10 @@ def create_app(
     ) -> ResultsListResponse:
         _require_token(api_token, x_ta_token)
         state = _require_project_state(project_store, project_id)
-        valid_results, _issues = split_valid_results(state.get("results", {}))
+        valid_results, issues = split_valid_results(state.get("results", {}))
         items = [summarize_result(record) for record in valid_results.values()]
         items.sort(key=lambda item: item.id)
-        return ResultsListResponse(project_id=project_id, results=items)
+        return ResultsListResponse(project_id=project_id, results=items, issues=issues)
 
     @app.get("/workspace/{project_id}/datasets/{dataset_key}", response_model=DatasetDetailResponse)
     def dataset_detail(
@@ -835,6 +852,26 @@ def create_app(
         state = _require_project_state(project_store, project_id)
         payload = build_export_preparation(state)
         return ExportPreparationResponse(project_id=project_id, summary=_project_summary(state), **payload)
+
+    @app.get("/workspace/{project_id}/exports/support-snapshot")
+    def export_support_snapshot(
+        project_id: str,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> Response:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+        snapshot_state = dict(state)
+        snapshot_state["license_state"] = _backend_license_state()
+        log_path = snapshot_state.get("diagnostics_log_path") or get_default_log_file()
+        try:
+            body = serialize_support_snapshot(snapshot_state, app_version=APP_VERSION, log_file=log_path)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Support snapshot failed: {exc}") from exc
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="materialscope_support_snapshot.json"'},
+        )
 
     @app.get("/workspace/{project_id}/branding", response_model=WorkspaceBrandingResponse)
     def workspace_branding_get(

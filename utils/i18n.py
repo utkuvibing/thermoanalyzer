@@ -446,6 +446,63 @@ TRANSLATIONS = {
         "en": "{otype} ready: {count} results.",
     },
     "dash.export.report_export_fail": {"tr": "Rapor dışa aktarma başarısız: {error}", "en": "Report export failed: {error}"},
+    "dash.export.read_only_warning": {
+        "tr": (
+            "Bu sürüm salt okunur modda. Geçerli lisans veya deneme kurulana kadar dışa aktarma, rapor ve "
+            "marka kaydı kapalıdır."
+        ),
+        "en": (
+            "This build is currently read-only. Export, report, and branding save actions are disabled until a "
+            "valid license or trial is installed."
+        ),
+    },
+    "dash.export.read_only_action_blocked": {
+        "tr": "Salt okunur modda bu işlem kullanılamaz.",
+        "en": "This action is not available in read-only mode.",
+    },
+    "dash.export.pdf_requires_reportlab": {
+        "tr": "PDF dışa aktarma için `reportlab` gerekir. Yükleyerek PDF çıktısını etkinleştirin.",
+        "en": "PDF export requires `reportlab`. Install it to enable PDF output.",
+    },
+    "dash.export.preview_batch_summary": {"tr": "Toplu çalıştırma özeti", "en": "Batch Summary"},
+    "dash.export.batch_metric_total": {"tr": "Toplam", "en": "Total"},
+    "dash.export.batch_metric_saved": {"tr": "Kaydedilen", "en": "Saved"},
+    "dash.export.batch_metric_blocked": {"tr": "Bloklanan", "en": "Blocked"},
+    "dash.export.batch_metric_failed": {"tr": "Başarısız", "en": "Failed"},
+    "dash.export.batch_filter_label": {"tr": "Toplu çalıştırma filtresi", "en": "Batch filter"},
+    "dash.export.batch_filter_all": {"tr": "Tümü", "en": "All"},
+    "dash.export.batch_filter_saved": {"tr": "Kaydedilen", "en": "Saved"},
+    "dash.export.batch_filter_blocked": {"tr": "Bloklanan", "en": "Blocked"},
+    "dash.export.batch_filter_failed": {"tr": "Başarısız", "en": "Failed"},
+    "dash.export.batch_col_run": {"tr": "Koşu", "en": "Run"},
+    "dash.export.batch_col_sample": {"tr": "Numune", "en": "Sample"},
+    "dash.export.batch_col_template": {"tr": "Şablon", "en": "Template"},
+    "dash.export.batch_col_execution": {"tr": "Çalıştırma", "en": "Execution"},
+    "dash.export.batch_col_validation": {"tr": "Doğrulama", "en": "Validation"},
+    "dash.export.batch_col_result_id": {"tr": "Sonuç ID", "en": "Result ID"},
+    "dash.export.batch_col_error_id": {"tr": "Hata ID", "en": "Error ID"},
+    "dash.export.batch_col_reason": {"tr": "Neden", "en": "Reason"},
+    "dash.export.support_diagnostics_title": {"tr": "Destek tanı paketi", "en": "Support Diagnostics"},
+    "dash.export.support_diagnostics_caption": {
+        "tr": (
+            "Bu JSON anlık görüntü hata bildirimi ve destek talepleri için son olayları, günlük yolunu ve "
+            "çalışma alanı özetini içerir."
+        ),
+        "en": (
+            "This JSON snapshot includes recent events, the diagnostics log path, and a workspace summary for bug "
+            "reports and support requests."
+        ),
+    },
+    "dash.export.btn_prepare_support_snapshot": {"tr": "Destek anlık görüntüsü hazırla", "en": "Prepare Support Snapshot"},
+    "dash.export.btn_download_support_snapshot": {"tr": "Destek anlık görüntüsünü indir", "en": "Download Support Snapshot"},
+    "dash.export.support_snapshot_ready": {
+        "tr": "Anlık görüntü hazır. İndirmek için düğmeyi kullanın.",
+        "en": "Snapshot prepared. Use the download button to save it.",
+    },
+    "dash.export.support_snapshot_fail": {
+        "tr": "Destek anlık görüntüsü oluşturulamadı: {error}",
+        "en": "Support snapshot generation failed: {error}",
+    },
     # --- Dash Import (home) ---
     "dash.home.title": {"tr": "Veri içe aktarma", "en": "Data Import"},
     "dash.home.caption": {

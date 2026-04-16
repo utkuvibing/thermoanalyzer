@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import zipfile
 
 from fastapi.testclient import TestClient
@@ -11,7 +12,7 @@ from core.project_io import load_project_archive
 
 
 def _headers() -> dict[str, str]:
-    return {"X-TA-Token": "workflow-token"}
+    return {"X-MaterialScope-Token": "workflow-token"}
 
 
 def _to_base64(raw: bytes) -> str:
@@ -605,3 +606,19 @@ def test_stable_compare_batch_report_and_project_roundtrip_smoke(thermal_dataset
     assert loaded_results_response.status_code == 200
     loaded_results = loaded_results_response.json()["results"]
     assert {item["id"] for item in loaded_results} == set(result_ids)
+
+
+def test_export_support_snapshot_returns_json_workspace():
+    app = create_app(api_token="workflow-token")
+    client = TestClient(app)
+    create_response = client.post("/workspace/new", headers=_headers())
+    assert create_response.status_code == 200
+    project_id = create_response.json()["project_id"]
+    snap = client.get(f"/workspace/{project_id}/exports/support-snapshot", headers=_headers())
+    assert snap.status_code == 200
+    assert snap.headers.get("content-type", "").startswith("application/json")
+    payload = json.loads(snap.content.decode("utf-8"))
+    assert payload.get("app_version")
+    assert "generated_at_utc" in payload
+    assert "dataset_count" in payload
+    assert "comparison_workspace" in payload

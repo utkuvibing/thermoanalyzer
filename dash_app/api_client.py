@@ -178,6 +178,13 @@ def export_preparation(project_id: str) -> dict[str, Any]:
         return r.json()
 
 
+def export_support_snapshot(project_id: str) -> bytes:
+    with _client() as c:
+        r = c.get(f"/workspace/{project_id}/exports/support-snapshot")
+        _raise_with_detail(r)
+        return r.content
+
+
 def export_results_csv(
     project_id: str,
     selected_result_ids: list[str] | None = None,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import zipfile
 
 import dash
@@ -11,6 +12,8 @@ import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, dcc, html
 import pandas as pd
 
+from core.batch_runner import filter_batch_summary_rows, normalize_batch_summary_rows, summarize_batch_outcomes
+from core.report_generator import pdf_export_available
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
 from dash_app.components.page_guidance import (
@@ -20,6 +23,7 @@ from dash_app.components.page_guidance import (
     typical_workflow_block,
 )
 from utils.i18n import normalize_ui_locale, translate_ui
+from utils.license_manager import APP_VERSION, commercial_mode_enabled, license_allows_write, load_license_state
 
 dash.register_page(__name__, path="/export", title="Export - MaterialScope")
 
@@ -28,10 +32,52 @@ def _loc(locale_data: str | None) -> str:
     return normalize_ui_locale(locale_data)
 
 
+def _write_enabled() -> bool:
+    return license_allows_write(load_license_state(app_version=APP_VERSION))
+
+
+def _batch_summary_display_rows(filtered_rows: list[dict], loc: str) -> tuple[list[dict], list[str]]:
+    if not filtered_rows:
+        return [], []
+    df = pd.DataFrame(filtered_rows)
+    preferred = [
+        "dataset_key",
+        "sample_name",
+        "workflow_template",
+        "execution_status",
+        "validation_status",
+        "result_id",
+        "error_id",
+        "failure_reason",
+    ]
+    available = [column for column in preferred if column in df.columns]
+    if not available:
+        keys = list(filtered_rows[0].keys())[:8]
+        return filtered_rows, keys
+    df = df[available].copy()
+    rename_map = {
+        "dataset_key": translate_ui(loc, "dash.export.batch_col_run"),
+        "sample_name": translate_ui(loc, "dash.export.batch_col_sample"),
+        "workflow_template": translate_ui(loc, "dash.export.batch_col_template"),
+        "execution_status": translate_ui(loc, "dash.export.batch_col_execution"),
+        "validation_status": translate_ui(loc, "dash.export.batch_col_validation"),
+        "result_id": translate_ui(loc, "dash.export.batch_col_result_id"),
+        "error_id": translate_ui(loc, "dash.export.batch_col_error_id"),
+        "failure_reason": translate_ui(loc, "dash.export.batch_col_reason"),
+    }
+    df.rename(columns={k: rename_map[k] for k in available if k in rename_map}, inplace=True)
+    records = df.to_dict("records")
+    return records, list(df.columns)
+
+
 def _build_export_workbench(loc: str) -> dbc.Card:
+    report_format_options = [{"label": translate_ui(loc, "dash.export.label_docx"), "value": "docx"}]
+    if pdf_export_available():
+        report_format_options.append({"label": translate_ui(loc, "dash.export.label_pdf"), "value": "pdf"})
     return dbc.Card(
         dbc.CardBody(
             [
+                html.Div(id="export-read-only-banner", className="mb-2"),
                 dbc.Tabs(
                     [
                         dbc.Tab(
@@ -116,11 +162,17 @@ def _build_export_workbench(loc: str) -> dbc.Card:
                                         ),
                                         dbc.Select(
                                             id="report-export-format",
-                                            options=[
-                                                {"label": translate_ui(loc, "dash.export.label_docx"), "value": "docx"},
-                                                {"label": translate_ui(loc, "dash.export.label_pdf"), "value": "pdf"},
-                                            ],
+                                            options=report_format_options,
                                             value="docx",
+                                        ),
+                                        html.Div(
+                                            translate_ui(loc, "dash.export.pdf_requires_reportlab")
+                                            if not pdf_export_available()
+                                            else "",
+                                            id="report-pdf-unavailable-hint",
+                                            className=(
+                                                "small text-muted mt-2" if not pdf_export_available() else "d-none"
+                                            ),
                                         ),
                                         dbc.Checkbox(id="report-include-figures", value=True, className="mt-3"),
                                         dbc.Label(
@@ -155,6 +207,7 @@ def _build_export_workbench(loc: str) -> dbc.Card:
                 ),
                 html.Div(id="export-status", className="mt-3"),
                 dcc.Download(id="export-download"),
+                dcc.Download(id="support-snapshot-download"),
             ]
         ),
         className="mb-4",
@@ -205,6 +258,8 @@ def _build_branding_card(loc: str) -> dbc.Card:
 layout = html.Div(
     [
         dcc.Store(id="report-refresh", data=0),
+        dcc.Store(id="export-batch-rows-store", data=None),
+        dcc.Store(id="support-snapshot-bytes", data=None),
         html.Div(id="export-hero-slot"),
         html.Div(id="export-guidance-slot", className="mb-2"),
         dbc.Row(
@@ -313,6 +368,7 @@ def remount_export_dropdowns(
     Output("result-export-results", "value"),
     Output("report-export-results", "options"),
     Output("report-export-results", "value"),
+    Output("export-batch-rows-store", "data"),
     Input("project-id", "data"),
     Input("report-refresh", "data"),
     Input("workspace-refresh", "data"),
@@ -327,7 +383,7 @@ def load_report_center(project_id, _refresh, _global_refresh, locale_data):
             title=translate_ui(loc, "dash.export.prereq_workspace_title"),
             locale=loc,
         )
-        return empty, [], [], [], [], [], []
+        return empty, [], [], [], [], [], [], None
 
     from dash_app.api_client import export_preparation, workspace_datasets
 
@@ -339,7 +395,7 @@ def load_report_center(project_id, _refresh, _global_refresh, locale_data):
             [translate_ui(loc, "dash.export.error_prefix"), " ", str(exc)],
             className="text-danger",
         )
-        return error, [], [], [], [], [], []
+        return error, [], [], [], [], [], [], None
 
     results = prep.get("exportable_results", [])
     skipped = prep.get("skipped_record_issues", [])
@@ -460,6 +516,105 @@ def load_report_center(project_id, _refresh, _global_refresh, locale_data):
         ),
         html.P(compare_workspace.get("notes") or translate_ui(loc, "dash.export.no_compare_notes"), className="text-muted"),
     ]
+    batch_norm = normalize_batch_summary_rows(compare_workspace.get("batch_summary") or [])
+    batch_store_data = json.loads(json.dumps(batch_norm, default=str)) if batch_norm else None
+    if batch_norm:
+        totals = summarize_batch_outcomes(batch_norm)
+        preview_children.extend(
+            [
+                html.H5(translate_ui(loc, "dash.export.preview_batch_summary"), className="mt-3 mb-2"),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dbc.Card(
+                                dbc.CardBody(
+                                    [
+                                        html.Small(
+                                            translate_ui(loc, "dash.export.batch_metric_total"),
+                                            className="text-muted text-uppercase",
+                                        ),
+                                        html.H4(str(totals["total"])),
+                                    ]
+                                )
+                            ),
+                            md=3,
+                        ),
+                        dbc.Col(
+                            dbc.Card(
+                                dbc.CardBody(
+                                    [
+                                        html.Small(
+                                            translate_ui(loc, "dash.export.batch_metric_saved"),
+                                            className="text-muted text-uppercase",
+                                        ),
+                                        html.H4(str(totals["saved"])),
+                                    ]
+                                )
+                            ),
+                            md=3,
+                        ),
+                        dbc.Col(
+                            dbc.Card(
+                                dbc.CardBody(
+                                    [
+                                        html.Small(
+                                            translate_ui(loc, "dash.export.batch_metric_blocked"),
+                                            className="text-muted text-uppercase",
+                                        ),
+                                        html.H4(str(totals["blocked"])),
+                                    ]
+                                )
+                            ),
+                            md=3,
+                        ),
+                        dbc.Col(
+                            dbc.Card(
+                                dbc.CardBody(
+                                    [
+                                        html.Small(
+                                            translate_ui(loc, "dash.export.batch_metric_failed"),
+                                            className="text-muted text-uppercase",
+                                        ),
+                                        html.H4(str(totals["failed"])),
+                                    ]
+                                )
+                            ),
+                            md=3,
+                        ),
+                    ],
+                    className="g-3 mb-2",
+                ),
+                dbc.Label(translate_ui(loc, "dash.export.batch_filter_label"), className="d-block"),
+                dbc.Select(
+                    id="export-batch-filter",
+                    options=[
+                        {"label": translate_ui(loc, "dash.export.batch_filter_all"), "value": "all"},
+                        {"label": translate_ui(loc, "dash.export.batch_filter_saved"), "value": "saved"},
+                        {"label": translate_ui(loc, "dash.export.batch_filter_blocked"), "value": "blocked"},
+                        {"label": translate_ui(loc, "dash.export.batch_filter_failed"), "value": "failed"},
+                    ],
+                    value="all",
+                    className="mb-2",
+                ),
+                html.Div(id="export-batch-table-slot"),
+            ]
+        )
+    else:
+        preview_children.append(
+            html.Div(
+                [
+                    dbc.Select(
+                        id="export-batch-filter",
+                        options=[{"label": "-", "value": "all"}],
+                        value="all",
+                        className="d-none",
+                        disabled=True,
+                    ),
+                    html.Div(id="export-batch-table-slot", className="d-none"),
+                ],
+                className="d-none",
+            )
+        )
     if result_rows:
         preview_children.extend(
             [
@@ -487,11 +642,136 @@ def load_report_center(project_id, _refresh, _global_refresh, locale_data):
             )
         )
 
+    preview_children.extend(
+        [
+            html.Hr(className="my-3"),
+            html.H5(translate_ui(loc, "dash.export.support_diagnostics_title"), className="mb-2"),
+            html.P(translate_ui(loc, "dash.export.support_diagnostics_caption"), className="small text-muted"),
+            dbc.Button(
+                translate_ui(loc, "dash.export.btn_prepare_support_snapshot"),
+                id="prepare-support-snapshot-btn",
+                color="secondary",
+                outline=True,
+                className="me-2 mt-2",
+            ),
+            dbc.Button(
+                translate_ui(loc, "dash.export.btn_download_support_snapshot"),
+                id="download-support-snapshot-btn",
+                color="secondary",
+                className="mt-2",
+            ),
+            html.Div(id="support-snapshot-status", className="mt-2"),
+        ]
+    )
+
     dataset_options = [{"label": item.get("display_name", item.get("key")), "value": item.get("key")} for item in datasets_payload.get("datasets", [])]
     dataset_values = [item["value"] for item in dataset_options]
     result_options = [{"label": f"{item.get('analysis_type')} | {item.get('id')}", "value": item.get("id")} for item in results]
     result_values = [item["value"] for item in result_options]
-    return html.Div(preview_children), dataset_options, dataset_values, result_options, result_values, result_options, result_values
+    return (
+        html.Div(preview_children),
+        dataset_options,
+        dataset_values,
+        result_options,
+        result_values,
+        result_options,
+        result_values,
+        batch_store_data,
+    )
+
+
+@callback(
+    Output("support-snapshot-bytes", "data"),
+    Input("project-id", "data"),
+    Input("report-refresh", "data"),
+    Input("workspace-refresh", "data"),
+)
+def reset_support_snapshot_store(_project_id, _refresh, _global_refresh):
+    return None
+
+
+@callback(
+    Output("export-read-only-banner", "children"),
+    Output("prepare-data-export-btn", "disabled"),
+    Output("prepare-result-export-btn", "disabled"),
+    Output("prepare-report-export-btn", "disabled"),
+    Output("save-branding-btn", "disabled"),
+    Output("prepare-support-snapshot-btn", "disabled"),
+    Output("download-support-snapshot-btn", "disabled"),
+    Input("project-id", "data"),
+    Input("report-refresh", "data"),
+    Input("workspace-refresh", "data"),
+    Input("ui-locale", "data"),
+    Input("support-snapshot-bytes", "data"),
+)
+def sync_export_read_only_and_controls(_project_id, _refresh, _global_refresh, locale_data, snapshot_b64):
+    loc = _loc(locale_data)
+    write_ok = _write_enabled()
+    read_only = commercial_mode_enabled() and not write_ok
+    banner = (
+        dbc.Alert(translate_ui(loc, "dash.export.read_only_warning"), color="warning", className="mb-0")
+        if read_only
+        else ""
+    )
+    dis = not write_ok
+    dl_disabled = dis or not snapshot_b64
+    return banner, dis, dis, dis, dis, dis, dl_disabled
+
+
+@callback(
+    Output("export-batch-table-slot", "children"),
+    Input("export-batch-filter", "value"),
+    Input("export-batch-rows-store", "data"),
+    Input("ui-locale", "data"),
+)
+def render_export_batch_table(filter_value, rows, locale_data):
+    loc = _loc(locale_data)
+    if not rows:
+        return ""
+    filtered = filter_batch_summary_rows(rows, execution_status=filter_value or "all")
+    display_rows, columns = _batch_summary_display_rows(filtered, loc)
+    if not display_rows:
+        return html.P(translate_ui(loc, "dash.export.none"), className="text-muted small")
+    return dataset_table(display_rows, columns, table_id="export-batch-summary-table")
+
+
+@callback(
+    Output("support-snapshot-status", "children"),
+    Output("support-snapshot-bytes", "data", allow_duplicate=True),
+    Input("prepare-support-snapshot-btn", "n_clicks"),
+    State("project-id", "data"),
+    State("ui-locale", "data"),
+    prevent_initial_call=True,
+)
+def prepare_support_snapshot(n_clicks, project_id, locale_data):
+    loc = _loc(locale_data)
+    if not n_clicks or not project_id:
+        raise dash.exceptions.PreventUpdate
+    if not _write_enabled():
+        return dbc.Alert(translate_ui(loc, "dash.export.read_only_action_blocked"), color="warning"), dash.no_update
+    from dash_app.api_client import export_support_snapshot
+
+    try:
+        raw = export_support_snapshot(project_id)
+    except Exception as exc:
+        return dbc.Alert(translate_ui(loc, "dash.export.support_snapshot_fail", error=str(exc)), color="danger"), dash.no_update
+    return (
+        dbc.Alert(translate_ui(loc, "dash.export.support_snapshot_ready"), color="success"),
+        base64.b64encode(raw).decode("ascii"),
+    )
+
+
+@callback(
+    Output("support-snapshot-download", "data"),
+    Input("download-support-snapshot-btn", "n_clicks"),
+    State("support-snapshot-bytes", "data"),
+    prevent_initial_call=True,
+)
+def download_support_snapshot(n_clicks, snapshot_b64):
+    if not n_clicks or not snapshot_b64:
+        raise dash.exceptions.PreventUpdate
+    raw = base64.b64decode(snapshot_b64.encode("ascii"))
+    return dcc.send_bytes(raw, "materialscope_support_snapshot.json")
 
 
 @callback(
@@ -572,6 +852,8 @@ def save_branding(
     loc = _loc(locale_data)
     if not n_clicks or not project_id:
         raise dash.exceptions.PreventUpdate
+    if not _write_enabled():
+        return dbc.Alert(translate_ui(loc, "dash.export.read_only_action_blocked"), color="warning"), dash.no_update
     from dash_app.api_client import update_workspace_branding
 
     payload = {
@@ -612,6 +894,8 @@ def export_data_files(n_clicks, project_id, export_format, dataset_keys, locale_
                 locale=loc,
             ), dash.no_update
         raise dash.exceptions.PreventUpdate
+    if not _write_enabled():
+        return dbc.Alert(translate_ui(loc, "dash.export.read_only_action_blocked"), color="warning"), dash.no_update
     if not dataset_keys:
         return prereq_or_empty_help(
             translate_ui(loc, "dash.export.prereq_select_datasets"),
@@ -678,6 +962,8 @@ def export_result_files(n_clicks, project_id, export_format, selected_result_ids
                 locale=loc,
             ), dash.no_update
         raise dash.exceptions.PreventUpdate
+    if not _write_enabled():
+        return dbc.Alert(translate_ui(loc, "dash.export.read_only_action_blocked"), color="warning"), dash.no_update
     if not selected_result_ids:
         return prereq_or_empty_help(
             translate_ui(loc, "dash.export.prereq_select_results"),
@@ -726,12 +1012,16 @@ def export_report_files(n_clicks, project_id, export_format, selected_result_ids
                 locale=loc,
             ), dash.no_update
         raise dash.exceptions.PreventUpdate
+    if not _write_enabled():
+        return dbc.Alert(translate_ui(loc, "dash.export.read_only_action_blocked"), color="warning"), dash.no_update
     if not selected_result_ids:
         return prereq_or_empty_help(
             translate_ui(loc, "dash.export.prereq_select_report_results"),
             title=translate_ui(loc, "dash.export.prereq_title_select_results"),
             locale=loc,
         ), dash.no_update
+    if export_format == "pdf" and not pdf_export_available():
+        return dbc.Alert(translate_ui(loc, "dash.export.pdf_requires_reportlab"), color="warning"), dash.no_update
     from dash_app.api_client import export_report_docx, export_report_pdf
 
     try:
