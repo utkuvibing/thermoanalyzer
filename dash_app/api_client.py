@@ -20,6 +20,7 @@ _TIMEOUT = 60.0
 def _headers() -> dict[str, str]:
     h: dict[str, str] = {"Accept": "application/json"}
     if _TOKEN:
+        h["X-MaterialScope-Token"] = _TOKEN
         h["X-TA-Token"] = _TOKEN
     return h
 

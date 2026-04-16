@@ -13,9 +13,9 @@ def test_normalize_locale_accepts_bcp47_prefix():
 
 
 def test_t_turkish_nav_labels():
-    assert t("tr", "nav.import") == "İçe aktar"
+    assert t("tr", "nav.import") == "Veri Al"
     assert t("tr", "nav.section_primary") == "Ana"
-    assert t("en", "nav.import") == "Import"
+    assert t("en", "nav.import") == "Import Runs"
 
 
 def test_create_dash_app_layout_has_theme_stores_and_holder():

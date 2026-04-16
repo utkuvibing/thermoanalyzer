@@ -121,7 +121,7 @@ def build_sidebar_inner(locale: str, theme: str) -> html.Div:
             html.Div(
                 [
                     html.Div("MaterialScope", className="sidebar-brand"),
-                    html.Div(t(loc, "app.tagline"), className="sidebar-version"),
+                    html.Div(t(loc, "dash.sidebar.tagline"), className="sidebar-version"),
                 ],
                 className="px-3 pt-3 pb-2",
             ),

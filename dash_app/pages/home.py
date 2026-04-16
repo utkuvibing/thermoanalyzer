@@ -26,49 +26,63 @@ from dash_app.components.page_guidance import (
 from dash_app.components.stepper import stepper_indicator
 from dash_app.import_preview import build_import_preview
 from dash_app.sample_data import list_sample_specs, resolve_sample_request
+from utils.i18n import TRANSLATIONS, normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/", title="Import - MaterialScope")
 
 _NONE_VALUE = "__NONE__"
 
 _MODALITY_OPTIONS = ["DSC", "TGA", "DTA", "FTIR", "RAMAN", "XRD"]
-_MODALITY_DESCRIPTIONS = {
-    "DSC": "Differential Scanning Calorimetry -- Temperature vs Heat Flow (mW/mg)",
-    "TGA": "Thermogravimetric Analysis -- Temperature vs Mass (%/mg)",
-    "DTA": "Differential Thermal Analysis -- Temperature vs ΔT (µV)",
-    "FTIR": "Fourier Transform Infrared -- Wavenumber (cm⁻¹) vs Absorbance/Transmittance",
-    "RAMAN": "Raman Spectroscopy -- Raman Shift (cm⁻¹) vs Intensity",
-    "XRD": "X-Ray Diffraction -- 2θ (degrees) vs Intensity (counts)",
-}
-_MODALITY_AXIS_LABELS = {
-    "DSC": "Temperature Column",
-    "TGA": "Temperature Column",
-    "DTA": "Temperature Column",
-    "FTIR": "Wavenumber Column",
-    "RAMAN": "Raman Shift Column",
-    "XRD": "2θ Column",
-}
-_MODALITY_SIGNAL_LABELS = {
-    "DSC": "Heat Flow Column",
-    "TGA": "Mass Column",
-    "DTA": "ΔT Column",
-    "FTIR": "Absorbance/Transmittance Column",
-    "RAMAN": "Intensity Column",
-    "XRD": "Intensity Column",
-}
-
-_WIZARD_STEPS = [
-    {"label": "1. Technique", "description": "Select measurement technique"},
-    {"label": "2. Upload", "description": "Upload file or load sample data"},
-    {"label": "3. Preview", "description": "Inspect raw data and detected format"},
-    {"label": "4. Mapping", "description": "Map columns to axis/signal roles"},
-    {"label": "5. Review", "description": "Review units, metadata, and warnings"},
-    {"label": "6. Confirm", "description": "Validate and confirm import"},
-]
 
 
-def _mapping_options(columns: list[str]) -> list[dict[str, str]]:
-    return [{"label": "-- None --", "value": _NONE_VALUE}] + [
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
+
+
+def _modality_axis_label(loc: str, modality: str) -> str:
+    tok = (modality or "").strip().upper()
+    if not tok:
+        return translate_ui(loc, "dash.home.axis_column_generic")
+    key = f"dash.home.modality_axis.{tok.lower()}"
+    if key in TRANSLATIONS:
+        return translate_ui(loc, key)
+    return translate_ui(loc, "dash.home.axis_column_generic")
+
+
+def _modality_signal_label(loc: str, modality: str) -> str:
+    tok = (modality or "").strip().upper()
+    if not tok:
+        return translate_ui(loc, "dash.home.signal_column_generic")
+    key = f"dash.home.modality_signal.{tok.lower()}"
+    if key in TRANSLATIONS:
+        return translate_ui(loc, key)
+    return translate_ui(loc, "dash.home.signal_column_generic")
+
+
+def _modality_desc(loc: str, modality: str) -> str:
+    tok = (modality or "").strip().upper()
+    if not tok:
+        return ""
+    key = f"dash.home.modality_desc.{tok.lower()}"
+    if key in TRANSLATIONS:
+        return translate_ui(loc, key)
+    return ""
+
+
+def _wizard_steps(loc: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for i in range(1, 7):
+        out.append(
+            {
+                "label": translate_ui(loc, f"dash.home.stepper.step{i}_label"),
+                "description": translate_ui(loc, f"dash.home.stepper.step{i}_desc"),
+            }
+        )
+    return out
+
+
+def _mapping_options(columns: list[str], loc: str) -> list[dict[str, str]]:
+    return [{"label": translate_ui(loc, "dash.home.mapping_none"), "value": _NONE_VALUE}] + [
         {"label": column, "value": column}
         for column in columns
     ]
@@ -80,7 +94,7 @@ def _summary_card(label: str, value: str) -> dbc.Card:
     )
 
 
-def _build_metrics(datasets: list[dict]) -> dbc.Row:
+def _build_metrics(datasets: list[dict], loc: str) -> dbc.Row:
     vendors = {item.get("vendor", "Generic") for item in datasets}
     by_type = {
         token: sum(1 for item in datasets if item.get("data_type") == token)
@@ -89,9 +103,9 @@ def _build_metrics(datasets: list[dict]) -> dbc.Row:
     type_summary = " / ".join(str(by_type[token]) for token in _MODALITY_OPTIONS)
     return dbc.Row(
         [
-            dbc.Col(_summary_card("Loaded Runs", str(len(datasets))), md=4),
-            dbc.Col(_summary_card("D / T / DTA / F / R / X", type_summary), md=4),
-            dbc.Col(_summary_card("Vendors", str(len(vendors))), md=4),
+            dbc.Col(_summary_card(translate_ui(loc, "dash.home.metric_loaded_runs"), str(len(datasets))), md=4),
+            dbc.Col(_summary_card(translate_ui(loc, "dash.home.metric_type_breakdown"), type_summary), md=4),
+            dbc.Col(_summary_card(translate_ui(loc, "dash.home.metric_vendors"), str(len(vendors))), md=4),
         ],
         className="g-3 mb-4",
     )
@@ -116,7 +130,7 @@ def _sample_buttons() -> list[dbc.Col]:
 
 
 def _modality_select_buttons() -> html.Div:
-    """Render modality selection as large button group."""
+    """Render modality selection as large button group (descriptions filled by locale callback)."""
     buttons = []
     for token in _MODALITY_OPTIONS:
         buttons.append(
@@ -124,7 +138,12 @@ def _modality_select_buttons() -> html.Div:
                 dbc.Button(
                     [
                         html.Div(token, className="fw-bold fs-5"),
-                        html.Small(_MODALITY_DESCRIPTIONS[token], className="d-block mt-1 text-start", style={"fontSize": "0.7rem"}),
+                        html.Small(
+                            id={"type": "modality-desc", "modality": token},
+                            className="d-block mt-1 text-start",
+                            style={"fontSize": "0.7rem"},
+                            children="",
+                        ),
                     ],
                     id={"type": "modality-select", "modality": token},
                     color="outline-secondary",
@@ -137,21 +156,19 @@ def _modality_select_buttons() -> html.Div:
     return dbc.Row(buttons)
 
 
-def _validation_status_badge(status: str) -> html.Span:
+def _validation_status_badge(status: str, loc: str) -> html.Span:
     color_map = {
         "pass": "success",
         "pass_with_review": "info",
         "warn": "warning",
         "fail": "danger",
     }
-    label_map = {
-        "pass": "PASS",
-        "pass_with_review": "REVIEW",
-        "warn": "WARN",
-        "fail": "FAIL",
-    }
     color = color_map.get(status, "secondary")
-    label = label_map.get(status, status.upper())
+    badge_key = f"dash.home.validation_badge.{status}"
+    if badge_key in TRANSLATIONS:
+        label = translate_ui(loc, badge_key)
+    else:
+        label = translate_ui(loc, "dash.home.validation_badge.unknown")
     return dbc.Badge(label, color=color, className="fs-6")
 
 
@@ -169,27 +186,8 @@ layout = html.Div(
         dcc.Store(id="import-review-data"),
         dcc.Store(id="home-refresh", data=0),
 
-        # -- Page header --
-        page_header(
-            "Data Import",
-            "Modality-first import wizard: select technique, upload, map, review, and confirm.",
-            badge="Import",
-        ),
-
-        # -- Guidance --
-        html.Div(
-            [
-                guidance_block(
-                    "Modality-first import",
-                    body=(
-                        "Select a measurement technique before uploading data. "
-                        "This ensures the parser uses technique-specific rules for column detection, "
-                        "unit validation, and scientific credibility checks."
-                    ),
-                ),
-            ],
-            className="mb-2",
-        ),
+        html.Div(id="home-hero-slot"),
+        html.Div(id="home-guidance-slot", className="mb-2"),
 
         # -- Wizard stepper indicator --
         html.Div(id="wizard-stepper-display"),
@@ -204,12 +202,8 @@ layout = html.Div(
                 dbc.Card(
                     dbc.CardBody(
                         [
-                            html.H5("Select Measurement Technique", className="mb-3"),
-                            html.P(
-                                "Choose the analysis technique for the data you are about to import. "
-                                "This determines the expected axis roles, units, and validation rules.",
-                                className="text-muted",
-                            ),
+                            html.H5(id="home-step1-title", children="", className="mb-3"),
+                            html.P(id="home-step1-intro", children="", className="text-muted"),
                             _modality_select_buttons(),
                             html.Div(id="modality-select-status", className="mt-2"),
                         ]
@@ -228,15 +222,14 @@ layout = html.Div(
                 dbc.Card(
                     dbc.CardBody(
                         [
-                            html.H5(id="step2-title", children="Upload Data", className="mb-3"),
+                            html.H5(id="step2-title", children="", className="mb-3"),
                             html.Div(id="step2-modality-badge", className="mb-3"),
                             dcc.Upload(
                                 id="file-upload",
                                 children=html.Div(
                                     [
                                         html.I(className="bi bi-cloud-arrow-up fs-1 d-block mb-2 text-muted"),
-                                        "Drag and drop files here, or ",
-                                        html.A("browse", className="ta-link-emphasis"),
+                                        html.Div(id="home-upload-caption", className="text-center"),
                                     ],
                                     className="text-center py-4",
                                 ),
@@ -247,11 +240,8 @@ layout = html.Div(
                             dbc.Select(id="pending-file-select", className="mt-3"),
                             html.Div(id="pending-file-help", className="small text-muted mt-2"),
                             html.Hr(className="my-4"),
-                            html.H5("Load Sample Data", className="mb-3"),
-                            html.P(
-                                "Load built-in sample datasets for testing. These are pre-tagged with their modality.",
-                                className="text-muted",
-                            ),
+                            html.H5(id="home-sample-title", children="", className="mb-3"),
+                            html.P(id="home-sample-intro", children="", className="text-muted"),
                             dbc.Row(_sample_buttons()),
                             html.Div(id="sample-status", className="mt-3"),
                         ]
@@ -261,11 +251,11 @@ layout = html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
-                            dbc.Button("Back", id="step2-prev-btn", color="secondary", outline=True),
+                            dbc.Button("", id="step2-prev-btn", color="secondary", outline=True),
                             width="auto",
                         ),
                         dbc.Col(
-                            dbc.Button("Next: Preview", id="step2-next-btn", color="primary"),
+                            dbc.Button("", id="step2-next-btn", color="primary"),
                             width="auto",
                         ),
                     ],
@@ -284,7 +274,7 @@ layout = html.Div(
                 dbc.Card(
                     dbc.CardBody(
                         [
-                            html.H5("Raw Data Preview", className="mb-3"),
+                            html.H5(id="home-step3-title", children="", className="mb-3"),
                             html.Div(id="mapping-preview-status", className="mb-3"),
                             html.Div(id="mapping-preview-table"),
                         ]
@@ -294,11 +284,11 @@ layout = html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
-                            dbc.Button("Back", id="step3-prev-btn", color="secondary", outline=True),
+                            dbc.Button("", id="step3-prev-btn", color="secondary", outline=True),
                             width="auto",
                         ),
                         dbc.Col(
-                            dbc.Button("Next: Map Columns", id="step3-next-btn", color="primary"),
+                            dbc.Button("", id="step3-next-btn", color="primary"),
                             width="auto",
                         ),
                     ],
@@ -317,12 +307,8 @@ layout = html.Div(
                 dbc.Card(
                     dbc.CardBody(
                         [
-                            html.H5("Column Mapping", className="mb-3"),
-                            html.P(
-                                "Map raw columns to standardized axis/signal roles. "
-                                "Values are pre-filled from modality-aware detection.",
-                                className="text-muted",
-                            ),
+                            html.H5(id="home-step4-title", children="", className="mb-3"),
+                            html.P(id="home-step4-intro", children="", className="text-muted"),
                             dbc.Row(
                                 [
                                     dbc.Col(
@@ -341,7 +327,7 @@ layout = html.Div(
                                     ),
                                     dbc.Col(
                                         [
-                                            dbc.Label("Time Column (optional)", className="mt-3"),
+                                            dbc.Label(id="home-mapping-time-label", children="", className="mt-3"),
                                             dbc.Select(id="mapping-time-select"),
                                         ],
                                         md=4,
@@ -353,14 +339,14 @@ layout = html.Div(
                                 [
                                     dbc.Col(
                                         [
-                                            dbc.Label("Sample Name", className="mt-3"),
+                                            dbc.Label(id="home-mapping-sample-name-label", children="", className="mt-3"),
                                             dbc.Input(id="mapping-sample-name", type="text"),
                                         ],
                                         md=4,
                                     ),
                                     dbc.Col(
                                         [
-                                            dbc.Label("Sample Mass (mg)", className="mt-3"),
+                                            dbc.Label(id="home-mapping-sample-mass-label", children="", className="mt-3"),
                                             dbc.Input(id="mapping-sample-mass", type="number", value=0),
                                         ],
                                         md=4,
@@ -379,7 +365,7 @@ layout = html.Div(
                                 [
                                     dbc.Col(
                                         [
-                                            dbc.Label("XRD Wavelength (Å)", className="mt-3"),
+                                            dbc.Label(id="home-mapping-xrd-label", children="", className="mt-3"),
                                             dbc.Input(id="mapping-xrd-wavelength", type="number", value=1.5406),
                                         ],
                                         md=4,
@@ -395,11 +381,11 @@ layout = html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
-                            dbc.Button("Back", id="step4-prev-btn", color="secondary", outline=True),
+                            dbc.Button("", id="step4-prev-btn", color="secondary", outline=True),
                             width="auto",
                         ),
                         dbc.Col(
-                            dbc.Button("Next: Review", id="step4-next-btn", color="primary"),
+                            dbc.Button("", id="step4-next-btn", color="primary"),
                             width="auto",
                         ),
                     ],
@@ -418,7 +404,7 @@ layout = html.Div(
                 dbc.Card(
                     dbc.CardBody(
                         [
-                            html.H5("Unit & Metadata Review", className="mb-3"),
+                            html.H5(id="home-step5-title", children="", className="mb-3"),
                             html.Div(id="review-unit-status"),
                             html.Div(id="review-metadata-summary"),
                             html.Div(id="review-warnings-list"),
@@ -429,11 +415,11 @@ layout = html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
-                            dbc.Button("Back", id="step5-prev-btn", color="secondary", outline=True),
+                            dbc.Button("", id="step5-prev-btn", color="secondary", outline=True),
                             width="auto",
                         ),
                         dbc.Col(
-                            dbc.Button("Next: Confirm Import", id="step5-next-btn", color="primary"),
+                            dbc.Button("", id="step5-next-btn", color="primary"),
                             width="auto",
                         ),
                     ],
@@ -452,13 +438,13 @@ layout = html.Div(
                 dbc.Card(
                     dbc.CardBody(
                         [
-                            html.H5("Validation Summary", className="mb-3"),
+                            html.H5(id="home-step6-title", children="", className="mb-3"),
                             html.Div(id="validation-summary-status"),
                             html.Div(id="validation-summary-warnings"),
                             html.Div(id="validation-summary-details"),
                             html.Hr(className="my-3"),
                             dbc.Button(
-                                "Confirm Import",
+                                "",
                                 id="import-mapped-btn",
                                 color="success",
                                 size="lg",
@@ -471,7 +457,7 @@ layout = html.Div(
                 dbc.Row(
                     [
                         dbc.Col(
-                            dbc.Button("Back", id="step6-prev-btn", color="secondary", outline=True),
+                            dbc.Button("", id="step6-prev-btn", color="secondary", outline=True),
                             width="auto",
                         ),
                     ],
@@ -485,7 +471,7 @@ layout = html.Div(
         # Loaded Datasets Panel (always visible)
         # =============================================
         html.Hr(className="my-4"),
-        html.H5("Loaded Datasets", className="mb-3"),
+        html.H5(id="home-loaded-title", children="", className="mb-3"),
         dbc.Row(
             [
                 dbc.Col(
@@ -498,14 +484,14 @@ layout = html.Div(
                                         [
                                             dbc.Col(
                                                 [
-                                                    dbc.Label("Active Dataset"),
+                                                    dbc.Label(id="home-active-dataset-label", children=""),
                                                     dbc.Select(id="active-dataset-select"),
                                                 ],
                                                 md=9,
                                             ),
                                             dbc.Col(
                                                 dbc.Button(
-                                                    "Remove",
+                                                    "",
                                                     id="remove-dataset-btn",
                                                     color="secondary",
                                                     className="ta-btn-remove w-100",
@@ -539,6 +525,103 @@ layout = html.Div(
 )
 
 
+@callback(
+    Output("home-hero-slot", "children"),
+    Output("home-guidance-slot", "children"),
+    Output("home-step1-title", "children"),
+    Output("home-step1-intro", "children"),
+    Output("step2-title", "children"),
+    Output("home-upload-caption", "children"),
+    Output("home-sample-title", "children"),
+    Output("home-sample-intro", "children"),
+    Output("step2-prev-btn", "children"),
+    Output("step2-next-btn", "children"),
+    Output("home-step3-title", "children"),
+    Output("step3-prev-btn", "children"),
+    Output("step3-next-btn", "children"),
+    Output("home-step4-title", "children"),
+    Output("home-step4-intro", "children"),
+    Output("step4-prev-btn", "children"),
+    Output("step4-next-btn", "children"),
+    Output("home-step5-title", "children"),
+    Output("step5-prev-btn", "children"),
+    Output("step5-next-btn", "children"),
+    Output("home-step6-title", "children"),
+    Output("step6-prev-btn", "children"),
+    Output("import-mapped-btn", "children"),
+    Output("home-loaded-title", "children"),
+    Output("home-mapping-time-label", "children"),
+    Output("home-mapping-sample-name-label", "children"),
+    Output("home-mapping-sample-mass-label", "children"),
+    Output("home-mapping-xrd-label", "children"),
+    Output("home-active-dataset-label", "children"),
+    Output("remove-dataset-btn", "children"),
+    Input("ui-locale", "data"),
+    prevent_initial_call=False,
+)
+def render_home_locale_chrome(locale_data):
+    loc = _loc(locale_data)
+    hero = page_header(
+        translate_ui(loc, "dash.home.title"),
+        translate_ui(loc, "dash.home.caption"),
+        badge=translate_ui(loc, "dash.home.badge"),
+    )
+    guidance = html.Div(
+        [
+            guidance_block(
+                translate_ui(loc, "dash.home.guidance_title"),
+                body=translate_ui(loc, "dash.home.guidance_body"),
+            ),
+        ]
+    )
+    upload_caption = [
+        translate_ui(loc, "dash.home.upload_drop"),
+        html.A(translate_ui(loc, "dash.home.upload_browse"), className="ta-link-emphasis"),
+    ]
+    return (
+        hero,
+        guidance,
+        translate_ui(loc, "dash.home.step1_title"),
+        translate_ui(loc, "dash.home.step1_intro"),
+        translate_ui(loc, "dash.home.step2_title"),
+        upload_caption,
+        translate_ui(loc, "dash.home.sample_section_title"),
+        translate_ui(loc, "dash.home.sample_section_intro"),
+        translate_ui(loc, "dash.home.btn_back"),
+        translate_ui(loc, "dash.home.btn_next_preview"),
+        translate_ui(loc, "dash.home.step3_title"),
+        translate_ui(loc, "dash.home.btn_back"),
+        translate_ui(loc, "dash.home.btn_next_map"),
+        translate_ui(loc, "dash.home.step4_title"),
+        translate_ui(loc, "dash.home.step4_intro"),
+        translate_ui(loc, "dash.home.btn_back"),
+        translate_ui(loc, "dash.home.btn_next_review"),
+        translate_ui(loc, "dash.home.step5_title"),
+        translate_ui(loc, "dash.home.btn_back"),
+        translate_ui(loc, "dash.home.btn_next_confirm"),
+        translate_ui(loc, "dash.home.step6_title"),
+        translate_ui(loc, "dash.home.btn_back"),
+        translate_ui(loc, "dash.home.btn_confirm_import"),
+        translate_ui(loc, "dash.home.loaded_datasets_title"),
+        translate_ui(loc, "dash.home.label_time_optional"),
+        translate_ui(loc, "dash.home.label_sample_name"),
+        translate_ui(loc, "dash.home.label_sample_mass"),
+        translate_ui(loc, "dash.home.label_xrd_wavelength"),
+        translate_ui(loc, "dash.home.label_active_dataset"),
+        translate_ui(loc, "dash.home.btn_remove"),
+    )
+
+
+@callback(
+    Output({"type": "modality-desc", "modality": ALL}, "children"),
+    Input("ui-locale", "data"),
+    prevent_initial_call=False,
+)
+def render_home_modality_descriptions(locale_data):
+    loc = _loc(locale_data)
+    return [translate_ui(loc, f"dash.home.modality_desc.{token.lower()}") for token in _MODALITY_OPTIONS]
+
+
 # ---------------------------------------------------------------------------
 # Step 1: Modality Selection
 # ---------------------------------------------------------------------------
@@ -549,9 +632,11 @@ layout = html.Div(
     Output("modality-select-status", "children"),
     Input({"type": "modality-select", "modality": ALL}, "n_clicks"),
     State({"type": "modality-select", "modality": ALL}, "id"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def select_modality(_clicks, ids):
+def select_modality(_clicks, ids, locale_data):
+    loc = _loc(locale_data)
     ctx = dash.callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
@@ -562,7 +647,7 @@ def select_modality(_clicks, ids):
     if modality not in _MODALITY_OPTIONS:
         raise dash.exceptions.PreventUpdate
     status = dbc.Alert(
-        f"Selected: {modality} -- {_MODALITY_DESCRIPTIONS.get(modality, '')}",
+        translate_ui(loc, "dash.home.modality_selected", modality=modality, desc=_modality_desc(loc, modality)),
         color="success",
         dismissable=True,
     )
@@ -586,10 +671,12 @@ def select_modality(_clicks, ids):
     Output("mapping-signal-label", "children"),
     Output("mapping-rate-label", "children"),
     Input("import-wizard-step", "data"),
+    Input("ui-locale", "data"),
     State("import-selected-modality", "data"),
     prevent_initial_call=False,
 )
-def update_wizard_visibility(step, modality):
+def update_wizard_visibility(step, locale_data, modality):
+    loc = _loc(locale_data)
     step = int(step or 0)
     modality = modality or ""
     display = {"display": "block"}
@@ -598,11 +685,11 @@ def update_wizard_visibility(step, modality):
     if 0 <= step < 6:
         styles[step] = display
 
-    stepper = stepper_indicator(_WIZARD_STEPS, step)
+    stepper = stepper_indicator(_wizard_steps(loc), step)
     badge = dbc.Badge(modality, color="primary", className="fs-6") if modality else ""
-    axis_label = _MODALITY_AXIS_LABELS.get(modality, "Axis Column")
-    signal_label = _MODALITY_SIGNAL_LABELS.get(modality, "Signal Column")
-    rate_label = "Heating Rate (°C/min)" if modality in {"DSC", "TGA", "DTA"} else "Heating Rate (°C/min)"
+    axis_label = _modality_axis_label(loc, modality)
+    signal_label = _modality_signal_label(loc, modality)
+    rate_label = translate_ui(loc, "dash.home.heating_rate_label")
 
     return (
         stepper,
@@ -658,9 +745,11 @@ def navigate_wizard(c2p, c2n, c3p, c3n, c4p, c4n, c5p, c5n, c6p, step):
     Input("file-upload", "contents"),
     State("file-upload", "filename"),
     State("pending-upload-files", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def collect_pending_uploads(contents_list, filenames, pending_files):
+def collect_pending_uploads(contents_list, filenames, pending_files, locale_data):
+    loc = _loc(locale_data)
     if not contents_list:
         return dash.no_update, dash.no_update, dash.no_update
 
@@ -675,10 +764,10 @@ def collect_pending_uploads(contents_list, filenames, pending_files):
         added.append(file_name)
 
     if not added:
-        return dbc.Alert("Files already queued for import preview.", color="info"), pending_files, dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.home.upload_queued_dup"), color="info"), pending_files, dash.no_update
 
     return (
-        dbc.Alert(f"Queued for preview: {', '.join(added)}", color="success", dismissable=True),
+        dbc.Alert(translate_ui(loc, "dash.home.upload_queued_ok", files=", ".join(added)), color="success", dismissable=True),
         pending_files,
         added[0],
     )
@@ -688,14 +777,16 @@ def collect_pending_uploads(contents_list, filenames, pending_files):
     Output("pending-file-select", "options"),
     Output("pending-file-help", "children"),
     Input("pending-upload-files", "data"),
+    Input("ui-locale", "data"),
 )
-def pending_file_options(pending_files):
+def pending_file_options(pending_files, locale_data):
+    loc = _loc(locale_data)
     items = pending_files or []
     options = [{"label": item["file_name"], "value": item["file_name"]} for item in items]
     help_text = (
-        "Upload a file to preview, map, and import into the workspace."
+        translate_ui(loc, "dash.home.pending_help_empty")
         if not items
-        else f"{len(items)} pending file(s) ready for preview and import."
+        else translate_ui(loc, "dash.home.pending_help_count", count=len(items))
     )
     return options, help_text
 
@@ -722,17 +813,20 @@ def pending_file_options(pending_files):
     Input("pending-file-select", "value"),
     Input("import-selected-modality", "data"),
     State("pending-upload-files", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=False,
 )
-def build_pending_preview(selected_file, modality, pending_files):
+def build_pending_preview(selected_file, modality, pending_files, locale_data):
+    loc = _loc(locale_data)
     modality = modality or ""
-    empty_options = _mapping_options([])
+    empty_options = _mapping_options([], loc)
     empty_result = (
         None,
         prereq_or_empty_help(
-            "Upload a file and select it to preview raw data.",
+            translate_ui(loc, "dash.home.prereq_select_file_body"),
             tone="secondary",
-            title="No file selected",
+            title=translate_ui(loc, "dash.home.prereq_select_file_title"),
+            locale=loc,
         ),
         "",
         empty_options, _NONE_VALUE,
@@ -758,7 +852,7 @@ def build_pending_preview(selected_file, modality, pending_files):
     except Exception as exc:
         return (
             None,
-            dbc.Alert(f"Preview failed: {exc}", color="danger"),
+            dbc.Alert(translate_ui(loc, "dash.home.preview_failed", error=str(exc)), color="danger"),
             "",
             empty_options, _NONE_VALUE,
             empty_options, _NONE_VALUE,
@@ -769,7 +863,7 @@ def build_pending_preview(selected_file, modality, pending_files):
 
     guessed = preview.get("guessed_mapping") or {}
     columns = preview["columns"]
-    options = _mapping_options(columns)
+    options = _mapping_options(columns, loc)
 
     suggested_type = str(
         guessed.get("inferred_analysis_type")
@@ -786,12 +880,16 @@ def build_pending_preview(selected_file, modality, pending_files):
     confidence = (guessed.get("confidence") or {}).get("overall", "review")
     warnings = guessed.get("warnings") or []
     status_color = "success" if confidence == "high" else ("warning" if confidence == "medium" else "info")
-    status_text = (
-        f"Preview ready: {preview['file_name']} | rows={preview['row_count']} | "
-        f"detected type={suggested_type} | confidence={confidence}"
+    status_text = translate_ui(
+        loc,
+        "dash.home.preview_status",
+        file=preview["file_name"],
+        rows=preview["row_count"],
+        dtype=suggested_type,
+        conf=confidence,
     )
     if warnings:
-        status_text += f" | {len(warnings)} warning(s)"
+        status_text += translate_ui(loc, "dash.home.preview_warnings_suffix", n=len(warnings))
     status = dbc.Alert(status_text, color=status_color)
 
     def _pick(column_name: str | None) -> str:
@@ -830,19 +928,31 @@ def build_pending_preview(selected_file, modality, pending_files):
     State("mapping-sample-mass", "value"),
     State("mapping-heating-rate", "value"),
     State("mapping-xrd-wavelength", "value"),
+    State("ui-locale", "data"),
     prevent_initial_call=False,
 )
 def build_review_data(
     step, preview, modality,
     temp_col, signal_col, time_col,
     sample_name, sample_mass, heating_rate, xrd_wavelength,
+    locale_data,
 ):
+    loc = _loc(locale_data)
     step = int(step or 0)
     if step != 4:
         raise dash.exceptions.PreventUpdate
 
     if not preview:
-        return prereq_or_empty_help("No preview data available. Go back and upload a file.", title="No data"), "", "", None
+        return (
+            prereq_or_empty_help(
+                translate_ui(loc, "dash.home.prereq_no_preview_for_review_body"),
+                title=translate_ui(loc, "dash.home.title_no_data"),
+                locale=loc,
+            ),
+            "",
+            "",
+            None,
+        )
 
     guessed = preview.get("guessed_mapping") or {}
     modality = modality or ""
@@ -856,15 +966,27 @@ def build_review_data(
     # Build review display
     unit_rows = []
     if temp_col and temp_col != _NONE_VALUE:
-        unit_rows.append(html.Tr([html.Td("Axis"), html.Td(temp_col)]))
+        unit_rows.append(html.Tr([html.Td(translate_ui(loc, "dash.home.review_td_axis")), html.Td(temp_col)]))
     if signal_col and signal_col != _NONE_VALUE:
-        unit_rows.append(html.Tr([html.Td("Signal"), html.Td(signal_col)]))
+        unit_rows.append(html.Tr([html.Td(translate_ui(loc, "dash.home.review_td_signal")), html.Td(signal_col)]))
     if time_col and time_col != _NONE_VALUE:
-        unit_rows.append(html.Tr([html.Td("Time"), html.Td(time_col)]))
+        unit_rows.append(html.Tr([html.Td(translate_ui(loc, "dash.home.review_td_time")), html.Td(time_col)]))
 
     unit_table = dbc.Table(
-        [html.Thead(html.Tr([html.Th("Role"), html.Th("Column")]))] + [html.Tbody(unit_rows)],
-        bordered=True, size="sm", className="mt-2",
+        [
+            html.Thead(
+                html.Tr(
+                    [
+                        html.Th(translate_ui(loc, "dash.home.review_th_role")),
+                        html.Th(translate_ui(loc, "dash.home.review_th_column")),
+                    ]
+                )
+            )
+        ]
+        + [html.Tbody(unit_rows)],
+        bordered=True,
+        size="sm",
+        className="mt-2",
     )
 
     # Suspicious unit combos via modality specs
@@ -885,25 +1007,61 @@ def build_review_data(
             warning_items.append(html.Li(w, className="text-warning"))
         warning_list = html.Ul(warning_items, className="mt-2")
     else:
-        warning_list = html.P("No warnings detected.", className="text-success")
+        warning_list = html.P(translate_ui(loc, "dash.home.no_warnings"), className="text-success")
 
     # Confidence badge
     conf_color = {"high": "success", "medium": "warning", "review": "info"}.get(confidence, "secondary")
-    conf_badge = dbc.Badge(f"Confidence: {confidence}", color=conf_color, className="me-2")
+    conf_badge = dbc.Badge(translate_ui(loc, "dash.home.confidence_badge", value=confidence), color=conf_color, className="me-2")
 
     # Metadata summary
     meta_items = []
-    meta_items.append(html.Tr([html.Td("Modality"), html.Td(dbc.Badge(modality, color="primary"))]))
-    meta_items.append(html.Tr([html.Td("Sample Name"), html.Td(sample_name or "Unknown")]))
-    meta_items.append(html.Tr([html.Td("Sample Mass"), html.Td(f"{sample_mass} mg" if sample_mass else "Not set")]))
+    meta_items.append(
+        html.Tr([html.Td(translate_ui(loc, "dash.home.meta_modality")), html.Td(dbc.Badge(modality, color="primary"))])
+    )
+    meta_items.append(
+        html.Tr(
+            [
+                html.Td(translate_ui(loc, "dash.home.meta_sample_name")),
+                html.Td(sample_name or translate_ui(loc, "dash.home.meta_unknown")),
+            ]
+        )
+    )
+    mass_display = (
+        translate_ui(loc, "dash.home.meta_mass_fmt", value=sample_mass)
+        if sample_mass
+        else translate_ui(loc, "dash.home.meta_not_set")
+    )
+    meta_items.append(html.Tr([html.Td(translate_ui(loc, "dash.home.meta_sample_mass")), html.Td(mass_display)]))
     if modality in {"DSC", "TGA", "DTA"}:
-        meta_items.append(html.Tr([html.Td("Heating Rate"), html.Td(f"{heating_rate} °C/min" if heating_rate else "Not set")]))
+        rate_display = (
+            translate_ui(loc, "dash.home.meta_rate_fmt", value=heating_rate)
+            if heating_rate
+            else translate_ui(loc, "dash.home.meta_not_set")
+        )
+        meta_items.append(html.Tr([html.Td(translate_ui(loc, "dash.home.meta_heating_rate")), html.Td(rate_display)]))
     if modality == "XRD":
-        meta_items.append(html.Tr([html.Td("Wavelength"), html.Td(f"{xrd_wavelength} Å" if xrd_wavelength else "Not set")]))
+        wl_display = (
+            translate_ui(loc, "dash.home.meta_wavelength_fmt", value=xrd_wavelength)
+            if xrd_wavelength
+            else translate_ui(loc, "dash.home.meta_not_set")
+        )
+        meta_items.append(html.Tr([html.Td(translate_ui(loc, "dash.home.meta_wavelength")), html.Td(wl_display)]))
 
     meta_table = dbc.Table(
-        [html.Thead(html.Tr([html.Th("Field"), html.Th("Value")]))] + [html.Tbody(meta_items)],
-        bordered=True, size="sm", className="mt-2",
+        [
+            html.Thead(
+                html.Tr(
+                    [
+                        html.Th(translate_ui(loc, "dash.home.meta_th_field")),
+                        html.Th(translate_ui(loc, "dash.home.meta_th_value")),
+                    ]
+                )
+            )
+        ]
+        + [html.Tbody(meta_items)],
+        bordered=True,
+        size="sm",
+        className="mt-2",
     )
 
     review_data = {
@@ -920,9 +1078,9 @@ def build_review_data(
     }
 
     return (
-        html.Div([conf_badge, html.Span("Unit Review:"), unit_table]),
-        html.Div([html.Strong("Metadata Summary:"), meta_table]),
-        html.Div([html.Strong("Warnings & Flags:"), warning_list]),
+        html.Div([conf_badge, html.Span(translate_ui(loc, "dash.home.label_unit_review")), unit_table]),
+        html.Div([html.Strong(translate_ui(loc, "dash.home.label_metadata_summary")), meta_table]),
+        html.Div([html.Strong(translate_ui(loc, "dash.home.label_warnings_flags")), warning_list]),
         review_data,
     )
 
@@ -937,15 +1095,25 @@ def build_review_data(
     Output("validation-summary-details", "children"),
     Input("import-wizard-step", "data"),
     State("import-review-data", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=False,
 )
-def build_validation_summary(step, review_data):
+def build_validation_summary(step, review_data, locale_data):
+    loc = _loc(locale_data)
     step = int(step or 0)
     if step != 5:
         raise dash.exceptions.PreventUpdate
 
     if not review_data:
-        return prereq_or_empty_help("No review data available.", title="No data"), "", ""
+        return (
+            prereq_or_empty_help(
+                translate_ui(loc, "dash.home.prereq_no_review_data_body"),
+                title=translate_ui(loc, "dash.home.title_no_data"),
+                locale=loc,
+            ),
+            "",
+            "",
+        )
 
     modality = review_data.get("modality", "")
     confidence = review_data.get("confidence", "review")
@@ -964,17 +1132,13 @@ def build_validation_summary(step, review_data):
     else:
         status = "pass"
 
-    status_badge = _validation_status_badge(status)
-    status_text = {
-        "pass": "All checks passed. Ready to import.",
-        "pass_with_review": "Data is importable but review flags detected. Inspect warnings before confirming.",
-        "warn": "Warnings detected. Review before confirming.",
-        "fail": "Blocking issues detected. Go back and fix column mapping.",
-    }.get(status, "")
+    status_badge = _validation_status_badge(status, loc)
+    vt_key = f"dash.home.validation_text.{status}"
+    status_text = translate_ui(loc, vt_key) if vt_key in TRANSLATIONS else ""
 
     status_display = html.Div(
         [
-            html.H6("Import Status:", className="d-inline me-2"),
+            html.H6(translate_ui(loc, "dash.home.label_import_status"), className="d-inline me-2"),
             status_badge,
             html.P(status_text, className="mt-2"),
         ],
@@ -984,17 +1148,17 @@ def build_validation_summary(step, review_data):
     warning_display = ""
     if warnings:
         items = [html.Li(w, className="text-warning") for w in warnings]
-        warning_display = html.Div([html.Strong("Warnings:"), html.Ul(items, className="mt-1")])
+        warning_display = html.Div([html.Strong(translate_ui(loc, "dash.home.label_warnings_block")), html.Ul(items, className="mt-1")])
 
     details = html.Div(
         [
-            html.Strong("Summary:"),
+            html.Strong(translate_ui(loc, "dash.home.label_summary")),
             html.Ul(
                 [
-                    html.Li(f"Technique: {modality}"),
-                    html.Li(f"Axis column: {temp_col}"),
-                    html.Li(f"Signal column: {signal_col}"),
-                    html.Li(f"Confidence: {confidence}"),
+                    html.Li(translate_ui(loc, "dash.home.summary_li_technique", value=modality)),
+                    html.Li(translate_ui(loc, "dash.home.summary_li_axis", value=temp_col)),
+                    html.Li(translate_ui(loc, "dash.home.summary_li_signal", value=signal_col)),
+                    html.Li(translate_ui(loc, "dash.home.summary_li_confidence", value=confidence)),
                 ]
             ),
         ]
@@ -1027,6 +1191,7 @@ def build_validation_summary(step, review_data):
     State("mapping-heating-rate", "value"),
     State("mapping-xrd-wavelength", "value"),
     State("home-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
 def import_with_mapping(
@@ -1044,15 +1209,18 @@ def import_with_mapping(
     heating_rate,
     xrd_wavelength,
     refresh_value,
+    locale_data,
 ):
+    loc = _loc(locale_data)
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
 
     if not project_id:
         return (
             prereq_or_empty_help(
-                "No active workspace. Open Project Workspace to start or load one, then import again.",
-                title="Workspace required",
+                translate_ui(loc, "dash.home.prereq_workspace_import_body"),
+                title=translate_ui(loc, "dash.home.prereq_workspace_import_title"),
+                locale=loc,
             ),
             dash.no_update, dash.no_update, dash.no_update, dash.no_update,
         )
@@ -1060,26 +1228,24 @@ def import_with_mapping(
     if not preview:
         return (
             prereq_or_empty_help(
-                "Select a pending file to build a preview before importing.",
+                translate_ui(loc, "dash.home.prereq_preview_required_body"),
                 tone="secondary",
-                title="Preview required",
+                title=translate_ui(loc, "dash.home.prereq_preview_required_title"),
+                locale=loc,
             ),
             dash.no_update, dash.no_update, dash.no_update, dash.no_update,
         )
 
     if temp_col == _NONE_VALUE or signal_col == _NONE_VALUE:
         return (
-            dbc.Alert("Axis and signal columns are required.", color="warning"),
+            dbc.Alert(translate_ui(loc, "dash.home.import_axis_signal_required"), color="warning"),
             dash.no_update, dash.no_update, dash.no_update, dash.no_update,
         )
 
     available_columns = set(preview.get("columns", []))
     if temp_col not in available_columns or signal_col not in available_columns:
         return (
-            dbc.Alert(
-                "Column mapping is stale. Select the file again, then re-map axis and signal columns.",
-                color="warning",
-            ),
+            dbc.Alert(translate_ui(loc, "dash.home.import_mapping_stale"), color="warning"),
             dash.no_update, dash.no_update, dash.no_update, dash.no_update,
         )
 
@@ -1112,11 +1278,11 @@ def import_with_mapping(
         exc_msg = str(exc)
         hint = ""
         if "thermal-analysis bounds" in exc_msg or "Temperature range" in exc_msg:
-            hint = " Hint: the axis range looks like wavenumber data -- try selecting FTIR or RAMAN."
+            hint = translate_ui(loc, "dash.home.import_hint_wavenumber")
         elif "strictly increasing" in exc_msg:
-            hint = " Hint: the axis is not monotonic -- check column mapping or try FTIR/RAMAN for spectral data."
+            hint = translate_ui(loc, "dash.home.import_hint_monotonic")
         return (
-            dbc.Alert(f"Import failed: {exc_msg}{hint}", color="danger", dismissable=True),
+            dbc.Alert(translate_ui(loc, "dash.home.import_failed", error=exc_msg) + hint, color="danger", dismissable=True),
             dash.no_update, dash.no_update, dash.no_update, dash.no_update,
         )
 
@@ -1125,10 +1291,16 @@ def import_with_mapping(
     ds = result.get("dataset", {})
     return (
         dbc.Alert(
-            (
-                f"Imported: {ds.get('display_name', preview['file_name'])} ({ds.get('data_type', '?')}). "
-                "Next: confirm workspace status in Project Workspace."
-            ),
+            [
+                translate_ui(
+                    loc,
+                    "dash.home.import_success",
+                    name=ds.get("display_name", preview["file_name"]),
+                    dtype=ds.get("data_type", "?"),
+                ),
+                " ",
+                translate_ui(loc, "dash.home.import_success_next"),
+            ],
             color="success",
             dismissable=True,
         ),
@@ -1150,14 +1322,17 @@ def import_with_mapping(
     State({"type": "sample-load", "sample_id": ALL}, "id"),
     State("project-id", "data"),
     State("home-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def load_sample(_clicks, ids, project_id, refresh_value):
+def load_sample(_clicks, ids, project_id, refresh_value, locale_data):
+    loc = _loc(locale_data)
     if not project_id:
         return (
             prereq_or_empty_help(
-                "No active workspace. Open Project Workspace to start or load one, then load sample data.",
-                title="Workspace required",
+                translate_ui(loc, "dash.home.prereq_workspace_sample_body"),
+                title=translate_ui(loc, "dash.home.prereq_workspace_import_title"),
+                locale=loc,
             ),
             dash.no_update,
         )
@@ -1172,7 +1347,7 @@ def load_sample(_clicks, ids, project_id, refresh_value):
         raise dash.exceptions.PreventUpdate
 
     if not sample_path.exists():
-        return dbc.Alert(f"Sample file not found: {sample_path.name}", color="warning"), dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.home.sample_not_found", name=sample_path.name), color="warning"), dash.no_update
 
     from dash_app.api_client import dataset_import
 
@@ -1184,12 +1359,12 @@ def load_sample(_clicks, ids, project_id, refresh_value):
             data_type=dtype,
         )
     except Exception as exc:
-        return dbc.Alert(f"Sample load failed: {exc}", color="danger"), dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.home.sample_load_failed", error=str(exc)), color="danger"), dash.no_update
 
     dataset = result.get("dataset", {})
     return (
         dbc.Alert(
-            f"Loaded sample: {dataset.get('display_name', sample_path.name)}",
+            translate_ui(loc, "dash.home.sample_loaded", name=dataset.get("display_name", sample_path.name)),
             color="success",
             dismissable=True,
         ),
@@ -1209,15 +1384,18 @@ def load_sample(_clicks, ids, project_id, refresh_value):
     Input("project-id", "data"),
     Input("home-refresh", "data"),
     Input("ui-theme", "data"),
+    Input("ui-locale", "data"),
     prevent_initial_call=False,
 )
-def load_workspace_datasets(project_id, _refresh, _ui_theme):
+def load_workspace_datasets(project_id, _refresh, _ui_theme, locale_data):
+    loc = _loc(locale_data)
     if not project_id:
         return (
             "",
             prereq_or_empty_help(
-                "No active workspace. Open Project Workspace to create or load a workspace, then return to Import.",
-                title="Workspace required",
+                translate_ui(loc, "dash.home.prereq_workspace_import_body"),
+                title=translate_ui(loc, "dash.home.prereq_workspace_import_title"),
+                locale=loc,
             ),
             [],
             None,
@@ -1228,17 +1406,18 @@ def load_workspace_datasets(project_id, _refresh, _ui_theme):
     try:
         payload = workspace_datasets(project_id)
     except Exception as exc:
-        error = html.P(f"Error: {exc}", className="text-danger")
+        error = html.P([translate_ui(loc, "dash.home.error_prefix"), " ", str(exc)], className="text-danger")
         return "", error, [], None
 
     datasets = payload.get("datasets", [])
     if not datasets:
         return (
-            _build_metrics([]),
+            _build_metrics([], loc),
             prereq_or_empty_help(
-                "No datasets are loaded yet. Upload files or load sample datasets to populate this workspace.",
+                translate_ui(loc, "dash.home.prereq_no_datasets_body"),
                 tone="secondary",
-                title="No datasets in workspace",
+                title=translate_ui(loc, "dash.home.prereq_no_datasets_title"),
+                locale=loc,
             ),
             [],
             None,
@@ -1258,7 +1437,7 @@ def load_workspace_datasets(project_id, _refresh, _ui_theme):
     ]
     table = dataset_table(rows, ["key", "display_name", "data_type", "vendor", "sample_name", "points", "validation_status"], table_id="datasets-summary-table")
     options = [{"label": item.get("display_name", item.get("key")), "value": item.get("key")} for item in datasets]
-    return _build_metrics(datasets), table, options, payload.get("active_dataset")
+    return _build_metrics(datasets, loc), table, options, payload.get("active_dataset")
 
 
 @callback(
@@ -1284,9 +1463,11 @@ def set_active_dataset(dataset_key, project_id, refresh_value):
     State("active-dataset-select", "value"),
     State("project-id", "data"),
     State("home-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def remove_dataset(n_clicks, dataset_key, project_id, refresh_value):
+def remove_dataset(n_clicks, dataset_key, project_id, refresh_value, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not dataset_key or not project_id:
         raise dash.exceptions.PreventUpdate
 
@@ -1295,8 +1476,8 @@ def remove_dataset(n_clicks, dataset_key, project_id, refresh_value):
     try:
         workspace_delete_dataset(project_id, dataset_key)
     except Exception as exc:
-        return dbc.Alert(f"Remove failed: {exc}", color="danger"), dash.no_update
-    return dbc.Alert(f"Removed dataset: {dataset_key}", color="warning"), int(refresh_value or 0) + 1
+        return dbc.Alert(translate_ui(loc, "dash.home.remove_fail", error=str(exc)), color="danger"), dash.no_update
+    return dbc.Alert(translate_ui(loc, "dash.home.remove_ok", key=dataset_key), color="warning"), int(refresh_value or 0) + 1
 
 
 @callback(
@@ -1305,19 +1486,23 @@ def remove_dataset(n_clicks, dataset_key, project_id, refresh_value):
     Input("active-dataset-select", "value"),
     Input("home-refresh", "data"),
     Input("ui-theme", "data"),
+    Input("ui-locale", "data"),
     prevent_initial_call=False,
 )
-def load_active_dataset_detail(project_id, dataset_key, _refresh, ui_theme):
+def load_active_dataset_detail(project_id, dataset_key, _refresh, ui_theme, locale_data):
+    loc = _loc(locale_data)
     if not project_id:
         return prereq_or_empty_help(
-            "No active workspace. Start or load a workspace in Project, then import datasets here.",
-            title="Workspace required",
+            translate_ui(loc, "dash.home.prereq_workspace_detail_body"),
+            title=translate_ui(loc, "dash.home.prereq_workspace_import_title"),
+            locale=loc,
         )
     if not dataset_key:
         return prereq_or_empty_help(
-            "Select an active dataset from the Loaded Datasets panel to inspect metadata, preview, and quick plot.",
+            translate_ui(loc, "dash.home.prereq_select_dataset_body"),
             tone="secondary",
-            title="Select a dataset",
+            title=translate_ui(loc, "dash.home.prereq_select_dataset_title"),
+            locale=loc,
         )
 
     from dash_app.api_client import workspace_dataset_data, workspace_dataset_detail
@@ -1326,7 +1511,7 @@ def load_active_dataset_detail(project_id, dataset_key, _refresh, ui_theme):
         detail = workspace_dataset_detail(project_id, dataset_key)
         data_payload = workspace_dataset_data(project_id, dataset_key)
     except Exception as exc:
-        return html.P(f"Error: {exc}", className="text-danger")
+        return html.P([translate_ui(loc, "dash.home.error_prefix"), " ", str(exc)], className="text-danger")
 
     rows = data_payload.get("rows", [])
     columns = data_payload.get("columns", [])
@@ -1338,16 +1523,19 @@ def load_active_dataset_detail(project_id, dataset_key, _refresh, ui_theme):
             metric_cards(detail),
             dbc.Accordion(
                 [
-                    dbc.AccordionItem(metadata_list(detail), title="Metadata"),
-                    dbc.AccordionItem(original_columns_list(detail), title="Column Mapping"),
-                    dbc.AccordionItem(dataset_table(preview_rows, columns, page_size=min(10, len(preview_rows) or 1), table_id="active-dataset-table"), title="Data Preview"),
-                    dbc.AccordionItem(stats_table(rows, columns), title="Statistics"),
+                    dbc.AccordionItem(metadata_list(detail), title=translate_ui(loc, "dash.home.detail_metadata")),
+                    dbc.AccordionItem(original_columns_list(detail), title=translate_ui(loc, "dash.home.detail_columns")),
+                    dbc.AccordionItem(
+                        dataset_table(preview_rows, columns, page_size=min(10, len(preview_rows) or 1), table_id="active-dataset-table"),
+                        title=translate_ui(loc, "dash.home.detail_preview"),
+                    ),
+                    dbc.AccordionItem(stats_table(rows, columns), title=translate_ui(loc, "dash.home.detail_stats")),
                 ],
                 start_collapsed=True,
                 always_open=True,
                 className="mb-3",
             ),
-            html.H6("Quick View", className="mb-2"),
+            html.H6(translate_ui(loc, "dash.home.detail_quick_view"), className="mb-2"),
             quick_plot(rows, detail, ui_theme=ui_theme),
         ]
     )

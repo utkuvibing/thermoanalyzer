@@ -19,163 +19,243 @@ from dash_app.components.page_guidance import (
     prereq_or_empty_help,
     typical_workflow_block,
 )
+from utils.i18n import normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/export", title="Export - MaterialScope")
+
+
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
+
+
+def _build_export_workbench(loc: str) -> dbc.Card:
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                dbc.Tabs(
+                    [
+                        dbc.Tab(
+                            [
+                                html.Div(
+                                    [
+                                        html.H5(
+                                            translate_ui(loc, "dash.export.section_raw_data"),
+                                            className="mt-3 mb-3",
+                                        ),
+                                        dbc.Select(
+                                            id="data-export-format",
+                                            options=[
+                                                {"label": translate_ui(loc, "dash.export.label_csv"), "value": "csv"},
+                                                {"label": translate_ui(loc, "dash.export.label_xlsx"), "value": "xlsx"},
+                                            ],
+                                            value="xlsx",
+                                        ),
+                                        dbc.Label(translate_ui(loc, "dash.export.label_select_datasets"), className="mt-3"),
+                                        html.Div(
+                                            id="data-export-datasets-shell",
+                                            children=dcc.Dropdown(
+                                                id="data-export-datasets",
+                                                multi=True,
+                                                className="ta-dropdown",
+                                            ),
+                                        ),
+                                        dbc.Button(
+                                            translate_ui(loc, "dash.export.btn_prepare_data"),
+                                            id="prepare-data-export-btn",
+                                            color="primary",
+                                            className="mt-3",
+                                        ),
+                                    ]
+                                )
+                            ],
+                            label=translate_ui(loc, "dash.export.tab_export_data"),
+                        ),
+                        dbc.Tab(
+                            [
+                                html.Div(
+                                    [
+                                        html.H5(
+                                            translate_ui(loc, "dash.export.section_results"),
+                                            className="mt-3 mb-3",
+                                        ),
+                                        dbc.Select(
+                                            id="result-export-format",
+                                            options=[
+                                                {"label": translate_ui(loc, "dash.export.label_csv"), "value": "csv"},
+                                                {"label": translate_ui(loc, "dash.export.label_xlsx"), "value": "xlsx"},
+                                            ],
+                                            value="csv",
+                                        ),
+                                        dbc.Label(translate_ui(loc, "dash.export.label_select_results"), className="mt-3"),
+                                        html.Div(
+                                            id="result-export-results-shell",
+                                            children=dcc.Dropdown(
+                                                id="result-export-results",
+                                                multi=True,
+                                                className="ta-dropdown",
+                                            ),
+                                        ),
+                                        dbc.Button(
+                                            translate_ui(loc, "dash.export.btn_prepare_results"),
+                                            id="prepare-result-export-btn",
+                                            color="primary",
+                                            className="mt-3",
+                                        ),
+                                    ]
+                                )
+                            ],
+                            label=translate_ui(loc, "dash.export.tab_export_results"),
+                        ),
+                        dbc.Tab(
+                            [
+                                html.Div(
+                                    [
+                                        html.H5(
+                                            translate_ui(loc, "dash.export.section_report"),
+                                            className="mt-3 mb-3",
+                                        ),
+                                        dbc.Select(
+                                            id="report-export-format",
+                                            options=[
+                                                {"label": translate_ui(loc, "dash.export.label_docx"), "value": "docx"},
+                                                {"label": translate_ui(loc, "dash.export.label_pdf"), "value": "pdf"},
+                                            ],
+                                            value="docx",
+                                        ),
+                                        dbc.Checkbox(id="report-include-figures", value=True, className="mt-3"),
+                                        dbc.Label(
+                                            translate_ui(loc, "dash.export.label_include_figures"),
+                                            html_for="report-include-figures",
+                                            className="ms-2",
+                                        ),
+                                        dbc.Label(
+                                            translate_ui(loc, "dash.export.label_select_results"),
+                                            className="mt-3 d-block",
+                                        ),
+                                        html.Div(
+                                            id="report-export-results-shell",
+                                            children=dcc.Dropdown(
+                                                id="report-export-results",
+                                                multi=True,
+                                                className="ta-dropdown",
+                                            ),
+                                        ),
+                                        dbc.Button(
+                                            translate_ui(loc, "dash.export.btn_prepare_report"),
+                                            id="prepare-report-export-btn",
+                                            color="primary",
+                                            className="mt-3",
+                                        ),
+                                    ]
+                                )
+                            ],
+                            label=translate_ui(loc, "dash.export.tab_generate_report"),
+                        ),
+                    ]
+                ),
+                html.Div(id="export-status", className="mt-3"),
+                dcc.Download(id="export-download"),
+            ]
+        ),
+        className="mb-4",
+    )
+
+
+def _build_branding_card(loc: str) -> dbc.Card:
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5(translate_ui(loc, "dash.export.branding_title"), className="mb-3"),
+                dbc.Label(translate_ui(loc, "dash.export.branding_report_title")),
+                dbc.Input(id="branding-report-title", type="text"),
+                dbc.Label(translate_ui(loc, "dash.export.branding_company"), className="mt-3"),
+                dbc.Input(id="branding-company-name", type="text"),
+                dbc.Label(translate_ui(loc, "dash.export.branding_lab"), className="mt-3"),
+                dbc.Input(id="branding-lab-name", type="text"),
+                dbc.Label(translate_ui(loc, "dash.export.branding_analyst"), className="mt-3"),
+                dbc.Input(id="branding-analyst-name", type="text"),
+                dbc.Label(translate_ui(loc, "dash.export.branding_notes"), className="mt-3"),
+                dbc.Textarea(id="branding-report-notes", style={"height": "140px"}),
+                dbc.Label(translate_ui(loc, "dash.export.branding_logo"), className="mt-3"),
+                dcc.Upload(
+                    id="branding-logo-upload",
+                    children=html.Div(
+                        [
+                            html.I(className="bi bi-image me-2"),
+                            translate_ui(loc, "dash.export.branding_upload_logo"),
+                        ],
+                        className="text-center py-3",
+                    ),
+                    className="upload-zone",
+                ),
+                dbc.Button(
+                    translate_ui(loc, "dash.export.btn_save_branding"),
+                    id="save-branding-btn",
+                    color="primary",
+                    className="w-100 mt-3",
+                ),
+                html.Div(id="branding-status", className="mt-3"),
+                html.Div(id="branding-logo-preview", className="mt-3"),
+            ]
+        ),
+        className="mb-4",
+    )
 
 
 layout = html.Div(
     [
         dcc.Store(id="report-refresh", data=0),
-        page_header(
-            "Report Center",
-            "Preview report payloads, edit branding, export data/results, and generate branded reports.",
-            badge="Export",
-        ),
-        html.Div(
-            [
-                guidance_block(
-                    "What this page does",
-                    body=(
-                        "Prepare export artifacts from the active workspace: raw data tables, normalized results, "
-                        "and branded DOCX/PDF reports."
-                    ),
-                ),
-                typical_workflow_block(
-                    [
-                        "Verify workspace readiness in Project (datasets/results available).",
-                        "Set branding fields and confirm export selections.",
-                        "Export data/results or generate the report package.",
-                    ],
-                    title="Typical workflow",
-                ),
-                next_step_block(
-                    "If exports are incomplete, save missing analysis results first and return to this page."
-                ),
-            ],
-            className="mb-2",
-        ),
+        html.Div(id="export-hero-slot"),
+        html.Div(id="export-guidance-slot", className="mb-2"),
         dbc.Row(
             [
                 dbc.Col(
                     [
                         dbc.Card(dbc.CardBody(html.Div(id="report-preview-panel")), className="mb-4"),
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    dbc.Tabs(
-                                        [
-                                            dbc.Tab(
-                                                [
-                                                    html.Div(
-                                                        [
-                                                            html.H5("Export Raw / Imported Data", className="mt-3 mb-3"),
-                                                            dbc.Select(id="data-export-format", options=[{"label": "CSV", "value": "csv"}, {"label": "Excel (XLSX)", "value": "xlsx"}], value="xlsx"),
-                                                            dbc.Label("Select datasets", className="mt-3"),
-                                                            html.Div(
-                                                                id="data-export-datasets-shell",
-                                                                children=dcc.Dropdown(
-                                                                    id="data-export-datasets",
-                                                                    multi=True,
-                                                                    className="ta-dropdown",
-                                                                ),
-                                                            ),
-                                                            dbc.Button("Prepare Data Export", id="prepare-data-export-btn", color="primary", className="mt-3"),
-                                                        ]
-                                                    )
-                                                ],
-                                                label="Export Data",
-                                            ),
-                                            dbc.Tab(
-                                                [
-                                                    html.Div(
-                                                        [
-                                                            html.H5("Export Normalized Results", className="mt-3 mb-3"),
-                                                            dbc.Select(id="result-export-format", options=[{"label": "CSV", "value": "csv"}, {"label": "Excel (XLSX)", "value": "xlsx"}], value="csv"),
-                                                            dbc.Label("Select result records", className="mt-3"),
-                                                            html.Div(
-                                                                id="result-export-results-shell",
-                                                                children=dcc.Dropdown(
-                                                                    id="result-export-results",
-                                                                    multi=True,
-                                                                    className="ta-dropdown",
-                                                                ),
-                                                            ),
-                                                            dbc.Button("Prepare Result Export", id="prepare-result-export-btn", color="primary", className="mt-3"),
-                                                        ]
-                                                    )
-                                                ],
-                                                label="Export Results",
-                                            ),
-                                            dbc.Tab(
-                                                [
-                                                    html.Div(
-                                                        [
-                                                            html.H5("Generate Branded Report", className="mt-3 mb-3"),
-                                                            dbc.Select(id="report-export-format", options=[{"label": "DOCX", "value": "docx"}, {"label": "PDF", "value": "pdf"}], value="docx"),
-                                                            dbc.Checkbox(id="report-include-figures", value=True, className="mt-3"),
-                                                            dbc.Label("Include figures", html_for="report-include-figures", className="ms-2"),
-                                                            dbc.Label("Select result records", className="mt-3 d-block"),
-                                                            html.Div(
-                                                                id="report-export-results-shell",
-                                                                children=dcc.Dropdown(
-                                                                    id="report-export-results",
-                                                                    multi=True,
-                                                                    className="ta-dropdown",
-                                                                ),
-                                                            ),
-                                                            dbc.Button("Prepare Report", id="prepare-report-export-btn", color="primary", className="mt-3"),
-                                                        ]
-                                                    )
-                                                ],
-                                                label="Generate Report",
-                                            ),
-                                        ]
-                                    ),
-                                    html.Div(id="export-status", className="mt-3"),
-                                    dcc.Download(id="export-download"),
-                                ]
-                            ),
-                            className="mb-4",
-                        ),
+                        html.Div(id="export-workbench-slot"),
                     ],
                     md=8,
                 ),
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.H5("Branding", className="mb-3"),
-                                    dbc.Label("Report Title"),
-                                    dbc.Input(id="branding-report-title", type="text"),
-                                    dbc.Label("Company", className="mt-3"),
-                                    dbc.Input(id="branding-company-name", type="text"),
-                                    dbc.Label("Laboratory", className="mt-3"),
-                                    dbc.Input(id="branding-lab-name", type="text"),
-                                    dbc.Label("Analyst", className="mt-3"),
-                                    dbc.Input(id="branding-analyst-name", type="text"),
-                                    dbc.Label("Default Report Notes", className="mt-3"),
-                                    dbc.Textarea(id="branding-report-notes", style={"height": "140px"}),
-                                    dbc.Label("Logo (PNG/JPG)", className="mt-3"),
-                                    dcc.Upload(
-                                        id="branding-logo-upload",
-                                        children=html.Div([html.I(className="bi bi-image me-2"), "Upload logo"], className="text-center py-3"),
-                                        className="upload-zone",
-                                    ),
-                                    dbc.Button("Save Branding", id="save-branding-btn", color="primary", className="w-100 mt-3"),
-                                    html.Div(id="branding-status", className="mt-3"),
-                                    html.Div(id="branding-logo-preview", className="mt-3"),
-                                ]
-                            ),
-                            className="mb-4",
-                        )
-                    ],
-                    md=4,
-                ),
+                dbc.Col([html.Div(id="export-branding-slot")], md=4),
             ]
         ),
     ]
 )
+
+
+@callback(
+    Output("export-hero-slot", "children"),
+    Output("export-guidance-slot", "children"),
+    Output("export-workbench-slot", "children"),
+    Output("export-branding-slot", "children"),
+    Input("ui-locale", "data"),
+    prevent_initial_call=False,
+)
+def render_export_locale_chrome(locale_data):
+    loc = _loc(locale_data)
+    hero = page_header(
+        translate_ui(loc, "dash.export.title"),
+        translate_ui(loc, "dash.export.caption"),
+        badge=translate_ui(loc, "dash.export.badge"),
+    )
+    guidance = html.Div(
+        [
+            guidance_block(
+                translate_ui(loc, "dash.export.guidance_what_title"),
+                body=translate_ui(loc, "dash.export.guidance_what_body"),
+            ),
+            typical_workflow_block(
+                [
+                    translate_ui(loc, "dash.export.workflow_step1"),
+                    translate_ui(loc, "dash.export.workflow_step2"),
+                    translate_ui(loc, "dash.export.workflow_step3"),
+                ],
+                locale=loc,
+            ),
+            next_step_block(translate_ui(loc, "dash.export.next_step_body"), locale=loc),
+        ]
+    )
+    return hero, guidance, _build_export_workbench(loc), _build_branding_card(loc)
 
 
 @callback(
@@ -236,12 +316,16 @@ def remount_export_dropdowns(
     Input("project-id", "data"),
     Input("report-refresh", "data"),
     Input("workspace-refresh", "data"),
+    Input("ui-locale", "data"),
 )
-def load_report_center(project_id, _refresh, _global_refresh):
+def load_report_center(project_id, _refresh, _global_refresh, locale_data):
+    loc = _loc(locale_data)
+    default_title = translate_ui(loc, "dash.export.default_report_title")
     if not project_id:
         empty = prereq_or_empty_help(
-            "No active workspace. Import data and save results before preparing exports.",
-            title="Workspace required",
+            translate_ui(loc, "dash.export.prereq_workspace_body"),
+            title=translate_ui(loc, "dash.export.prereq_workspace_title"),
+            locale=loc,
         )
         return empty, [], [], [], [], [], []
 
@@ -251,7 +335,10 @@ def load_report_center(project_id, _refresh, _global_refresh):
         prep = export_preparation(project_id)
         datasets_payload = workspace_datasets(project_id)
     except Exception as exc:
-        error = html.P(f"Error: {exc}", className="text-danger")
+        error = html.P(
+            [translate_ui(loc, "dash.export.error_prefix"), " ", str(exc)],
+            className="text-danger",
+        )
         return error, [], [], [], [], [], []
 
     results = prep.get("exportable_results", [])
@@ -261,10 +348,50 @@ def load_report_center(project_id, _refresh, _global_refresh):
 
     metrics = dbc.Row(
         [
-            dbc.Col(dbc.Card(dbc.CardBody([html.Small("Datasets", className="text-muted text-uppercase"), html.H4(str(prep.get("summary", {}).get("dataset_count", 0)))])), md=3),
-            dbc.Col(dbc.Card(dbc.CardBody([html.Small("Stable Analyses", className="text-muted text-uppercase"), html.H4(str(sum(1 for item in results if item.get("status") == "stable")))])), md=3),
-            dbc.Col(dbc.Card(dbc.CardBody([html.Small("Preview Analyses", className="text-muted text-uppercase"), html.H4(str(sum(1 for item in results if item.get("status") == "experimental")))])), md=3),
-            dbc.Col(dbc.Card(dbc.CardBody([html.Small("Supported Outputs", className="text-muted text-uppercase"), html.H4(str(len(prep.get("supported_outputs", []))))])), md=3),
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.Small(translate_ui(loc, "dash.export.metric_datasets"), className="text-muted text-uppercase"),
+                            html.H4(str(prep.get("summary", {}).get("dataset_count", 0))),
+                        ]
+                    )
+                ),
+                md=3,
+            ),
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.Small(translate_ui(loc, "dash.export.metric_stable"), className="text-muted text-uppercase"),
+                            html.H4(str(sum(1 for item in results if item.get("status") == "stable"))),
+                        ]
+                    )
+                ),
+                md=3,
+            ),
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.Small(translate_ui(loc, "dash.export.metric_preview"), className="text-muted text-uppercase"),
+                            html.H4(str(sum(1 for item in results if item.get("status") == "experimental"))),
+                        ]
+                    )
+                ),
+                md=3,
+            ),
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.Small(translate_ui(loc, "dash.export.metric_outputs"), className="text-muted text-uppercase"),
+                            html.H4(str(len(prep.get("supported_outputs", [])))),
+                        ]
+                    )
+                ),
+                md=3,
+            ),
         ],
         className="g-3 mb-3",
     )
@@ -280,33 +407,85 @@ def load_report_center(project_id, _refresh, _global_refresh):
     ]
     preview_children = [
         metrics,
-        html.H5("Branding Preview", className="mb-2"),
+        html.H5(translate_ui(loc, "dash.export.preview_branding"), className="mb-2"),
         html.Ul(
             [
-                html.Li(f"Report Title: {branding.get('report_title', 'MaterialScope Professional Report')}"),
-                html.Li(f"Company: {branding.get('company_name') or 'Not set'}"),
-                html.Li(f"Laboratory: {branding.get('lab_name') or 'Not set'}"),
-                html.Li(f"Analyst: {branding.get('analyst_name') or 'Not set'}"),
+                html.Li(
+                    translate_ui(
+                        loc,
+                        "dash.export.preview_li_report_title",
+                        value=branding.get("report_title") or default_title,
+                    )
+                ),
+                html.Li(
+                    translate_ui(
+                        loc,
+                        "dash.export.preview_li_company",
+                        value=branding.get("company_name") or translate_ui(loc, "dash.export.not_set"),
+                    )
+                ),
+                html.Li(
+                    translate_ui(
+                        loc,
+                        "dash.export.preview_li_lab",
+                        value=branding.get("lab_name") or translate_ui(loc, "dash.export.not_set"),
+                    )
+                ),
+                html.Li(
+                    translate_ui(
+                        loc,
+                        "dash.export.preview_li_analyst",
+                        value=branding.get("analyst_name") or translate_ui(loc, "dash.export.not_set"),
+                    )
+                ),
             ],
             className="mb-3",
         ),
-        html.H5("Compare Workspace Preview", className="mb-2"),
-        html.P(f"Analysis Type: {compare_workspace.get('analysis_type', 'N/A')}", className="mb-1"),
-        html.P(f"Selected Runs: {', '.join(compare_workspace.get('selected_datasets') or []) or 'None'}", className="mb-1"),
-        html.P(compare_workspace.get("notes") or "No compare notes yet.", className="text-muted"),
+        html.H5(translate_ui(loc, "dash.export.preview_compare"), className="mb-2"),
+        html.P(
+            translate_ui(
+                loc,
+                "dash.export.analysis_type",
+                value=compare_workspace.get("analysis_type") or translate_ui(loc, "dash.export.na"),
+            ),
+            className="mb-1",
+        ),
+        html.P(
+            translate_ui(
+                loc,
+                "dash.export.selected_runs",
+                value=", ".join(compare_workspace.get("selected_datasets") or []) or translate_ui(loc, "dash.export.none"),
+            ),
+            className="mb-1",
+        ),
+        html.P(compare_workspace.get("notes") or translate_ui(loc, "dash.export.no_compare_notes"), className="text-muted"),
     ]
     if result_rows:
-        preview_children.extend([html.H5("Report Package", className="mt-3 mb-2"), dataset_table(result_rows, ["id", "analysis_type", "status", "dataset_key", "saved_at_utc"], table_id="report-package-table")])
+        preview_children.extend(
+            [
+                html.H5(translate_ui(loc, "dash.export.preview_report_pkg"), className="mt-3 mb-2"),
+                dataset_table(result_rows, ["id", "analysis_type", "status", "dataset_key", "saved_at_utc"], table_id="report-package-table"),
+            ]
+        )
     else:
         preview_children.append(
             prereq_or_empty_help(
-                "No normalized result records are saved yet. Run analyses and save results before exporting result tables or reports.",
+                translate_ui(loc, "dash.export.prereq_results_body"),
                 tone="secondary",
-                title="Results required for report outputs",
+                title=translate_ui(loc, "dash.export.prereq_results_title"),
+                locale=loc,
             )
         )
     if skipped:
-        preview_children.append(dbc.Alert([html.Div("Some saved records are incomplete and will be skipped."), html.Ul([html.Li(issue) for issue in skipped])], color="warning"))
+        preview_children.append(
+            dbc.Alert(
+                [
+                    html.Div(translate_ui(loc, "dash.export.records_incomplete")),
+                    html.Ul([html.Li(issue) for issue in skipped]),
+                ],
+                color="warning",
+            )
+        )
 
     dataset_options = [{"label": item.get("display_name", item.get("key")), "value": item.get("key")} for item in datasets_payload.get("datasets", [])]
     dataset_values = [item["value"] for item in dataset_options]
@@ -325,10 +504,13 @@ def load_report_center(project_id, _refresh, _global_refresh):
     Input("project-id", "data"),
     Input("report-refresh", "data"),
     Input("workspace-refresh", "data"),
+    Input("ui-locale", "data"),
 )
-def load_branding(project_id, _refresh, _global_refresh):
+def load_branding(project_id, _refresh, _global_refresh, locale_data):
+    loc = _loc(locale_data)
+    default_title = translate_ui(loc, "dash.export.default_report_title")
     if not project_id:
-        return "MaterialScope Professional Report", "", "", "", "", ""
+        return default_title, "", "", "", "", ""
     from dash_app.api_client import workspace_branding
 
     payload = workspace_branding(project_id).get("branding", {})
@@ -338,11 +520,18 @@ def load_branding(project_id, _refresh, _global_refresh):
         logo_preview = html.Div(
             [
                 html.Img(src=f"data:image/png;base64,{logo_b64}", style={"maxWidth": "100%", "maxHeight": "180px"}),
-                html.Div(f"Current logo: {payload.get('logo_name') or 'branding_logo'}", className="small text-muted mt-2"),
+                html.Div(
+                    translate_ui(
+                        loc,
+                        "dash.export.logo_current",
+                        name=payload.get("logo_name") or "branding_logo",
+                    ),
+                    className="small text-muted mt-2",
+                ),
             ]
         )
     return (
-        payload.get("report_title") or "MaterialScope Professional Report",
+        payload.get("report_title") or default_title,
         payload.get("company_name") or "",
         payload.get("lab_name") or "",
         payload.get("analyst_name") or "",
@@ -364,9 +553,23 @@ def load_branding(project_id, _refresh, _global_refresh):
     State("branding-logo-upload", "contents"),
     State("branding-logo-upload", "filename"),
     State("report-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def save_branding(n_clicks, project_id, report_title, company_name, lab_name, analyst_name, report_notes, logo_contents, logo_name, refresh_value):
+def save_branding(
+    n_clicks,
+    project_id,
+    report_title,
+    company_name,
+    lab_name,
+    analyst_name,
+    report_notes,
+    logo_contents,
+    logo_name,
+    refresh_value,
+    locale_data,
+):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id:
         raise dash.exceptions.PreventUpdate
     from dash_app.api_client import update_workspace_branding
@@ -385,8 +588,8 @@ def save_branding(n_clicks, project_id, report_title, company_name, lab_name, an
     try:
         update_workspace_branding(project_id, payload)
     except Exception as exc:
-        return dbc.Alert(f"Branding save failed: {exc}", color="danger"), dash.no_update
-    return dbc.Alert("Branding updated for the current workspace.", color="success"), int(refresh_value or 0) + 1
+        return dbc.Alert(translate_ui(loc, "dash.export.branding_save_fail", error=str(exc)), color="danger"), dash.no_update
+    return dbc.Alert(translate_ui(loc, "dash.export.branding_save_ok"), color="success"), int(refresh_value or 0) + 1
 
 
 @callback(
@@ -396,20 +599,24 @@ def save_branding(n_clicks, project_id, report_title, company_name, lab_name, an
     State("project-id", "data"),
     State("data-export-format", "value"),
     State("data-export-datasets", "value"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def export_data_files(n_clicks, project_id, export_format, dataset_keys):
+def export_data_files(n_clicks, project_id, export_format, dataset_keys, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id:
         if n_clicks and not project_id:
             return prereq_or_empty_help(
-                "No active workspace. Load datasets before exporting raw/imported data.",
-                title="Workspace required",
+                translate_ui(loc, "dash.export.prereq_workspace_data"),
+                title=translate_ui(loc, "dash.export.prereq_workspace_title"),
+                locale=loc,
             ), dash.no_update
         raise dash.exceptions.PreventUpdate
     if not dataset_keys:
         return prereq_or_empty_help(
-            "Select at least one dataset for raw/imported data export.",
-            title="Dataset selection required",
+            translate_ui(loc, "dash.export.prereq_select_datasets"),
+            title=translate_ui(loc, "dash.export.prereq_title_select_datasets"),
+            locale=loc,
         ), dash.no_update
 
     from dash_app.api_client import workspace_dataset_data
@@ -417,14 +624,14 @@ def export_data_files(n_clicks, project_id, export_format, dataset_keys):
     try:
         payloads = [workspace_dataset_data(project_id, dataset_key) for dataset_key in dataset_keys]
     except Exception as exc:
-        return dbc.Alert(f"Data export failed: {exc}", color="danger"), dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.export.data_export_fail", error=str(exc)), color="danger"), dash.no_update
 
     if export_format == "csv":
         if len(payloads) == 1:
             payload = payloads[0]
             frame = pd.DataFrame(payload.get("rows", []))
             return (
-                dbc.Alert(f"CSV ready: {payload['dataset_key']}", color="success"),
+                dbc.Alert(translate_ui(loc, "dash.export.data_csv_ready", key=payload["dataset_key"]), color="success"),
                 dcc.send_bytes(frame.to_csv(index=False).encode("utf-8"), f"{payload['dataset_key']}_export.csv"),
             )
         buffer = io.BytesIO()
@@ -433,7 +640,10 @@ def export_data_files(n_clicks, project_id, export_format, dataset_keys):
                 frame = pd.DataFrame(payload.get("rows", []))
                 archive.writestr(f"{payload['dataset_key']}_export.csv", frame.to_csv(index=False))
         buffer.seek(0)
-        return dbc.Alert(f"Prepared {len(payloads)} CSV files as ZIP.", color="success"), dcc.send_bytes(buffer.getvalue(), "materialscope_data_exports.zip")
+        return (
+            dbc.Alert(translate_ui(loc, "dash.export.data_zip_ready", count=len(payloads)), color="success"),
+            dcc.send_bytes(buffer.getvalue(), "materialscope_data_exports.zip"),
+        )
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -442,7 +652,10 @@ def export_data_files(n_clicks, project_id, export_format, dataset_keys):
             sheet_name = str(payload["dataset_key"])[:31]
             frame.to_excel(writer, sheet_name=sheet_name, index=False)
     buffer.seek(0)
-    return dbc.Alert(f"Workbook ready: {len(payloads)} dataset(s).", color="success"), dcc.send_bytes(buffer.getvalue(), "materialscope_data.xlsx")
+    return (
+        dbc.Alert(translate_ui(loc, "dash.export.data_xlsx_ready", count=len(payloads)), color="success"),
+        dcc.send_bytes(buffer.getvalue(), "materialscope_data.xlsx"),
+    )
 
 
 @callback(
@@ -452,29 +665,44 @@ def export_data_files(n_clicks, project_id, export_format, dataset_keys):
     State("project-id", "data"),
     State("result-export-format", "value"),
     State("result-export-results", "value"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def export_result_files(n_clicks, project_id, export_format, selected_result_ids):
+def export_result_files(n_clicks, project_id, export_format, selected_result_ids, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id:
         if n_clicks and not project_id:
             return prereq_or_empty_help(
-                "No active workspace. Save analysis results before exporting result tables.",
-                title="Workspace required",
+                translate_ui(loc, "dash.export.prereq_workspace_results"),
+                title=translate_ui(loc, "dash.export.prereq_workspace_title"),
+                locale=loc,
             ), dash.no_update
         raise dash.exceptions.PreventUpdate
     if not selected_result_ids:
         return prereq_or_empty_help(
-            "Select at least one saved result record for result export.",
-            title="Result selection required",
+            translate_ui(loc, "dash.export.prereq_select_results"),
+            title=translate_ui(loc, "dash.export.prereq_title_select_results"),
+            locale=loc,
         ), dash.no_update
     from dash_app.api_client import export_results_csv, export_results_xlsx
 
     try:
         result = export_results_csv(project_id, selected_result_ids) if export_format == "csv" else export_results_xlsx(project_id, selected_result_ids)
     except Exception as exc:
-        return dbc.Alert(f"Result export failed: {exc}", color="danger"), dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.export.result_export_fail", error=str(exc)), color="danger"), dash.no_update
     artifact = base64.b64decode(result["artifact_base64"])
-    return dbc.Alert(f"{result['output_type']} ready: {len(result.get('included_result_ids', []))} results.", color="success"), dcc.send_bytes(artifact, result["file_name"])
+    return (
+        dbc.Alert(
+            translate_ui(
+                loc,
+                "dash.export.result_ready",
+                otype=result["output_type"],
+                count=len(result.get("included_result_ids", [])),
+            ),
+            color="success",
+        ),
+        dcc.send_bytes(artifact, result["file_name"]),
+    )
 
 
 @callback(
@@ -485,20 +713,24 @@ def export_result_files(n_clicks, project_id, export_format, selected_result_ids
     State("report-export-format", "value"),
     State("report-export-results", "value"),
     State("report-include-figures", "value"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def export_report_files(n_clicks, project_id, export_format, selected_result_ids, include_figures):
+def export_report_files(n_clicks, project_id, export_format, selected_result_ids, include_figures, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id:
         if n_clicks and not project_id:
             return prereq_or_empty_help(
-                "No active workspace. Save analysis results before generating reports.",
-                title="Workspace required",
+                translate_ui(loc, "dash.export.prereq_workspace_report"),
+                title=translate_ui(loc, "dash.export.prereq_workspace_title"),
+                locale=loc,
             ), dash.no_update
         raise dash.exceptions.PreventUpdate
     if not selected_result_ids:
         return prereq_or_empty_help(
-            "Select at least one saved result record to generate a report.",
-            title="Result selection required",
+            translate_ui(loc, "dash.export.prereq_select_report_results"),
+            title=translate_ui(loc, "dash.export.prereq_title_select_results"),
+            locale=loc,
         ), dash.no_update
     from dash_app.api_client import export_report_docx, export_report_pdf
 
@@ -509,6 +741,17 @@ def export_report_files(n_clicks, project_id, export_format, selected_result_ids
             else export_report_pdf(project_id, selected_result_ids, include_figures=bool(include_figures))
         )
     except Exception as exc:
-        return dbc.Alert(f"Report export failed: {exc}", color="danger"), dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.export.report_export_fail", error=str(exc)), color="danger"), dash.no_update
     artifact = base64.b64decode(result["artifact_base64"])
-    return dbc.Alert(f"{result['output_type']} ready: {len(result.get('included_result_ids', []))} results.", color="success"), dcc.send_bytes(artifact, result["file_name"])
+    return (
+        dbc.Alert(
+            translate_ui(
+                loc,
+                "dash.export.result_ready",
+                otype=result["output_type"],
+                count=len(result.get("included_result_ids", [])),
+            ),
+            color="success",
+        ),
+        dcc.send_bytes(artifact, result["file_name"]),
+    )

@@ -7,6 +7,8 @@ from collections.abc import Sequence
 import dash_bootstrap_components as dbc
 from dash import html
 
+from utils.i18n import normalize_ui_locale, translate_ui
+
 
 def guidance_block(
     title: str,
@@ -32,12 +34,19 @@ def guidance_block(
     return dbc.Alert(children, color=tone_key, className=f"ta-guidance ta-guidance--{tone_key} mb-3")
 
 
-def typical_workflow_block(steps: Sequence[str], *, title: str = "Typical workflow") -> dbc.Alert:
+def typical_workflow_block(
+    steps: Sequence[str],
+    *,
+    title: str | None = None,
+    locale: str | None = None,
+) -> dbc.Alert:
     """Ordered step-by-step workflow guidance."""
+    loc = normalize_ui_locale(locale)
+    resolved_title = title if title is not None else translate_ui(loc, "dash.guidance.typical_workflow_title")
     items = [step for step in steps if step]
     return dbc.Alert(
         [
-            html.H6(title, className="ta-guidance-title mb-2"),
+            html.H6(resolved_title, className="ta-guidance-title mb-2"),
             html.Ol([html.Li(step, className="ta-guidance-item") for step in items], className="ta-guidance-list mb-0 ps-3"),
         ],
         color="secondary",
@@ -45,16 +54,21 @@ def typical_workflow_block(steps: Sequence[str], *, title: str = "Typical workfl
     )
 
 
-def next_step_block(text: str) -> dbc.Alert:
+def next_step_block(text: str, *, title: str | None = None, locale: str | None = None) -> dbc.Alert:
     """Short recommended next action for the current page state."""
-    return guidance_block("Next recommended step", body=text, tone="info")
+    loc = normalize_ui_locale(locale)
+    resolved_title = title if title is not None else translate_ui(loc, "dash.guidance.next_step_title")
+    return guidance_block(resolved_title, body=text, tone="info")
 
 
 def prereq_or_empty_help(
     text: str,
     *,
     tone: str = "warning",
-    title: str = "What to do first",
+    title: str | None = None,
+    locale: str | None = None,
 ) -> dbc.Alert:
     """Actionable prerequisite or empty-state guidance."""
-    return guidance_block(title, body=text, tone=tone)
+    loc = normalize_ui_locale(locale)
+    resolved_title = title if title is not None else translate_ui(loc, "dash.guidance.prereq_title")
+    return guidance_block(resolved_title, body=text, tone=tone)

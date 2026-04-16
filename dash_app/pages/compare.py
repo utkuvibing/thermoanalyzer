@@ -19,8 +19,13 @@ from dash_app.components.page_guidance import (
     typical_workflow_block,
 )
 from dash_app.theme import apply_figure_theme
+from utils.i18n import normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/compare", title="Compare - MaterialScope")
+
+
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
 
 
 def _eligible_dataset(dataset: dict, analysis_type: str) -> bool:
@@ -56,40 +61,8 @@ def _compare_prereq_state(datasets: list[dict], analysis_type: str | None, selec
 layout = html.Div(
     [
         dcc.Store(id="compare-refresh", data=0),
-        page_header(
-            "Compare Workspace",
-            "Overlay runs with best-available processed curves or raw import data; run batch templates across selected datasets.",
-            badge="Compare",
-        ),
-        html.Div(
-            [
-                guidance_block(
-                    "What this page does",
-                    body=(
-                        "Build a reusable compare workspace by selecting analysis type and runs, then "
-                        "overlaying curves in best-available or raw mode."
-                    ),
-                ),
-                typical_workflow_block(
-                    [
-                        "Choose an analysis type compatible with your imported runs.",
-                        "Select runs and review the overlay (2+ runs recommended for comparison).",
-                        "Save compare workspace, then open Report Center to include compare context.",
-                    ],
-                    title="Typical workflow",
-                ),
-                guidance_block(
-                    "Usage notes",
-                    bullets=[
-                        "Overlay comparison requires at least two selected runs.",
-                        "Batch execution can run with one or more selected runs.",
-                    ],
-                    tone="secondary",
-                ),
-                next_step_block("Save Compare Workspace before generating report outputs."),
-            ],
-            className="mb-2",
-        ),
+        html.Div(id="compare-hero-slot"),
+        html.Div(id="compare-guidance-slot", className="mb-2"),
         dbc.Row(
             [
                 dbc.Col(
@@ -97,9 +70,9 @@ layout = html.Div(
                         dbc.Card(
                             dbc.CardBody(
                                 [
-                                    dbc.Label("Analysis Type"),
+                                    dbc.Label(id="compare-lbl-analysis-type", children=""),
                                     dbc.Select(id="compare-analysis-type"),
-                                    dbc.Label("Selected Runs", className="mt-3"),
+                                    dbc.Label(id="compare-lbl-selected-runs", className="mt-3", children=""),
                                     html.Div(
                                         id="compare-selected-runs-shell",
                                         children=dcc.Dropdown(
@@ -108,19 +81,19 @@ layout = html.Div(
                                             className="ta-dropdown",
                                         ),
                                     ),
-                                    dbc.Label("Overlay signal", className="mt-3"),
+                                    dbc.Label(id="compare-lbl-overlay-signal", className="mt-3", children=""),
                                     dbc.RadioItems(
                                         id="compare-signal-mode",
                                         options=[
-                                            {"label": "Best available (analysis state)", "value": "best"},
-                                            {"label": "Raw import data", "value": "raw"},
+                                            {"label": "—", "value": "best"},
+                                            {"label": "—", "value": "raw"},
                                         ],
                                         value="best",
                                         inline=False,
                                     ),
-                                    dbc.Label("Workspace Notes", className="mt-3"),
+                                    dbc.Label(id="compare-lbl-workspace-notes", className="mt-3", children=""),
                                     dbc.Textarea(id="compare-notes", style={"height": "120px"}),
-                                    dbc.Button("Save Compare Workspace", id="save-compare-workspace-btn", color="primary", className="mt-3"),
+                                    dbc.Button("", id="save-compare-workspace-btn", color="primary", className="mt-3"),
                                     html.Div(id="compare-status", className="mt-3"),
                                 ]
                             ),
@@ -129,11 +102,11 @@ layout = html.Div(
                         dbc.Card(
                             dbc.CardBody(
                                 [
-                                    html.H5("Batch template", className="mb-3"),
-                                    dbc.Label("Workflow template"),
+                                    html.H5(id="compare-h5-batch", className="mb-3", children=""),
+                                    dbc.Label(id="compare-lbl-workflow-template", children=""),
                                     dbc.Select(id="compare-batch-template-select"),
                                     dbc.Button(
-                                        "Run batch on selected runs",
+                                        "",
                                         id="compare-batch-run-btn",
                                         color="secondary",
                                         className="mt-3",
@@ -159,6 +132,72 @@ layout = html.Div(
         ),
     ]
 )
+
+
+@callback(
+    Output("compare-hero-slot", "children"),
+    Output("compare-guidance-slot", "children"),
+    Output("compare-lbl-analysis-type", "children"),
+    Output("compare-lbl-selected-runs", "children"),
+    Output("compare-lbl-overlay-signal", "children"),
+    Output("compare-lbl-workspace-notes", "children"),
+    Output("save-compare-workspace-btn", "children"),
+    Output("compare-h5-batch", "children"),
+    Output("compare-lbl-workflow-template", "children"),
+    Output("compare-batch-run-btn", "children"),
+    Output("compare-signal-mode", "options"),
+    Input("ui-locale", "data"),
+    prevent_initial_call=False,
+)
+def render_compare_locale_chrome(locale_data):
+    loc = _loc(locale_data)
+    hero = page_header(
+        translate_ui(loc, "dash.compare.title"),
+        translate_ui(loc, "dash.compare.caption"),
+        badge=translate_ui(loc, "dash.compare.badge"),
+    )
+    guidance = html.Div(
+        [
+            guidance_block(
+                translate_ui(loc, "dash.compare.guidance_what_title"),
+                body=translate_ui(loc, "dash.compare.guidance_what_body"),
+            ),
+            typical_workflow_block(
+                [
+                    translate_ui(loc, "dash.compare.workflow_step1"),
+                    translate_ui(loc, "dash.compare.workflow_step2"),
+                    translate_ui(loc, "dash.compare.workflow_step3"),
+                ],
+                locale=loc,
+            ),
+            guidance_block(
+                translate_ui(loc, "dash.compare.usage_title"),
+                bullets=[
+                    translate_ui(loc, "dash.compare.usage_bullet1"),
+                    translate_ui(loc, "dash.compare.usage_bullet2"),
+                ],
+                tone="secondary",
+            ),
+            next_step_block(translate_ui(loc, "dash.compare.next_step_body"), locale=loc),
+        ]
+    )
+    sig_opts = [
+        {"label": translate_ui(loc, "dash.compare.overlay_best"), "value": "best"},
+        {"label": translate_ui(loc, "dash.compare.overlay_raw"), "value": "raw"},
+    ]
+    return (
+        hero,
+        guidance,
+        translate_ui(loc, "dash.compare.label_analysis_type"),
+        translate_ui(loc, "dash.compare.label_selected_runs"),
+        translate_ui(loc, "dash.compare.label_overlay_signal"),
+        translate_ui(loc, "dash.compare.label_workspace_notes"),
+        translate_ui(loc, "dash.compare.btn_save_workspace"),
+        translate_ui(loc, "dash.compare.batch_title"),
+        translate_ui(loc, "dash.compare.batch_label_template"),
+        translate_ui(loc, "dash.compare.batch_run_btn"),
+        sig_opts,
+    )
 
 
 @callback(
@@ -263,11 +302,13 @@ def load_batch_templates(analysis_type, project_id, _refresh):
     State("compare-selected-runs", "value"),
     State("compare-notes", "value"),
     State("compare-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def save_compare_workspace(n_clicks, project_id, analysis_type, selected_runs, notes, refresh_value):
+def save_compare_workspace(n_clicks, project_id, analysis_type, selected_runs, notes, refresh_value, locale_data):
     if not n_clicks or not project_id or not analysis_type:
         raise dash.exceptions.PreventUpdate
+    loc = _loc(locale_data)
     from dash_app.api_client import update_compare_workspace
 
     try:
@@ -278,8 +319,8 @@ def save_compare_workspace(n_clicks, project_id, analysis_type, selected_runs, n
             notes=notes or "",
         )
     except Exception as exc:
-        return dbc.Alert(f"Compare workspace save failed: {exc}", color="danger"), dash.no_update
-    return dbc.Alert("Compare workspace saved.", color="success"), int(refresh_value or 0) + 1
+        return dbc.Alert(translate_ui(loc, "dash.compare.save_fail", error=exc), color="danger"), dash.no_update
+    return dbc.Alert(translate_ui(loc, "dash.compare.save_ok"), color="success"), int(refresh_value or 0) + 1
 
 
 @callback(
@@ -293,14 +334,18 @@ def save_compare_workspace(n_clicks, project_id, analysis_type, selected_runs, n
     State("compare-batch-template-select", "value"),
     State("compare-refresh", "data"),
     State("workspace-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def run_compare_batch(n_clicks, project_id, analysis_type, selected_runs, template_id, compare_refresh, workspace_refresh):
+def run_compare_batch(
+    n_clicks, project_id, analysis_type, selected_runs, template_id, compare_refresh, workspace_refresh, locale_data
+):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id or not analysis_type:
         raise dash.exceptions.PreventUpdate
     selected_runs = selected_runs or []
     if len(selected_runs) < 1:
-        return dbc.Alert("Select at least one dataset for batch run.", color="warning"), dash.no_update, dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.compare.batch_need_selection"), color="warning"), dash.no_update, dash.no_update
 
     from dash_app.api_client import workspace_batch_run
 
@@ -312,12 +357,15 @@ def run_compare_batch(n_clicks, project_id, analysis_type, selected_runs, templa
             dataset_keys=selected_runs,
         )
     except Exception as exc:
-        return dbc.Alert(f"Batch run failed: {exc}", color="danger"), dash.no_update, dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.compare.batch_fail", error=exc), color="danger"), dash.no_update, dash.no_update
 
     outcomes = result.get("outcomes") or {}
-    msg = (
-        f"Batch complete: saved={outcomes.get('saved', 0)}, blocked={outcomes.get('blocked', 0)}, "
-        f"failed={outcomes.get('failed', 0)}."
+    msg = translate_ui(
+        loc,
+        "dash.compare.batch_complete",
+        saved=outcomes.get("saved", 0),
+        blocked=outcomes.get("blocked", 0),
+        failed=outcomes.get("failed", 0),
     )
     alert = dbc.Alert(msg, color="success")
     return (
@@ -339,15 +387,25 @@ def run_compare_batch(n_clicks, project_id, analysis_type, selected_runs, templa
     Input("compare-refresh", "data"),
     Input("workspace-refresh", "data"),
     Input("ui-theme", "data"),
+    Input("ui-locale", "data"),
     prevent_initial_call=False,
 )
 def render_compare_workspace(
-    project_id, analysis_type, selected_runs, signal_mode, _compare_refresh, _workspace_refresh, ui_theme
+    project_id,
+    analysis_type,
+    selected_runs,
+    signal_mode,
+    _compare_refresh,
+    _workspace_refresh,
+    ui_theme,
+    locale_data,
 ):
+    loc = _loc(locale_data)
     if not project_id:
         empty = prereq_or_empty_help(
-            "No active workspace. Import datasets and save analysis results before using Compare.",
-            title="Workspace required",
+            translate_ui(loc, "dash.compare.prereq_workspace_body"),
+            title=translate_ui(loc, "dash.compare.prereq_workspace_title"),
+            locale=loc,
         )
         return empty, empty, empty, empty
 
@@ -372,29 +430,33 @@ def render_compare_workspace(
 
     if prereq_state == "no_datasets":
         empty = prereq_or_empty_help(
-            "No datasets loaded. Import runs first, then return to build compare overlays.",
-            title="Datasets required",
+            translate_ui(loc, "dash.compare.prereq_datasets_body"),
+            title=translate_ui(loc, "dash.compare.prereq_datasets_title"),
+            locale=loc,
         )
         return empty, empty, empty, empty
     if prereq_state == "no_eligible_types":
         empty = prereq_or_empty_help(
-            "Datasets are loaded but none are eligible for stable compare analysis types. Check dataset data types in Import/Project.",
-            title="No eligible analysis type",
+            translate_ui(loc, "dash.compare.prereq_no_eligible_body"),
+            title=translate_ui(loc, "dash.compare.prereq_no_eligible_title"),
+            locale=loc,
         )
         return empty, empty, empty, empty
     if prereq_state == "select_analysis_type":
         empty = prereq_or_empty_help(
-            "Select an analysis type to load eligible runs and build the compare workspace.",
+            translate_ui(loc, "dash.compare.prereq_need_analysis_body"),
             tone="secondary",
-            title="Analysis type required",
+            title=translate_ui(loc, "dash.compare.prereq_need_analysis_title"),
+            locale=loc,
         )
         return empty, empty, empty, empty
 
     if len(selected_runs) < 2:
         overlay = prereq_or_empty_help(
-            "Select at least two runs to build an overlay. Batch execution can still run with one selected run.",
+            translate_ui(loc, "dash.compare.prereq_overlay_runs_body"),
             tone="secondary",
-            title="More runs needed for overlay",
+            title=translate_ui(loc, "dash.compare.prereq_overlay_runs_title"),
+            locale=loc,
         )
     else:
         fig = go.Figure()
@@ -439,7 +501,7 @@ def render_compare_workspace(
                                 x=x,
                                 y=y,
                                 mode="lines",
-                                name=f"{label_base} (raw fallback)",
+                                name=translate_ui(loc, "dash.compare.trace_raw_fallback", label=label_base),
                             )
                         )
             else:
@@ -457,17 +519,26 @@ def render_compare_workspace(
                     y = [row.get(y_column) for row in rows]
                     x_title = x_column
                     y_title = y_column
-                    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=f"{label_base} (raw)"))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x,
+                            y=y,
+                            mode="lines",
+                            name=translate_ui(loc, "dash.compare.trace_raw", label=label_base),
+                        )
+                    )
 
-        mode_caption = "Best available (analysis state)" if use_best else "Raw import data"
+        mode_caption = (
+            translate_ui(loc, "dash.compare.figure_caption_best")
+            if use_best
+            else translate_ui(loc, "dash.compare.figure_caption_raw")
+        )
         if not fig.data:
-            overlay = html.P(
-                "Could not build an overlay for the current selection (missing data columns or empty analysis state).",
-                className="text-muted",
-            )
+            overlay = html.P(translate_ui(loc, "dash.compare.overlay_build_fail"), className="text-muted")
         else:
+            fig_title = translate_ui(loc, "dash.compare.figure_title", analysis=analysis_type, mode=mode_caption)
             fig.update_layout(
-                title=f"{analysis_type} Compare — {mode_caption}",
+                title=fig_title,
                 xaxis_title=x_title,
                 yaxis_title=y_title,
                 margin=dict(l=48, r=24, t=56, b=48),
@@ -477,6 +548,8 @@ def render_compare_workspace(
             apply_figure_theme(fig, ui_theme)
             overlay = dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True}, className="ta-plot")
 
+    yes = translate_ui(loc, "dash.compare.summary_yes")
+    no = translate_ui(loc, "dash.compare.summary_no")
     summary_rows = []
     for dataset_key in selected_runs:
         dataset = datasets.get(dataset_key) or {}
@@ -487,15 +560,19 @@ def render_compare_workspace(
                 "vendor": dataset.get("vendor"),
                 "heating_rate": dataset.get("heating_rate"),
                 "points": dataset.get("points"),
-                "saved_result": "Yes" if dataset_key in result_keys else "No",
+                "saved_result": yes if dataset_key in result_keys else no,
             }
         )
     summary = html.Div(
         [
-            html.H5("Workspace Summary", className="mb-3"),
-            dataset_table(summary_rows, ["run", "sample_name", "vendor", "heating_rate", "points", "saved_result"], table_id="compare-summary-table")
+            html.H5(translate_ui(loc, "dash.compare.summary_title"), className="mb-3"),
+            dataset_table(
+                summary_rows,
+                ["run", "sample_name", "vendor", "heating_rate", "points", "saved_result"],
+                table_id="compare-summary-table",
+            )
             if summary_rows
-            else html.P("No runs selected yet.", className="text-muted"),
+            else html.P(translate_ui(loc, "dash.compare.no_runs_selected"), className="text-muted"),
         ]
     )
 
@@ -511,30 +588,49 @@ def render_compare_workspace(
     ]
     preview = html.Div(
         [
-            html.H5("Saved Result Preview", className="mb-3"),
-            dataset_table(preview_rows, ["id", "dataset_key", "status", "saved_at_utc"], table_id="compare-result-preview-table")
+            html.H5(translate_ui(loc, "dash.compare.saved_preview_title"), className="mb-3"),
+            dataset_table(
+                preview_rows,
+                ["id", "dataset_key", "status", "saved_at_utc"],
+                table_id="compare-result-preview-table",
+            )
             if preview_rows
-            else html.P("No saved results for the selected runs yet.", className="text-muted"),
+            else html.P(translate_ui(loc, "dash.compare.no_saved_for_runs"), className="text-muted"),
         ]
     )
 
-    batch_children: list = [html.H5("Last batch", className="mb-3")]
+    batch_children: list = [html.H5(translate_ui(loc, "dash.compare.batch_panel_title"), className="mb-3")]
     feedback = cmp.get("batch_last_feedback") or {}
     if feedback:
         batch_children.append(
             html.P(
-                f"Outcomes: saved={feedback.get('saved', 0)}, blocked={feedback.get('blocked', 0)}, failed={feedback.get('failed', 0)}.",
+                translate_ui(
+                    loc,
+                    "dash.compare.batch_outcomes",
+                    saved=feedback.get("saved", 0),
+                    blocked=feedback.get("blocked", 0),
+                    failed=feedback.get("failed", 0),
+                ),
                 className="small",
             )
         )
     if cmp.get("batch_template_id"):
-        batch_children.append(html.P(f"Template: {cmp.get('batch_template_label') or cmp.get('batch_template_id')}", className="small text-muted"))
+        batch_children.append(
+            html.P(
+                translate_ui(
+                    loc,
+                    "dash.compare.batch_template_line",
+                    name=cmp.get("batch_template_label") or cmp.get("batch_template_id"),
+                ),
+                className="small text-muted",
+            )
+        )
     batch_summary = cmp.get("batch_summary") or []
     if batch_summary:
         cols = [k for k in batch_summary[0].keys()][:8]
         batch_children.append(dataset_table(batch_summary, cols, table_id="compare-batch-summary-table"))
     else:
-        batch_children.append(html.P("No batch run recorded yet for this workspace.", className="text-muted small"))
+        batch_children.append(html.P(translate_ui(loc, "dash.compare.batch_no_record"), className="text-muted small"))
     batch_panel = html.Div(batch_children)
 
     return overlay, summary, preview, batch_panel
