@@ -7,6 +7,7 @@ testing and split-deployment scenarios.
 
 from __future__ import annotations
 
+import base64
 import os
 from typing import Any
 
@@ -170,6 +171,59 @@ def analysis_run(
         payload["processing_overrides"] = processing_overrides
     with _client() as c:
         r = c.post("/analysis/run", json=payload)
+        _raise_with_detail(r)
+        return r.json()
+
+
+def literature_compare(
+    project_id: str,
+    result_id: str,
+    *,
+    provider_ids: list[str] | None = None,
+    max_claims: int = 3,
+    filters: dict[str, Any] | None = None,
+    user_documents: list[dict[str, Any]] | None = None,
+    persist: bool = False,
+) -> dict[str, Any]:
+    """Fetch literature comparison for a saved result via the backend endpoint."""
+    payload: dict[str, Any] = {
+        "max_claims": int(max_claims),
+        "persist": bool(persist),
+    }
+    if provider_ids is not None:
+        payload["provider_ids"] = list(provider_ids)
+    if filters is not None:
+        payload["filters"] = dict(filters)
+    if user_documents is not None:
+        payload["user_documents"] = [dict(doc) for doc in user_documents]
+    with _client() as c:
+        r = c.post(
+            f"/workspace/{project_id}/results/{result_id}/literature/compare",
+            json=payload,
+        )
+        _raise_with_detail(r)
+        return r.json()
+
+
+def register_result_figure(
+    project_id: str,
+    result_id: str,
+    png_bytes: bytes,
+    *,
+    label: str,
+    replace: bool = False,
+) -> dict[str, Any]:
+    """Register a PNG figure for a saved result in the backend project state."""
+    figure_b64 = base64.b64encode(bytes(png_bytes)).decode("ascii")
+    with _client() as c:
+        r = c.post(
+            f"/workspace/{project_id}/results/{result_id}/figure",
+            json={
+                "figure_png_base64": figure_b64,
+                "figure_label": label,
+                "replace": bool(replace),
+            },
+        )
         _raise_with_detail(r)
         return r.json()
 

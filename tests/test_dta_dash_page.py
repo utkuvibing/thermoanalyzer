@@ -803,3 +803,675 @@ def test_dta_api_client_forwards_processing_overrides(monkeypatch):
     assert captured["json"]["processing_overrides"] == {
         "smoothing": {"method": "savgol", "window_length": 21, "polyorder": 3}
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2a: baseline + peak-detection draft helpers + layout + backend parity
+# ---------------------------------------------------------------------------
+
+def test_default_processing_draft_includes_baseline_and_peak_sections():
+    """Phase 2a extends the draft so the shared undo/redo/reset stack covers all controls."""
+    mod = _import_dta_page()
+
+    defaults = mod._default_processing_draft()
+    assert defaults["baseline"] == {"method": "asls", "lam": 1e6, "p": 0.01}
+    assert defaults["peak_detection"] == {
+        "detect_endothermic": True,
+        "detect_exothermic": True,
+        "prominence": 0.0,
+        "distance": 1,
+    }
+    assert set(defaults) == {"smoothing", "baseline", "peak_detection"}
+
+
+def test_normalize_baseline_values_gates_asls_params():
+    mod = _import_dta_page()
+
+    asls = mod._normalize_baseline_values("asls", lam=50000, p=0.02)
+    assert asls == {"method": "asls", "lam": 50000.0, "p": 0.02}
+
+    linear = mod._normalize_baseline_values("linear", lam=123, p=0.5)
+    assert linear == {"method": "linear"}
+
+    rubber = mod._normalize_baseline_values("rubberband", lam=None, p=None)
+    assert rubber == {"method": "rubberband"}
+
+    fallback = mod._normalize_baseline_values("exotic", lam=None, p=None)
+    assert fallback == {"method": "asls", "lam": 1e6, "p": 0.01}
+
+    clamped = mod._normalize_baseline_values("asls", lam=-5, p=1.5)
+    assert clamped["method"] == "asls"
+    assert clamped["lam"] == 1e-3
+    assert clamped["p"] == 0.5
+
+
+def test_normalize_peak_detection_values_coerces_inputs():
+    mod = _import_dta_page()
+
+    defaults = mod._normalize_peak_detection_values(True, True, 0.0, 1)
+    assert defaults == {
+        "detect_endothermic": True,
+        "detect_exothermic": True,
+        "prominence": 0.0,
+        "distance": 1,
+    }
+
+    tuned = mod._normalize_peak_detection_values(False, True, "0.05", "5")
+    assert tuned == {
+        "detect_endothermic": False,
+        "detect_exothermic": True,
+        "prominence": 0.05,
+        "distance": 5,
+    }
+
+    clamped = mod._normalize_peak_detection_values(None, None, -1.0, 0)
+    assert clamped == {
+        "detect_endothermic": True,
+        "detect_exothermic": True,
+        "prominence": 0.0,
+        "distance": 1,
+    }
+
+
+def test_baseline_and_peak_overrides_extractors_return_only_their_sections():
+    mod = _import_dta_page()
+
+    assert mod._baseline_overrides_from_draft(None) == {}
+    assert mod._baseline_overrides_from_draft({"smoothing": {}}) == {}
+    baseline = mod._baseline_overrides_from_draft(
+        {"baseline": {"method": "linear"}, "other": {}}
+    )
+    assert baseline == {"baseline": {"method": "linear"}}
+
+    assert mod._peak_detection_overrides_from_draft(None) == {}
+    assert mod._peak_detection_overrides_from_draft({"baseline": {}}) == {}
+    peaks = mod._peak_detection_overrides_from_draft(
+        {"peak_detection": {"prominence": 0.05, "distance": 5}}
+    )
+    assert peaks == {"peak_detection": {"prominence": 0.05, "distance": 5}}
+
+
+def test_overrides_from_draft_unions_all_sections():
+    mod = _import_dta_page()
+
+    assert mod._overrides_from_draft(None) == {}
+    assert mod._overrides_from_draft({"unrelated": {"x": 1}}) == {}
+
+    draft = {
+        "smoothing": {"method": "savgol", "window_length": 21, "polyorder": 3},
+        "baseline": {"method": "linear"},
+        "peak_detection": {"prominence": 0.02, "distance": 4},
+        "junk": {"ignored": True},
+    }
+    combined = mod._overrides_from_draft(draft)
+    assert combined == {
+        "smoothing": {"method": "savgol", "window_length": 21, "polyorder": 3},
+        "baseline": {"method": "linear"},
+        "peak_detection": {"prominence": 0.02, "distance": 4},
+    }
+    # Returned dict must be an independent deep copy
+    combined["smoothing"]["window_length"] = 99
+    assert draft["smoothing"]["window_length"] == 21
+
+
+def test_layout_includes_phase2a_baseline_and_peak_controls():
+    mod = _import_dta_page()
+
+    layout_str = str(mod.layout)
+    for element_id in (
+        "dta-baseline-card-title",
+        "dta-baseline-method",
+        "dta-baseline-lam",
+        "dta-baseline-p",
+        "dta-baseline-apply-btn",
+        "dta-baseline-status",
+        "dta-peak-card-title",
+        "dta-peak-detect-exo",
+        "dta-peak-detect-endo",
+        "dta-peak-prominence",
+        "dta-peak-distance",
+        "dta-peak-apply-btn",
+        "dta-peak-status",
+    ):
+        assert element_id in layout_str, f"Missing Phase 2a element: {element_id}"
+
+
+def test_dta_analysis_run_honors_baseline_and_peak_overrides():
+    """Baseline + peak_detection overrides must reach persisted processing for DTA."""
+    import base64
+
+    from fastapi.testclient import TestClient
+    from dash_app.sample_data import resolve_sample_request
+    from dash_app.server import create_combined_app
+
+    app = create_combined_app()
+    client = TestClient(app)
+
+    workspace = client.post("/workspace/new")
+    project_id = workspace.json()["project_id"]
+
+    sample_path, _ = resolve_sample_request("load-sample-dsc")
+    payload = base64.b64encode(sample_path.read_bytes()).decode("ascii")
+
+    imported = client.post(
+        "/dataset/import",
+        json={
+            "project_id": project_id,
+            "file_name": sample_path.name,
+            "file_base64": payload,
+            "data_type": "DTA",
+        },
+    )
+    dataset_key = imported.json()["dataset"]["key"]
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "project_id": project_id,
+            "dataset_key": dataset_key,
+            "analysis_type": "DTA",
+            "workflow_template_id": "dta.general",
+            "processing_overrides": {
+                "baseline": {"method": "linear"},
+                "peak_detection": {
+                    "detect_endothermic": True,
+                    "detect_exothermic": True,
+                    "prominence": 0.01,
+                    "distance": 5,
+                },
+            },
+        },
+    )
+    assert run_response.status_code == 200, run_response.text
+    run_payload = run_response.json()
+    assert run_payload["execution_status"] == "saved"
+    result_id = run_payload["result_id"]
+
+    detail = client.get(f"/workspace/{project_id}/results/{result_id}").json()
+    processing = detail.get("processing") or {}
+    baseline = processing.get("signal_pipeline", {}).get("baseline", {})
+    peaks = processing.get("analysis_steps", {}).get("peak_detection", {})
+    assert baseline.get("method") == "linear"
+    assert peaks.get("prominence") == 0.01
+    assert peaks.get("distance") == 5
+
+
+def test_dta_api_client_forwards_baseline_and_peak_overrides(monkeypatch):
+    """api_client.analysis_run must carry a multi-section processing_overrides payload."""
+    import dash_app.api_client as api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"execution_status": "saved", "result_id": "dta_multi"}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def post(self, url, json=None):  # noqa: A002 - match httpx signature
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    payload = {
+        "smoothing": {"method": "savgol", "window_length": 15, "polyorder": 3},
+        "baseline": {"method": "asls", "lam": 500000.0, "p": 0.02},
+        "peak_detection": {
+            "detect_endothermic": True,
+            "detect_exothermic": False,
+            "prominence": 0.03,
+            "distance": 6,
+        },
+    }
+    api_client.analysis_run(
+        project_id="proj-2",
+        dataset_key="ds-2",
+        analysis_type="DTA",
+        workflow_template_id="dta.general",
+        processing_overrides=payload,
+    )
+    assert captured["json"]["processing_overrides"] == payload
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b: literature compare panel + figure capture for Report Center
+# ---------------------------------------------------------------------------
+
+
+def test_layout_includes_phase2b_literature_and_figure_capture():
+    mod = _import_dta_page()
+
+    layout_str = str(mod.layout)
+    for element_id in (
+        "dta-literature-card-title",
+        "dta-literature-hint",
+        "dta-literature-max-claims",
+        "dta-literature-persist",
+        "dta-literature-compare-btn",
+        "dta-literature-status",
+        "dta-literature-output",
+        "dta-figure-captured",
+    ):
+        assert element_id in layout_str, f"Missing Phase 2b element: {element_id}"
+
+
+def test_dta_api_client_literature_compare_forwards_payload(monkeypatch):
+    """api_client.literature_compare must POST to the per-result endpoint with options."""
+    import dash_app.api_client as api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "project_id": "proj-42",
+                "result_id": "dta_1",
+                "literature_context": {"count": 1},
+                "literature_claims": [{"statement": "T_peak ~ 350 C", "source": "doi:1"}],
+                "literature_comparisons": [],
+                "citations": [],
+            }
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def post(self, url, json=None):  # noqa: A002 - match httpx signature
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    result = api_client.literature_compare(
+        "proj-42",
+        "dta_1",
+        max_claims=5,
+        persist=True,
+        provider_ids=["openalex_like_provider"],
+        filters={"min_year": 2000},
+        user_documents=[{"title": "local note"}],
+    )
+    assert captured["url"] == "/workspace/proj-42/results/dta_1/literature/compare"
+    assert captured["json"] == {
+        "max_claims": 5,
+        "persist": True,
+        "provider_ids": ["openalex_like_provider"],
+        "filters": {"min_year": 2000},
+        "user_documents": [{"title": "local note"}],
+    }
+    assert result["literature_claims"][0]["statement"] == "T_peak ~ 350 C"
+
+
+def test_dta_api_client_register_result_figure_forwards_base64(monkeypatch):
+    """api_client.register_result_figure must POST base64-encoded PNG bytes."""
+    import base64 as _b64
+
+    import dash_app.api_client as api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "project_id": "proj-7",
+                "result_id": "dta_x",
+                "figure_key": "DTA Analysis - ds-1",
+                "figure_keys": ["DTA Analysis - ds-1"],
+            }
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def post(self, url, json=None):  # noqa: A002 - match httpx signature
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    png_bytes = b"\x89PNG\r\n\x1a\nFAKE"
+    result = api_client.register_result_figure(
+        "proj-7",
+        "dta_x",
+        png_bytes,
+        label="DTA Analysis - ds-1",
+        replace=True,
+    )
+    assert captured["url"] == "/workspace/proj-7/results/dta_x/figure"
+    body = captured["json"]
+    assert body["figure_label"] == "DTA Analysis - ds-1"
+    assert body["replace"] is True
+    assert _b64.b64decode(body["figure_png_base64"].encode("ascii")) == png_bytes
+    assert result["figure_key"] == "DTA Analysis - ds-1"
+
+
+def test_backend_register_figure_writes_state_and_artifacts():
+    """POST /workspace/{pid}/results/{rid}/figure registers PNG + updates figure_keys."""
+    import base64 as _b64
+
+    from fastapi.testclient import TestClient
+    from dash_app.sample_data import resolve_sample_request
+    from dash_app.server import create_combined_app
+
+    app = create_combined_app()
+    client = TestClient(app)
+
+    project_id = client.post("/workspace/new").json()["project_id"]
+    sample_path, _ = resolve_sample_request("load-sample-dsc")
+    payload = _b64.b64encode(sample_path.read_bytes()).decode("ascii")
+    imported = client.post(
+        "/dataset/import",
+        json={
+            "project_id": project_id,
+            "file_name": sample_path.name,
+            "file_base64": payload,
+            "data_type": "DTA",
+        },
+    )
+    dataset_key = imported.json()["dataset"]["key"]
+    run = client.post(
+        "/analysis/run",
+        json={
+            "project_id": project_id,
+            "dataset_key": dataset_key,
+            "analysis_type": "DTA",
+            "workflow_template_id": "dta.general",
+        },
+    ).json()
+    result_id = run["result_id"]
+    assert result_id
+
+    png = b"\x89PNG\r\n\x1a\nFIG-BYTES"
+    register = client.post(
+        f"/workspace/{project_id}/results/{result_id}/figure",
+        json={
+            "figure_png_base64": _b64.b64encode(png).decode("ascii"),
+            "figure_label": f"DTA Analysis - {dataset_key}",
+        },
+    )
+    assert register.status_code == 200, register.text
+    body = register.json()
+    assert body["figure_key"] == f"DTA Analysis - {dataset_key}"
+    assert body["figure_keys"] == [f"DTA Analysis - {dataset_key}"]
+
+    summary = client.get(f"/workspace/{project_id}").json()
+    assert summary["summary"]["figure_count"] == 1
+
+    # Re-register same label without replace → 409 conflict.
+    conflict = client.post(
+        f"/workspace/{project_id}/results/{result_id}/figure",
+        json={
+            "figure_png_base64": _b64.b64encode(png).decode("ascii"),
+            "figure_label": f"DTA Analysis - {dataset_key}",
+        },
+    )
+    assert conflict.status_code == 409, conflict.text
+
+    # Re-register with replace=True → 200 and key still dedup'd.
+    replace = client.post(
+        f"/workspace/{project_id}/results/{result_id}/figure",
+        json={
+            "figure_png_base64": _b64.b64encode(b"NEW-BYTES").decode("ascii"),
+            "figure_label": f"DTA Analysis - {dataset_key}",
+            "replace": True,
+        },
+    )
+    assert replace.status_code == 200, replace.text
+    assert replace.json()["figure_keys"] == [f"DTA Analysis - {dataset_key}"]
+
+
+def test_backend_register_figure_rejects_invalid_inputs():
+    """Unknown result_id → 404; empty label → 400; bad base64 → 400."""
+    import base64 as _b64
+
+    from fastapi.testclient import TestClient
+    from dash_app.sample_data import resolve_sample_request
+    from dash_app.server import create_combined_app
+
+    client = TestClient(create_combined_app())
+    project_id = client.post("/workspace/new").json()["project_id"]
+
+    unknown = client.post(
+        f"/workspace/{project_id}/results/does-not-exist/figure",
+        json={"figure_png_base64": "aGVsbG8=", "figure_label": "label"},
+    )
+    assert unknown.status_code == 404, unknown.text
+
+    # Build a valid saved result to exercise 400 paths against a real rid.
+    sample_path, _ = resolve_sample_request("load-sample-dsc")
+    payload = _b64.b64encode(sample_path.read_bytes()).decode("ascii")
+    imported = client.post(
+        "/dataset/import",
+        json={
+            "project_id": project_id,
+            "file_name": sample_path.name,
+            "file_base64": payload,
+            "data_type": "DTA",
+        },
+    )
+    dataset_key = imported.json()["dataset"]["key"]
+    run = client.post(
+        "/analysis/run",
+        json={
+            "project_id": project_id,
+            "dataset_key": dataset_key,
+            "analysis_type": "DTA",
+            "workflow_template_id": "dta.general",
+        },
+    ).json()
+    result_id = run["result_id"]
+
+    empty_label = client.post(
+        f"/workspace/{project_id}/results/{result_id}/figure",
+        json={"figure_png_base64": "aGVsbG8=", "figure_label": "   "},
+    )
+    assert empty_label.status_code == 400, empty_label.text
+
+    bad_b64 = client.post(
+        f"/workspace/{project_id}/results/{result_id}/figure",
+        json={"figure_png_base64": "!!!not-base64!!!", "figure_label": "label"},
+    )
+    assert bad_b64.status_code == 400, bad_b64.text
+
+
+def test_capture_dta_figure_posts_png_once_per_result(monkeypatch):
+    """capture_dta_figure renders PNG via plotly.io.to_image and calls register_result_figure once."""
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    detail_payload = {
+        "result": {"dataset_key": "ds-xyz", "artifacts": {}},
+        "summary": {"sample_name": "Synthetic DTA"},
+        "rows": [{"direction": "exo", "peak_temperature": 150.0}],
+    }
+    dataset_payload = {"dataset": {"sample_name": "Synthetic DTA"}}
+    curves_payload = {
+        "temperature": [100.0, 150.0, 200.0, 250.0],
+        "raw_signal": [0.0, 1.2, -0.3, 0.6],
+        "smoothed": [0.1, 1.0, -0.1, 0.5],
+        "baseline": [0.05, 0.05, 0.05, 0.05],
+        "corrected": [0.05, 0.95, -0.15, 0.45],
+    }
+
+    register_calls: list[dict] = []
+
+    monkeypatch.setattr(
+        api_client,
+        "workspace_result_detail",
+        lambda *_a, **_k: detail_payload,
+    )
+    monkeypatch.setattr(
+        api_client,
+        "workspace_dataset_detail",
+        lambda *_a, **_k: dataset_payload,
+    )
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda *_a, **_k: curves_payload,
+    )
+    monkeypatch.setattr(
+        api_client,
+        "register_result_figure",
+        lambda pid, rid, png_bytes, *, label, replace=False: register_calls.append(
+            {"pid": pid, "rid": rid, "bytes": bytes(png_bytes), "label": label, "replace": replace}
+        )
+        or {"figure_key": label, "figure_keys": [label]},
+    )
+
+    import plotly.io as pio
+
+    monkeypatch.setattr(pio, "to_image", lambda *_a, **_k: b"FAKE-PNG")
+
+    captured_first = mod.capture_dta_figure("dta_fake_id", "proj-1", {}, "light", "en")
+    assert captured_first["dta_fake_id"]["status"] == "ok"
+    assert captured_first["dta_fake_id"]["label"] == "DTA Analysis - ds-xyz"
+    assert len(register_calls) == 1
+    call = register_calls[0]
+    assert call["pid"] == "proj-1"
+    assert call["rid"] == "dta_fake_id"
+    assert call["label"] == "DTA Analysis - ds-xyz"
+    assert call["bytes"] == b"FAKE-PNG"
+    assert call["replace"] is True
+
+    import dash as _dash
+
+    with pytest.raises(_dash.exceptions.PreventUpdate):
+        mod.capture_dta_figure("dta_fake_id", "proj-1", captured_first, "light", "en")
+    assert len(register_calls) == 1
+
+
+def test_capture_dta_figure_degrades_when_kaleido_missing(monkeypatch):
+    """If plotly.io.to_image raises, capture must record the failure without calling register."""
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "workspace_result_detail",
+        lambda *_a, **_k: {"result": {"dataset_key": "ds-q"}, "summary": {}, "rows": []},
+    )
+    monkeypatch.setattr(api_client, "workspace_dataset_detail", lambda *_a, **_k: {})
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda *_a, **_k: {
+            "temperature": [1.0, 2.0, 3.0],
+            "raw_signal": [0.0, 1.0, 0.0],
+            "smoothed": [],
+            "baseline": [],
+            "corrected": [0.0, 1.0, 0.0],
+        },
+    )
+
+    register_calls: list[dict] = []
+    monkeypatch.setattr(
+        api_client,
+        "register_result_figure",
+        lambda *_a, **_k: register_calls.append(_k) or {},
+    )
+
+    import plotly.io as pio
+
+    def _raise(*_a, **_k):
+        raise RuntimeError("kaleido missing")
+
+    monkeypatch.setattr(pio, "to_image", _raise)
+
+    result = mod.capture_dta_figure("dta_q", "proj-1", {}, "light", "en")
+    assert result["dta_q"]["status"] == "skipped"
+    assert register_calls == []
+
+
+def test_compare_dta_literature_renders_claims_and_citations(monkeypatch):
+    """Compare click must call api_client.literature_compare and render claims + citations."""
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    payload = {
+        "literature_claims": [
+            {"statement": "Onset around 350 C", "source": "doi:aaa"},
+        ],
+        "literature_comparisons": [
+            {"summary": "Within 5 C of reference", "provider": "openalex_like_provider"},
+        ],
+        "citations": [{"title": "Ref Paper", "doi": "doi:aaa"}],
+    }
+    captured: dict = {}
+
+    def _fake(project_id, result_id, *, max_claims, persist, **_extra):
+        captured["args"] = (project_id, result_id, max_claims, persist)
+        return payload
+
+    monkeypatch.setattr(api_client, "literature_compare", _fake)
+
+    children, status = mod.compare_dta_literature(
+        1,
+        "proj-1",
+        "dta_fake",
+        3,
+        ["persist"],
+        "en",
+    )
+    assert captured["args"] == ("proj-1", "dta_fake", 3, True)
+    rendered = str(children)
+    assert "Onset around 350 C" in rendered
+    assert "Within 5 C of reference" in rendered
+    assert "Ref Paper" in rendered
+    status_text = str(status)
+    assert "Literature comparison" in status_text
+
+
+def test_compare_dta_literature_blocks_without_result_id():
+    mod = _import_dta_page()
+
+    import dash
+
+    # No click yet — PreventUpdate
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        mod.compare_dta_literature(0, "proj-1", None, 3, [], "en")
+
+    # Clicked but no result id — warning alert returned in status slot
+    _children, status = mod.compare_dta_literature(1, "proj-1", None, 3, [], "en")
+    assert "Run a DTA analysis first" in str(status)
+
+
+def test_toggle_literature_compare_button_gates_on_result_id():
+    mod = _import_dta_page()
+
+    assert mod.toggle_literature_compare_button(None) is True
+    assert mod.toggle_literature_compare_button("") is True
+    assert mod.toggle_literature_compare_button("dta_42") is False

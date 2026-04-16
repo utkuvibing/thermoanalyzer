@@ -70,6 +70,8 @@ from backend.models import (
     ProjectSaveResponse,
     ProjectSummary,
     ResultDetailResponse,
+    ResultFigureRegisterRequest,
+    ResultFigureRegisterResponse,
     ResultsListResponse,
     SpectralLibrarySearchRequest,
     ValidationSummary,
@@ -733,6 +735,70 @@ def create_app(
             literature_comparisons=package.get("literature_comparisons") or [],
             citations=package.get("citations") or [],
             detail=ResultDetailResponse(project_id=project_id, **detail_payload) if detail_payload else None,
+        )
+
+    @app.post(
+        "/workspace/{project_id}/results/{result_id}/figure",
+        response_model=ResultFigureRegisterResponse,
+    )
+    def result_register_figure(
+        project_id: str,
+        result_id: str,
+        request: ResultFigureRegisterRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> ResultFigureRegisterResponse:
+        _require_token(api_token, x_ta_token)
+        state = _require_project_state(project_store, project_id)
+
+        label = (request.figure_label or "").strip()
+        if not label:
+            raise HTTPException(status_code=400, detail="figure_label must be non-empty.")
+
+        results = state.get("results") or {}
+        record = results.get(result_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"Unknown result_id: {result_id}")
+
+        png_bytes = _decode_base64_field(request.figure_png_base64, field_name="figure_png_base64")
+        if not png_bytes:
+            raise HTTPException(status_code=400, detail="figure_png_base64 decoded to empty bytes.")
+
+        figures = state.setdefault("figures", {})
+        if label in figures and not request.replace:
+            raise HTTPException(
+                status_code=409,
+                detail=f"figure_label '{label}' already exists; pass replace=true to overwrite.",
+            )
+        figures[label] = png_bytes
+
+        artifacts = dict(record.get("artifacts") or {})
+        existing = artifacts.get("figure_keys")
+        keys: list[str] = []
+        if isinstance(existing, list):
+            for key in existing:
+                if isinstance(key, str) and key and key not in keys:
+                    keys.append(key)
+        if label not in keys:
+            keys.append(label)
+        artifacts["figure_keys"] = keys
+        record = dict(record)
+        record["artifacts"] = artifacts
+        state.setdefault("results", {})[result_id] = record
+
+        add_history_event(
+            state,
+            action="Figure Captured",
+            details=f"Figure '{label}' registered for {result_id}",
+            dataset_key=record.get("dataset_key"),
+            result_id=result_id,
+        )
+        project_store.set(project_id, state)
+
+        return ResultFigureRegisterResponse(
+            project_id=project_id,
+            result_id=result_id,
+            figure_key=label,
+            figure_keys=keys,
         )
 
     @app.get("/workspace/{project_id}/compare", response_model=CompareWorkspaceResponse)

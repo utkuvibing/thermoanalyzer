@@ -377,6 +377,19 @@ class LiteratureCompareResponse(BaseModel):
     detail: ResultDetailResponse | None = None
 
 
+class ResultFigureRegisterRequest(BaseModel):
+    figure_png_base64: str
+    figure_label: str
+    replace: bool = False
+
+
+class ResultFigureRegisterResponse(BaseModel):
+    project_id: str
+    result_id: str
+    figure_key: str
+    figure_keys: list[str] = Field(default_factory=list)
+
+
 class CompareWorkspacePayload(BaseModel):
     analysis_type: str = "DSC"
     selected_datasets: list[str] = Field(default_factory=list)

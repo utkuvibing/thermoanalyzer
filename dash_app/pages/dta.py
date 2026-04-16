@@ -89,12 +89,41 @@ _DTA_SMOOTHING_DEFAULTS: dict[str, dict] = {
     "moving_average": {"method": "moving_average", "window_length": 11},
     "gaussian": {"method": "gaussian", "sigma": 2.0},
 }
+# Baseline defaults mirror core/batch_runner._DTA_TEMPLATE_DEFAULTS["dta.general"]["baseline"]
+# plus the pybaselines asls default kwargs (lam=1e6, p=0.01) documented in core/baseline.py.
+# Phase 2a exposes the three most common DTA baseline methods; additional methods
+# (polynomial, modpoly, imodpoly, snip, spline, airpls) remain reachable through the
+# same override channel without UI work.
+_BASELINE_METHODS = ("asls", "linear", "rubberband")
+_DTA_BASELINE_DEFAULTS: dict[str, dict] = {
+    "asls": {"method": "asls", "lam": 1e6, "p": 0.01},
+    "linear": {"method": "linear"},
+    "rubberband": {"method": "rubberband"},
+}
+# Peak-detection defaults mirror core/batch_runner._DTA_TEMPLATE_DEFAULTS["dta.general"]["peak_detection"]
+# with two UI-visible knobs added (prominence, distance) that core/dta_processor.find_peaks already
+# accepts (prominence=None -> adaptive 5% of p-p range; distance forwarded to find_thermal_peaks kwargs).
+# prominence == 0.0 is the sentinel "auto / adaptive".
+_DTA_PEAK_DETECTION_DEFAULTS: dict = {
+    "detect_endothermic": True,
+    "detect_exothermic": True,
+    "prominence": 0.0,
+    "distance": 1,
+}
 _UNDO_STACK_LIMIT = 32
 
 
 def _default_processing_draft() -> dict:
-    """Return a fresh default processing-draft payload for DTA Phase 1 (smoothing only)."""
-    return {"smoothing": copy.deepcopy(_DTA_SMOOTHING_DEFAULTS["savgol"])}
+    """Return a fresh default processing-draft payload for DTA.
+
+    Includes all three user-tunable sections exposed in Phases 1 + 2a so that a
+    single undo/redo/reset stack covers every control.
+    """
+    return {
+        "smoothing": copy.deepcopy(_DTA_SMOOTHING_DEFAULTS["savgol"]),
+        "baseline": copy.deepcopy(_DTA_BASELINE_DEFAULTS["asls"]),
+        "peak_detection": copy.deepcopy(_DTA_PEAK_DETECTION_DEFAULTS),
+    }
 
 
 def _normalize_smoothing_values(method: str | None, window_length, polyorder, sigma) -> dict:
@@ -197,6 +226,101 @@ def _smoothing_overrides_from_draft(draft: dict | None) -> dict:
     if not isinstance(section, dict):
         return {}
     return {"smoothing": copy.deepcopy(section)}
+
+
+def _normalize_baseline_values(method: str | None, lam, p) -> dict:
+    """Build a canonical signal_pipeline.baseline values dict from raw control inputs.
+
+    Only the three methods wired into the Phase 2a UI (``asls``, ``linear``,
+    ``rubberband``) are emitted. Unknown methods fall back to ``asls`` so a stale
+    draft never produces an invalid payload.
+    """
+    token = str(method or "asls").strip().lower()
+    if token not in _BASELINE_METHODS:
+        token = "asls"
+    if token == "asls":
+        lam_value = _coerce_float_positive(lam, default=1e6, minimum=1e-3)
+        p_value = _coerce_float_in_range(p, default=0.01, minimum=1e-4, maximum=0.5)
+        return {"method": "asls", "lam": lam_value, "p": p_value}
+    return {"method": token}
+
+
+def _normalize_peak_detection_values(detect_endo, detect_exo, prominence, distance) -> dict:
+    """Build a canonical analysis_steps.peak_detection values dict from raw inputs."""
+    endo = _coerce_bool(detect_endo, default=True)
+    exo = _coerce_bool(detect_exo, default=True)
+    prom = _coerce_float_non_negative(prominence, default=0.0, minimum=0.0)
+    dist = _coerce_int_positive(distance, default=1, minimum=1)
+    return {
+        "detect_endothermic": endo,
+        "detect_exothermic": exo,
+        "prominence": prom,
+        "distance": dist,
+    }
+
+
+def _coerce_float_in_range(value, *, default: float, minimum: float, maximum: float) -> float:
+    parsed = _coerce_float_positive(value, default=default, minimum=minimum)
+    if parsed > maximum:
+        return maximum
+    return parsed
+
+
+def _coerce_float_non_negative(value, *, default: float, minimum: float) -> float:
+    try:
+        if value in (None, ""):
+            return max(default, minimum)
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return max(default, minimum)
+    if not math.isfinite(parsed) or parsed < minimum:
+        return max(default, minimum)
+    return parsed
+
+
+def _coerce_bool(value, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    token = str(value).strip().lower()
+    if token in {"true", "1", "yes", "on"}:
+        return True
+    if token in {"false", "0", "no", "off", ""}:
+        return False
+    return default
+
+
+def _baseline_overrides_from_draft(draft: dict | None) -> dict:
+    """Extract the baseline section override if the draft carries one."""
+    section = (draft or {}).get("baseline")
+    if not isinstance(section, dict):
+        return {}
+    return {"baseline": copy.deepcopy(section)}
+
+
+def _peak_detection_overrides_from_draft(draft: dict | None) -> dict:
+    """Extract the peak_detection section override if the draft carries one."""
+    section = (draft or {}).get("peak_detection")
+    if not isinstance(section, dict):
+        return {}
+    return {"peak_detection": copy.deepcopy(section)}
+
+
+def _overrides_from_draft(draft: dict | None) -> dict:
+    """Union of all Dash-side DTA override sections present in *draft*.
+
+    Returns a dict suitable for the ``processing_overrides`` payload on
+    ``/analysis/run``; empty dict when no section is present so callers can
+    forward ``None`` and skip the field entirely.
+    """
+    combined: dict = {}
+    combined.update(_smoothing_overrides_from_draft(draft))
+    combined.update(_baseline_overrides_from_draft(draft))
+    combined.update(_peak_detection_overrides_from_draft(draft))
+    return combined
 
 
 def _loc(locale_data: str | None) -> str:
@@ -533,11 +657,233 @@ def _smoothing_controls_card() -> dbc.Card:
                         dbc.Button(id="dta-smooth-apply-btn", color="primary", size="sm"),
                         dbc.Button(id="dta-undo-btn", color="secondary", size="sm", outline=True),
                         dbc.Button(id="dta-redo-btn", color="secondary", size="sm", outline=True),
-                        dbc.Button(id="dta-reset-btn", color="warning", size="sm", outline=True),
+                        dbc.Button(id="dta-reset-btn", color="secondary", size="sm", outline=True),
                     ],
                     className="mb-2",
                 ),
                 html.Div(id="dta-smooth-status", className="small text-muted"),
+            ]
+        ),
+        className="mb-3",
+    )
+
+
+def _baseline_controls_card() -> dbc.Card:
+    """User-tunable baseline controls (Phase 2a).
+
+    Method ∈ {asls, linear, rubberband}; lam + p are gated on asls. Apply pushes
+    the current draft onto the shared undo stack, mutates ``draft["baseline"]``,
+    and clears redo. Undo/Redo/Reset are the shared buttons from the smoothing
+    card; they operate on the full draft atomically.
+    """
+    method_options = [
+        {"label": "AsLS", "value": "asls"},
+        {"label": "Linear", "value": "linear"},
+        {"label": "Rubberband", "value": "rubberband"},
+    ]
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5(id="dta-baseline-card-title", className="card-title mb-3"),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label(id="dta-baseline-method-label", html_for="dta-baseline-method"),
+                                dbc.Select(
+                                    id="dta-baseline-method",
+                                    options=method_options,
+                                    value="asls",
+                                ),
+                            ],
+                            md=12,
+                        ),
+                    ],
+                    className="mb-2",
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label(id="dta-baseline-lam-label", html_for="dta-baseline-lam"),
+                                dbc.Input(
+                                    id="dta-baseline-lam",
+                                    type="number",
+                                    min=1e-3,
+                                    step=1e5,
+                                    value=1e6,
+                                ),
+                            ],
+                            md=6,
+                        ),
+                        dbc.Col(
+                            [
+                                dbc.Label(id="dta-baseline-p-label", html_for="dta-baseline-p"),
+                                dbc.Input(
+                                    id="dta-baseline-p",
+                                    type="number",
+                                    min=1e-4,
+                                    max=0.5,
+                                    step=0.005,
+                                    value=0.01,
+                                ),
+                            ],
+                            md=6,
+                        ),
+                    ],
+                    className="g-2 mb-2",
+                ),
+                dbc.Button(
+                    id="dta-baseline-apply-btn",
+                    color="primary",
+                    size="sm",
+                    className="mb-2",
+                ),
+                html.Div(id="dta-baseline-status", className="small text-muted"),
+            ]
+        ),
+        className="mb-3",
+    )
+
+
+def _peak_controls_card() -> dbc.Card:
+    """User-tunable peak-detection controls (Phase 2a).
+
+    Endo/exo checkboxes mirror ``core.dta_processor.find_peaks`` kwargs.
+    ``prominence == 0`` is the adaptive-threshold sentinel (find_peaks derives
+    5 % of the signal peak-to-peak range when prominence is falsy). ``distance``
+    is forwarded to ``find_thermal_peaks`` via ``**kwargs``.
+    """
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5(id="dta-peak-card-title", className="card-title mb-3"),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dbc.Checkbox(
+                                id="dta-peak-detect-exo",
+                                label=" ",
+                                value=True,
+                            ),
+                            md=6,
+                        ),
+                        dbc.Col(
+                            dbc.Checkbox(
+                                id="dta-peak-detect-endo",
+                                label=" ",
+                                value=True,
+                            ),
+                            md=6,
+                        ),
+                    ],
+                    className="g-2 mb-2",
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label(id="dta-peak-prominence-label", html_for="dta-peak-prominence"),
+                                dbc.Input(
+                                    id="dta-peak-prominence",
+                                    type="number",
+                                    min=0.0,
+                                    step=0.005,
+                                    value=0.0,
+                                ),
+                            ],
+                            md=6,
+                        ),
+                        dbc.Col(
+                            [
+                                dbc.Label(id="dta-peak-distance-label", html_for="dta-peak-distance"),
+                                dbc.Input(
+                                    id="dta-peak-distance",
+                                    type="number",
+                                    min=1,
+                                    step=1,
+                                    value=1,
+                                ),
+                            ],
+                            md=6,
+                        ),
+                    ],
+                    className="g-2 mb-2",
+                ),
+                dbc.Button(
+                    id="dta-peak-apply-btn",
+                    color="primary",
+                    size="sm",
+                    className="mb-2",
+                ),
+                html.Div(id="dta-peak-status", className="small text-muted"),
+            ]
+        ),
+        className="mb-3",
+    )
+
+
+def _literature_compare_card() -> dbc.Card:
+    """Manual literature compare panel (Phase 2b).
+
+    Gated on a saved DTA ``result_id`` (set by the run callback). Users pick
+    ``max_claims`` and the persist flag, then click Compare to call the backend
+    ``/literature/compare`` endpoint via ``api_client.literature_compare``.
+    Output renders a compact claims + comparisons + citations summary.
+    """
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5(id="dta-literature-card-title", className="card-title mb-3"),
+                html.Div(id="dta-literature-hint", className="small text-muted mb-2"),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label(
+                                    id="dta-literature-max-claims-label",
+                                    html_for="dta-literature-max-claims",
+                                ),
+                                dbc.Input(
+                                    id="dta-literature-max-claims",
+                                    type="number",
+                                    min=1,
+                                    max=10,
+                                    step=1,
+                                    value=3,
+                                ),
+                            ],
+                            md=6,
+                        ),
+                        dbc.Col(
+                            [
+                                dbc.Checklist(
+                                    id="dta-literature-persist",
+                                    options=[{"label": "", "value": "persist"}],
+                                    value=[],
+                                    switch=True,
+                                    className="mt-4",
+                                ),
+                                dbc.Label(
+                                    id="dta-literature-persist-label",
+                                    html_for="dta-literature-persist",
+                                    className="small",
+                                ),
+                            ],
+                            md=6,
+                        ),
+                    ],
+                    className="g-2 mb-2",
+                ),
+                dbc.Button(
+                    id="dta-literature-compare-btn",
+                    color="primary",
+                    size="sm",
+                    disabled=True,
+                    className="mb-2",
+                ),
+                html.Div(id="dta-literature-status", className="small text-muted"),
+                html.Div(id="dta-literature-output", className="mt-2"),
             ]
         ),
         className="mb-3",
@@ -552,6 +898,7 @@ def _processing_draft_stores() -> list:
         dcc.Store(id="dta-processing-draft", data=copy.deepcopy(defaults)),
         dcc.Store(id="dta-processing-undo", data=[]),
         dcc.Store(id="dta-processing-redo", data=[]),
+        dcc.Store(id="dta-figure-captured", data={}),
     ]
 
 
@@ -573,6 +920,8 @@ layout = html.Div(
                             card_title_id="dta-workflow-card-title",
                         ),
                         _smoothing_controls_card(),
+                        _baseline_controls_card(),
+                        _peak_controls_card(),
                         execute_card("dta-run-status", "dta-run-btn", card_title_id="dta-execute-card-title"),
                     ],
                     md=4,
@@ -584,6 +933,7 @@ layout = html.Div(
                         result_placeholder_card("dta-result-peak-cards"),
                         result_placeholder_card("dta-result-table"),
                         result_placeholder_card("dta-result-processing"),
+                        _literature_compare_card(),
                     ],
                     md=8,
                 ),
@@ -693,7 +1043,7 @@ def run_dta_analysis(
 
     from dash_app.api_client import analysis_run
 
-    overrides = _smoothing_overrides_from_draft(processing_draft) or None
+    overrides = _overrides_from_draft(processing_draft) or None
     try:
         result = analysis_run(
             project_id=project_id,
@@ -842,15 +1192,19 @@ def _primary_trace_name(corrected: list, smoothed: list, raw_signal: list, loc: 
     return translate_ui(loc, "dash.analysis.figure.legend_dta_primary_raw"), "#475569"
 
 
-def _build_figure(
+def _build_dta_go_figure(
     project_id: str,
     dataset_key: str,
     sample_name: str,
     peak_rows: list,
     ui_theme: str | None,
     loc: str = "en",
-    locale_data: str | None = None,
-) -> html.Div:
+) -> go.Figure | None:
+    """Build the DTA Plotly figure, or return None when data is missing.
+
+    Separated from ``_build_figure`` so the figure-capture callback can reuse
+    the same plotting logic without constructing a ``dcc.Graph`` wrapper.
+    """
     from dash_app.api_client import analysis_state_curves
 
     try:
@@ -864,13 +1218,12 @@ def _build_figure(
     baseline = _series_for_temperature(curves.get("baseline", []), temperature)
     corrected = _series_for_temperature(curves.get("corrected", []), temperature)
 
-    _ld = locale_data if locale_data is not None else loc
     if not temperature:
-        return no_data_figure_msg(locale_data=_ld)
+        return None
 
     primary_signal = corrected or smoothed or raw_signal
     if not primary_signal:
-        return no_data_figure_msg(text=translate_ui(loc, "dash.analysis.dta.no_plot_signal"), locale_data=_ld)
+        return None
 
     fig = go.Figure()
     primary_name, primary_color = _primary_trace_name(corrected, smoothed, raw_signal, loc)
@@ -996,6 +1349,31 @@ def _build_figure(
     )
     apply_figure_theme(fig, ui_theme)
     fig.update_yaxes(range=y_range)
+    return fig
+
+
+def _build_figure(
+    project_id: str,
+    dataset_key: str,
+    sample_name: str,
+    peak_rows: list,
+    ui_theme: str | None,
+    loc: str = "en",
+    locale_data: str | None = None,
+) -> html.Div:
+    _ld = locale_data if locale_data is not None else loc
+    from dash_app.api_client import analysis_state_curves
+
+    try:
+        curves = analysis_state_curves(project_id, "DTA", dataset_key)
+    except Exception:
+        curves = {}
+    if not curves.get("temperature"):
+        return no_data_figure_msg(locale_data=_ld)
+
+    fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc)
+    if fig is None:
+        return no_data_figure_msg(text=translate_ui(loc, "dash.analysis.dta.no_plot_signal"), locale_data=_ld)
     return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True}, className="ta-plot")
 
 
@@ -1191,3 +1569,442 @@ def sync_smoothing_controls(draft, undo, redo, defaults, locale_data):
     redo_disabled = not bool(redo)
     reset_disabled = (draft or {}) == (defaults or {})
     return method, window_length, polyorder, sigma, status, undo_disabled, redo_disabled, reset_disabled
+
+
+def _baseline_status_text(draft: dict | None, loc: str) -> str:
+    """Build a concise status line summarizing the current baseline draft."""
+    values = (draft or {}).get("baseline") or {}
+    method = str(values.get("method") or "asls")
+    method_label = {"asls": "AsLS", "linear": "Linear", "rubberband": "Rubberband"}.get(method, method)
+    parts = [method_label]
+    if method == "asls":
+        if "lam" in values:
+            parts.append(f"lam={values['lam']:g}")
+        if "p" in values:
+            parts.append(f"p={values['p']:g}")
+    applied = translate_ui(loc, "dash.analysis.dta.baseline.applied")
+    if applied == "dash.analysis.dta.baseline.applied":
+        applied = "Applied"
+    return f"{applied}: {' - '.join(parts)}"
+
+
+def _peak_status_text(draft: dict | None, loc: str) -> str:
+    """Build a concise status line summarizing the current peak-detection draft."""
+    values = (draft or {}).get("peak_detection") or {}
+    flags = []
+    if values.get("detect_exothermic", True):
+        flags.append("exo")
+    if values.get("detect_endothermic", True):
+        flags.append("endo")
+    parts = ["/".join(flags) if flags else "none"]
+    prom = values.get("prominence")
+    if prom is not None:
+        parts.append("prominence=auto" if float(prom) == 0.0 else f"prominence={prom:g}")
+    dist = values.get("distance")
+    if dist is not None:
+        parts.append(f"distance={int(dist)}")
+    applied = translate_ui(loc, "dash.analysis.dta.peaks.applied")
+    if applied == "dash.analysis.dta.peaks.applied":
+        applied = "Applied"
+    return f"{applied}: {' - '.join(parts)}"
+
+
+@callback(
+    Output("dta-baseline-card-title", "children"),
+    Output("dta-baseline-method-label", "children"),
+    Output("dta-baseline-lam-label", "children"),
+    Output("dta-baseline-p-label", "children"),
+    Output("dta-baseline-apply-btn", "children"),
+    Input("ui-locale", "data"),
+)
+def render_dta_baseline_chrome(locale_data):
+    loc = _loc(locale_data)
+
+    def _t(key: str, fallback: str) -> str:
+        value = translate_ui(loc, key)
+        return fallback if value == key else value
+
+    return (
+        _t("dash.analysis.dta.baseline.title", "Baseline"),
+        _t("dash.analysis.dta.baseline.method", "Baseline Method"),
+        _t("dash.analysis.dta.baseline.lam", "Lambda (asls)"),
+        _t("dash.analysis.dta.baseline.p", "Asymmetry p (asls)"),
+        _t("dash.analysis.dta.baseline.apply_btn", "Apply Baseline"),
+    )
+
+
+@callback(
+    Output("dta-peak-card-title", "children"),
+    Output("dta-peak-detect-exo", "label"),
+    Output("dta-peak-detect-endo", "label"),
+    Output("dta-peak-prominence-label", "children"),
+    Output("dta-peak-distance-label", "children"),
+    Output("dta-peak-apply-btn", "children"),
+    Input("ui-locale", "data"),
+)
+def render_dta_peak_chrome(locale_data):
+    loc = _loc(locale_data)
+
+    def _t(key: str, fallback: str) -> str:
+        value = translate_ui(loc, key)
+        return fallback if value == key else value
+
+    return (
+        _t("dash.analysis.dta.peaks.title", "Peak Detection"),
+        _t("dash.analysis.dta.peaks.detect_exo", "Detect Exothermic"),
+        _t("dash.analysis.dta.peaks.detect_endo", "Detect Endothermic"),
+        _t("dash.analysis.dta.peaks.prominence", "Prominence (0 = auto)"),
+        _t("dash.analysis.dta.peaks.distance", "Min Distance (samples)"),
+        _t("dash.analysis.dta.peaks.apply_btn", "Apply Peaks"),
+    )
+
+
+@callback(
+    Output("dta-baseline-lam", "disabled"),
+    Output("dta-baseline-p", "disabled"),
+    Input("dta-baseline-method", "value"),
+)
+def toggle_baseline_inputs(method):
+    token = str(method or "asls").strip().lower()
+    if token == "asls":
+        return False, False
+    return True, True
+
+
+@callback(
+    Output("dta-processing-draft", "data", allow_duplicate=True),
+    Output("dta-processing-undo", "data", allow_duplicate=True),
+    Output("dta-processing-redo", "data", allow_duplicate=True),
+    Input("dta-baseline-apply-btn", "n_clicks"),
+    State("dta-baseline-method", "value"),
+    State("dta-baseline-lam", "value"),
+    State("dta-baseline-p", "value"),
+    State("dta-processing-draft", "data"),
+    State("dta-processing-undo", "data"),
+    prevent_initial_call=True,
+)
+def apply_baseline(n_clicks, method, lam, p, draft, undo):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    values = _normalize_baseline_values(method, lam, p)
+    next_undo = _push_undo(undo, draft)
+    next_draft = _apply_draft_section(draft, "baseline", values)
+    return next_draft, next_undo, []
+
+
+@callback(
+    Output("dta-processing-draft", "data", allow_duplicate=True),
+    Output("dta-processing-undo", "data", allow_duplicate=True),
+    Output("dta-processing-redo", "data", allow_duplicate=True),
+    Input("dta-peak-apply-btn", "n_clicks"),
+    State("dta-peak-detect-exo", "value"),
+    State("dta-peak-detect-endo", "value"),
+    State("dta-peak-prominence", "value"),
+    State("dta-peak-distance", "value"),
+    State("dta-processing-draft", "data"),
+    State("dta-processing-undo", "data"),
+    prevent_initial_call=True,
+)
+def apply_peak_detection(n_clicks, detect_exo, detect_endo, prominence, distance, draft, undo):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    values = _normalize_peak_detection_values(detect_endo, detect_exo, prominence, distance)
+    next_undo = _push_undo(undo, draft)
+    next_draft = _apply_draft_section(draft, "peak_detection", values)
+    return next_draft, next_undo, []
+
+
+@callback(
+    Output("dta-baseline-method", "value"),
+    Output("dta-baseline-lam", "value"),
+    Output("dta-baseline-p", "value"),
+    Output("dta-baseline-status", "children"),
+    Input("dta-processing-draft", "data"),
+    Input("ui-locale", "data"),
+)
+def sync_baseline_controls(draft, locale_data):
+    loc = _loc(locale_data)
+    values = (draft or {}).get("baseline") or {}
+    method = str(values.get("method") or "asls")
+    lam = values.get("lam", 1e6)
+    p = values.get("p", 0.01)
+    status = _baseline_status_text(draft, loc)
+    return method, lam, p, status
+
+
+@callback(
+    Output("dta-peak-detect-exo", "value"),
+    Output("dta-peak-detect-endo", "value"),
+    Output("dta-peak-prominence", "value"),
+    Output("dta-peak-distance", "value"),
+    Output("dta-peak-status", "children"),
+    Input("dta-processing-draft", "data"),
+    Input("ui-locale", "data"),
+)
+def sync_peak_controls(draft, locale_data):
+    loc = _loc(locale_data)
+    values = (draft or {}).get("peak_detection") or {}
+    detect_exo = bool(values.get("detect_exothermic", True))
+    detect_endo = bool(values.get("detect_endothermic", True))
+    prominence = values.get("prominence", 0.0)
+    distance = values.get("distance", 1)
+    status = _peak_status_text(draft, loc)
+    return detect_exo, detect_endo, prominence, distance, status
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b: Literature Compare panel + Figure capture for Report Center
+# ---------------------------------------------------------------------------
+
+
+def _literature_t(loc: str, key: str, fallback: str) -> str:
+    """Translate with a literal fallback when the key is missing from the bundle."""
+    value = translate_ui(loc, key)
+    return fallback if value == key else value
+
+
+@callback(
+    Output("dta-literature-card-title", "children"),
+    Output("dta-literature-hint", "children"),
+    Output("dta-literature-max-claims-label", "children"),
+    Output("dta-literature-persist-label", "children"),
+    Output("dta-literature-compare-btn", "children"),
+    Input("ui-locale", "data"),
+    Input("dta-latest-result-id", "data"),
+)
+def render_dta_literature_chrome(locale_data, result_id):
+    loc = _loc(locale_data)
+    if result_id:
+        hint = _literature_t(
+            loc,
+            "dash.analysis.dta.literature.ready",
+            "Compare the saved DTA result to literature sources.",
+        )
+    else:
+        hint = _literature_t(
+            loc,
+            "dash.analysis.dta.literature.empty",
+            "Run a DTA analysis first to enable literature comparison.",
+        )
+    return (
+        _literature_t(loc, "dash.analysis.dta.literature.title", "Literature Compare"),
+        hint,
+        _literature_t(loc, "dash.analysis.dta.literature.max_claims", "Max Claims"),
+        _literature_t(loc, "dash.analysis.dta.literature.persist", "Persist to project"),
+        _literature_t(loc, "dash.analysis.dta.literature.compare_btn", "Compare"),
+    )
+
+
+@callback(
+    Output("dta-literature-compare-btn", "disabled"),
+    Input("dta-latest-result-id", "data"),
+)
+def toggle_literature_compare_button(result_id):
+    return not bool(result_id)
+
+
+def _render_literature_output(payload: dict, loc: str) -> html.Div:
+    """Render claims / comparisons / citations from the literature compare payload."""
+    claims = payload.get("literature_claims") or []
+    comparisons = payload.get("literature_comparisons") or []
+    citations = payload.get("citations") or []
+
+    def _section(heading_key: str, fallback: str, items: list[dict], empty_key: str, empty_fallback: str):
+        title = html.H6(_literature_t(loc, heading_key, fallback), className="mt-2 mb-1")
+        if not items:
+            return html.Div(
+                [title, html.P(_literature_t(loc, empty_key, empty_fallback), className="small text-muted")],
+            )
+        list_items = []
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            text = (
+                entry.get("statement")
+                or entry.get("claim")
+                or entry.get("title")
+                or entry.get("summary")
+                or ""
+            )
+            source = entry.get("source") or entry.get("provider") or entry.get("doi") or ""
+            head = str(text).strip() or "-"
+            tail = f" ({source})" if source else ""
+            list_items.append(html.Li(f"{head}{tail}", className="small"))
+        return html.Div([title, html.Ul(list_items, className="mb-0 ps-3")])
+
+    return html.Div(
+        [
+            _section(
+                "dash.analysis.dta.literature.claims",
+                "Claims",
+                claims,
+                "dash.analysis.dta.literature.claims_empty",
+                "No claims returned.",
+            ),
+            _section(
+                "dash.analysis.dta.literature.comparisons",
+                "Comparisons",
+                comparisons,
+                "dash.analysis.dta.literature.comparisons_empty",
+                "No comparisons returned.",
+            ),
+            _section(
+                "dash.analysis.dta.literature.citations",
+                "Citations",
+                citations,
+                "dash.analysis.dta.literature.citations_empty",
+                "No citations returned.",
+            ),
+        ]
+    )
+
+
+@callback(
+    Output("dta-literature-output", "children"),
+    Output("dta-literature-status", "children"),
+    Input("dta-literature-compare-btn", "n_clicks"),
+    State("project-id", "data"),
+    State("dta-latest-result-id", "data"),
+    State("dta-literature-max-claims", "value"),
+    State("dta-literature-persist", "value"),
+    State("ui-locale", "data"),
+    prevent_initial_call=True,
+)
+def compare_dta_literature(n_clicks, project_id, result_id, max_claims, persist_values, locale_data):
+    loc = _loc(locale_data)
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    if not project_id or not result_id:
+        msg = _literature_t(
+            loc,
+            "dash.analysis.dta.literature.missing_result",
+            "Run a DTA analysis first.",
+        )
+        return dash.no_update, dbc.Alert(msg, color="warning", className="py-1 small")
+
+    claims_limit = _coerce_int_positive(max_claims, default=3, minimum=1)
+    persist = bool(persist_values) and "persist" in (persist_values or [])
+
+    from dash_app.api_client import literature_compare
+
+    try:
+        payload = literature_compare(
+            project_id,
+            result_id,
+            max_claims=claims_limit,
+            persist=persist,
+        )
+    except Exception as exc:
+        err = dbc.Alert(
+            _literature_t(
+                loc,
+                "dash.analysis.dta.literature.error",
+                "Literature compare failed: {error}",
+            ).replace("{error}", str(exc)),
+            color="danger",
+            className="py-1 small",
+        )
+        return dash.no_update, err
+
+    status = dbc.Alert(
+        _literature_t(
+            loc,
+            "dash.analysis.dta.literature.success",
+            "Literature comparison retrieved.",
+        ),
+        color="success",
+        className="py-1 small",
+    )
+    return _render_literature_output(payload, loc), status
+
+
+def _capture_dta_figure_png(
+    project_id: str,
+    dataset_key: str,
+    sample_name: str,
+    peak_rows: list,
+    ui_theme: str | None,
+    loc: str,
+) -> bytes | None:
+    """Build the DTA figure as PNG bytes; return None on any failure.
+
+    Uses ``plotly.io.to_image`` (kaleido) and swallows errors so the capture
+    callback never breaks the rest of the UI if kaleido is unavailable.
+    """
+    fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc)
+    if fig is None:
+        return None
+    try:
+        import plotly.io as pio
+
+        return pio.to_image(fig, format="png", engine="kaleido")
+    except Exception:
+        return None
+
+
+@callback(
+    Output("dta-figure-captured", "data"),
+    Input("dta-latest-result-id", "data"),
+    State("project-id", "data"),
+    State("dta-figure-captured", "data"),
+    State("ui-theme", "data"),
+    State("ui-locale", "data"),
+    prevent_initial_call=True,
+)
+def capture_dta_figure(result_id, project_id, captured, ui_theme, locale_data):
+    """Render a PNG of the saved DTA figure and register it with the backend.
+
+    Fires once per saved ``result_id`` (dedup via ``dta-figure-captured`` store).
+    Failures degrade silently: the Report Center simply won't have a figure.
+    """
+    if not result_id or not project_id:
+        raise dash.exceptions.PreventUpdate
+
+    captured = dict(captured or {})
+    if captured.get(result_id):
+        raise dash.exceptions.PreventUpdate
+
+    loc = _loc(locale_data)
+
+    from dash_app.api_client import (
+        register_result_figure,
+        workspace_dataset_detail,
+        workspace_result_detail,
+    )
+
+    try:
+        detail = workspace_result_detail(project_id, result_id)
+    except Exception:
+        captured[result_id] = {"status": "error", "stage": "detail"}
+        return captured
+
+    result_meta = detail.get("result", {}) or {}
+    summary = detail.get("summary", {}) or {}
+    dataset_key = result_meta.get("dataset_key")
+    rows = _event_rows(detail.get("rows") or detail.get("rows_preview") or [])
+
+    if not dataset_key:
+        captured[result_id] = {"status": "skipped", "reason": "missing_dataset_key"}
+        return captured
+
+    dataset_detail: dict = {}
+    try:
+        dataset_detail = workspace_dataset_detail(project_id, dataset_key)
+    except Exception:
+        dataset_detail = {}
+    sample_name = _resolve_dta_sample_name(summary, result_meta, dataset_detail, locale_data=locale_data)
+
+    png_bytes = _capture_dta_figure_png(project_id, dataset_key, sample_name, rows, ui_theme, loc)
+    if not png_bytes:
+        captured[result_id] = {"status": "skipped", "reason": "render_failed"}
+        return captured
+
+    label = f"DTA Analysis - {dataset_key}"
+    try:
+        register_result_figure(project_id, result_id, png_bytes, label=label, replace=True)
+    except Exception:
+        captured[result_id] = {"status": "error", "stage": "register", "label": label}
+        return captured
+
+    captured[result_id] = {"status": "ok", "label": label}
+    return captured
