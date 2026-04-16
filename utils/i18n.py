@@ -1049,6 +1049,72 @@ TRANSLATIONS = {
         "tr": "Termal olay taraması: Daha geniş yumuşatma penceresi, karmaşık termal geçmişler için daha toleranslı tepe algılama.",
         "en": "Thermal Event Screening: Wider smoothing window, more permissive peak detection for complex thermal histories.",
     },
+    "dash.analysis.dta.tab.setup": {"tr": "Kurulum", "en": "Setup"},
+    "dash.analysis.dta.tab.processing": {"tr": "İşleme", "en": "Processing"},
+    "dash.analysis.dta.tab.run": {"tr": "Çalıştır", "en": "Run"},
+    "dash.analysis.dta.presets.title": {"tr": "İşleme Presetleri", "en": "Processing Presets"},
+    "dash.analysis.dta.presets.caption": {
+        "tr": "{analysis_type} presetleri: {count}/{max_count}",
+        "en": "{analysis_type} presets: {count}/{max_count}",
+    },
+    "dash.analysis.dta.presets.select_label": {"tr": "Kayıtlı presetler", "en": "Saved Presets"},
+    "dash.analysis.dta.presets.select_placeholder": {"tr": "— Preset seçin —", "en": "— Select preset —"},
+    "dash.analysis.dta.presets.apply_btn": {"tr": "Preseti uygula", "en": "Apply Preset"},
+    "dash.analysis.dta.presets.delete_btn": {"tr": "Preseti sil", "en": "Delete Preset"},
+    "dash.analysis.dta.presets.save_name_label": {"tr": "Yeni preset adı", "en": "New Preset Name"},
+    "dash.analysis.dta.presets.save_name_placeholder": {"tr": "Preset adı", "en": "Preset name"},
+    "dash.analysis.dta.presets.save_btn": {"tr": "Mevcut ayarları kaydet", "en": "Save Current Settings"},
+    "dash.analysis.dta.presets.applied": {
+        "tr": "'{preset}' presetinin ayarları uygulandı.",
+        "en": "Applied preset '{preset}'.",
+    },
+    "dash.analysis.dta.presets.saved": {
+        "tr": "'{preset}' presetine kaydedildi ({template}).",
+        "en": "Saved preset '{preset}' ({template}).",
+    },
+    "dash.analysis.dta.presets.deleted": {
+        "tr": "'{preset}' preseti silindi.",
+        "en": "Deleted preset '{preset}'.",
+    },
+    "dash.analysis.dta.presets.save_failed": {
+        "tr": "Preset kaydedilemedi: {error}",
+        "en": "Could not save preset: {error}",
+    },
+    "dash.analysis.dta.presets.delete_failed": {
+        "tr": "Preset silinemedi: {error}",
+        "en": "Could not delete preset: {error}",
+    },
+    "dash.analysis.dta.presets.apply_failed": {
+        "tr": "Preset uygulanamadı: {error}",
+        "en": "Could not apply preset: {error}",
+    },
+    "dash.analysis.dta.presets.list_failed": {
+        "tr": "Preset listesi alınamadı: {error}",
+        "en": "Could not load presets: {error}",
+    },
+    "dash.analysis.dta.presets.save_name_required": {
+        "tr": "Preset adı gereklidir.",
+        "en": "Preset name is required.",
+    },
+    "dash.analysis.dta.presets.select_required": {
+        "tr": "Önce bir preset seçin.",
+        "en": "Select a preset first.",
+    },
+    "dash.analysis.dta.presets.help.overview": {
+        "tr": "Mevcut işleme ayarlarını adlandırılmış bir preset olarak kaydedin, ardından yeni veri setlerinde tek tıkla yeniden uygulayın. Analiz türü başına en fazla 10 preset.",
+        "en": "Save the current processing settings as a named preset, then re-apply them to new datasets with one click. Up to 10 presets per analysis type.",
+    },
+    "dash.analysis.dta.summary.card_title": {"tr": "Analiz Özeti", "en": "Analysis Summary"},
+    "dash.analysis.dta.summary.dataset_label": {"tr": "Veri Seti", "en": "Dataset"},
+    "dash.analysis.dta.summary.sample_label": {"tr": "Numune", "en": "Sample"},
+    "dash.analysis.dta.summary.mass_label": {"tr": "Kütle", "en": "Mass"},
+    "dash.analysis.dta.summary.heating_rate_label": {"tr": "Isıtma Hızı", "en": "Heating Rate"},
+    "dash.analysis.dta.summary.mass_unit": {"tr": "mg", "en": "mg"},
+    "dash.analysis.dta.summary.heating_rate_unit": {"tr": "°C/dk", "en": "°C/min"},
+    "dash.analysis.dta.summary.empty": {
+        "tr": "Sonuç yok — önce analizi çalıştırın.",
+        "en": "No results yet — run the analysis first.",
+    },
     "dash.analysis.dta.smoothing.title": {"tr": "Yumuşatma", "en": "Smoothing"},
     "dash.analysis.dta.smoothing.method": {"tr": "Yumuşatma yöntemi", "en": "Smoothing Method"},
     "dash.analysis.dta.smoothing.window": {"tr": "Pencere uzunluğu", "en": "Window Length"},
@@ -1056,6 +1122,22 @@ TRANSLATIONS = {
     "dash.analysis.dta.smoothing.sigma": {"tr": "Sigma", "en": "Sigma"},
     "dash.analysis.dta.smoothing.apply_btn": {"tr": "Yumuşatmayı uygula", "en": "Apply Smoothing"},
     "dash.analysis.dta.smoothing.applied": {"tr": "Uygulandı", "en": "Applied"},
+    "dash.analysis.dta.smoothing.help.method": {
+        "tr": "Savitzky-Golay tepe şeklini korur; Moving Average basit ve hızlıdır; Gaussian en pürüzsüz eğriyi verir.",
+        "en": "Savitzky-Golay preserves peak shape; Moving Average is simple and fast; Gaussian gives the smoothest curve.",
+    },
+    "dash.analysis.dta.smoothing.help.window": {
+        "tr": "Ortalamaya dahil edilen nokta sayısı. Büyük değerler daha fazla yumuşatır ama küçük tepeleri bulanıklaştırır. Tek sayı olmalı; tipik DTA eğrileri için 7-15.",
+        "en": "Number of points averaged. Larger values smooth more but can blur small peaks. Must be odd; try 7-15 for typical DTA traces.",
+    },
+    "dash.analysis.dta.smoothing.help.polyorder": {
+        "tr": "Savitzky-Golay için polinom derecesi. Yüksek dereceler keskin tepeleri korur ancak gürültüyü geri getirebilir. Genellikle 2-4.",
+        "en": "Polynomial order for Savitzky-Golay. Higher orders preserve sharp peaks but may re-introduce noise. Usually 2-4.",
+    },
+    "dash.analysis.dta.smoothing.help.sigma": {
+        "tr": "Gaussian çekirdek genişliği. Büyük sigma = daha güçlü yumuşatma. 1.0-3.0 ile başlayın, taban hâlâ gürültülüyse artırın.",
+        "en": "Gaussian kernel width. Larger sigma = stronger smoothing. Start from 1.0-3.0 and raise if the baseline is still noisy.",
+    },
     "dash.analysis.dta.undo_btn": {"tr": "Geri al", "en": "Undo"},
     "dash.analysis.dta.redo_btn": {"tr": "Yinele", "en": "Redo"},
     "dash.analysis.dta.reset_btn": {"tr": "Sıfırla", "en": "Reset"},
@@ -1065,6 +1147,18 @@ TRANSLATIONS = {
     "dash.analysis.dta.baseline.p": {"tr": "Asimetri p (asls)", "en": "Asymmetry p (asls)"},
     "dash.analysis.dta.baseline.apply_btn": {"tr": "Taban çizgisini uygula", "en": "Apply Baseline"},
     "dash.analysis.dta.baseline.applied": {"tr": "Uygulandı", "en": "Applied"},
+    "dash.analysis.dta.baseline.help.method": {
+        "tr": "AsLS eğri ve kayan tabanları düzeltir; Linear düz çizgi uydurur (hızlı, kısa aralıklar için uygun); Rubberband sinyali alttan sarar.",
+        "en": "AsLS handles curved drifting baselines; Linear fits a straight line (fast, good for short ranges); Rubberband wraps the signal from below.",
+    },
+    "dash.analysis.dta.baseline.help.lam": {
+        "tr": "AsLS taban sertliği. Yüksek değerler (1e7+) tabanı düz tutar; düşük değerler (1e4) tepeleri takip etmesine izin verir — gerçek olayları yutma riski vardır.",
+        "en": "AsLS baseline stiffness. Higher values (1e7+) keep the baseline flat; lower values (1e4) let it follow peaks — risks absorbing real events.",
+    },
+    "dash.analysis.dta.baseline.help.p": {
+        "tr": "AsLS asimetri. Küçük değerler (0.001-0.01) tabanı ekzotermik tepelerin altına iter; endotermlerin üzerinden geçmesi gerekiyorsa 0.1-0.5 kullanın.",
+        "en": "AsLS asymmetry. Small values (0.001-0.01) push the baseline below exothermic peaks; use 0.1-0.5 when the baseline should pass above endotherms.",
+    },
     "dash.analysis.dta.peaks.title": {"tr": "Tepe algılama", "en": "Peak Detection"},
     "dash.analysis.dta.peaks.detect_exo": {"tr": "Ekzotermik algıla", "en": "Detect Exothermic"},
     "dash.analysis.dta.peaks.detect_endo": {"tr": "Endotermik algıla", "en": "Detect Endothermic"},
@@ -1072,6 +1166,22 @@ TRANSLATIONS = {
     "dash.analysis.dta.peaks.distance": {"tr": "Min. mesafe (örnek)", "en": "Min Distance (samples)"},
     "dash.analysis.dta.peaks.apply_btn": {"tr": "Tepeleri uygula", "en": "Apply Peaks"},
     "dash.analysis.dta.peaks.applied": {"tr": "Uygulandı", "en": "Applied"},
+    "dash.analysis.dta.peaks.help.detect_exo": {
+        "tr": "Ekzotermik tepeleri raporla (ısı salan olaylar: kristalizasyon, oksidasyon vb.).",
+        "en": "Report exothermic peaks (heat-releasing events such as crystallization or oxidation).",
+    },
+    "dash.analysis.dta.peaks.help.detect_endo": {
+        "tr": "Endotermik tepeleri raporla (ısı soğuran olaylar: erime, ayrışma vb.).",
+        "en": "Report endothermic peaks (heat-absorbing events such as melting or decomposition).",
+    },
+    "dash.analysis.dta.peaks.help.prominence": {
+        "tr": "Bir tepenin çevresine göre minimum göreli yüksekliği. 0 = otomatik eşik (sinyal aralığının ~%5'i). Gürültüyü yok saymak için artırın; küçük olayları yakalamak için düşürün.",
+        "en": "Minimum relative height a peak must stand above its surroundings. 0 = auto-threshold (~5% of signal range). Raise to ignore noise; lower to catch subtle events.",
+    },
+    "dash.analysis.dta.peaks.help.distance": {
+        "tr": "Bitişik tepeler arasındaki minimum örnek mesafesi. Yakın olayları tek tepede birleştirmek için artırın; ikili tepeleri ayrı tutmak için düşürün.",
+        "en": "Minimum sample separation between adjacent peaks. Raise to merge closely-spaced events into one; lower to keep doublets separate.",
+    },
     "dash.analysis.dta.literature.title": {"tr": "Literatür karşılaştırma", "en": "Literature Compare"},
     "dash.analysis.dta.literature.ready": {
         "tr": "Kaydedilmiş DTA sonucunu literatür kaynaklarıyla karşılaştırın.",

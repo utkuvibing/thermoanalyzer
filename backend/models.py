@@ -390,6 +390,47 @@ class ResultFigureRegisterResponse(BaseModel):
     figure_keys: list[str] = Field(default_factory=list)
 
 
+class PresetSummary(BaseModel):
+    analysis_type: str
+    preset_name: str
+    workflow_template_id: str = ""
+    created_at: str
+    updated_at: str
+
+
+class PresetListResponse(BaseModel):
+    analysis_type: str
+    count: int
+    max_count: int
+    presets: list[PresetSummary] = Field(default_factory=list)
+
+
+class PresetSaveRequest(BaseModel):
+    preset_name: str
+    workflow_template_id: str | None = None
+    processing: dict[str, Any] = Field(default_factory=dict)
+
+
+class PresetSaveResponse(BaseModel):
+    analysis_type: str
+    preset_name: str
+    workflow_template_id: str
+    updated_at: str
+
+
+class PresetLoadResponse(BaseModel):
+    analysis_type: str
+    preset_name: str
+    workflow_template_id: str
+    processing: dict[str, Any] = Field(default_factory=dict)
+
+
+class PresetDeleteResponse(BaseModel):
+    analysis_type: str
+    preset_name: str
+    deleted: bool
+
+
 class CompareWorkspacePayload(BaseModel):
     analysis_type: str = "DSC"
     selected_datasets: list[str] = Field(default_factory=list)

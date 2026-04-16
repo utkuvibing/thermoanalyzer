@@ -228,6 +228,49 @@ def register_result_figure(
         return r.json()
 
 
+def list_analysis_presets(analysis_type: str) -> dict[str, Any]:
+    """List saved processing presets for an analysis type."""
+    with _client() as c:
+        r = c.get(f"/presets/{analysis_type}")
+        _raise_with_detail(r)
+        return r.json()
+
+
+def save_analysis_preset(
+    analysis_type: str,
+    preset_name: str,
+    *,
+    workflow_template_id: str | None,
+    processing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Save or overwrite a processing preset for an analysis type."""
+    payload: dict[str, Any] = {
+        "preset_name": preset_name,
+        "workflow_template_id": workflow_template_id,
+        "processing": dict(processing or {}),
+    }
+    with _client() as c:
+        r = c.post(f"/presets/{analysis_type}", json=payload)
+        _raise_with_detail(r)
+        return r.json()
+
+
+def load_analysis_preset(analysis_type: str, preset_name: str) -> dict[str, Any]:
+    """Load the full payload for a saved processing preset."""
+    with _client() as c:
+        r = c.get(f"/presets/{analysis_type}/{preset_name}")
+        _raise_with_detail(r)
+        return r.json()
+
+
+def delete_analysis_preset(analysis_type: str, preset_name: str) -> dict[str, Any]:
+    """Delete a saved processing preset."""
+    with _client() as c:
+        r = c.delete(f"/presets/{analysis_type}/{preset_name}")
+        _raise_with_detail(r)
+        return r.json()
+
+
 def export_preparation(project_id: str) -> dict[str, Any]:
     with _client() as c:
         r = c.get(f"/workspace/{project_id}/exports/preparation")

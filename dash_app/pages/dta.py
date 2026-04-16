@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import math
+from typing import Any
 
 import dash
 import dash_bootstrap_components as dbc
@@ -598,6 +599,10 @@ def _smoothing_controls_card() -> dbc.Card:
                                     options=method_options,
                                     value="savgol",
                                 ),
+                                html.Small(
+                                    id="dta-smooth-method-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
                             ],
                             md=12,
                         ),
@@ -617,6 +622,10 @@ def _smoothing_controls_card() -> dbc.Card:
                                     step=2,
                                     value=11,
                                 ),
+                                html.Small(
+                                    id="dta-smooth-window-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
                             ],
                             md=4,
                         ),
@@ -630,6 +639,10 @@ def _smoothing_controls_card() -> dbc.Card:
                                     max=7,
                                     step=1,
                                     value=3,
+                                ),
+                                html.Small(
+                                    id="dta-smooth-polyorder-hint",
+                                    className="form-text text-muted d-block mt-1",
                                 ),
                             ],
                             md=4,
@@ -645,6 +658,10 @@ def _smoothing_controls_card() -> dbc.Card:
                                     step=0.1,
                                     value=2.0,
                                     disabled=True,
+                                ),
+                                html.Small(
+                                    id="dta-smooth-sigma-hint",
+                                    className="form-text text-muted d-block mt-1",
                                 ),
                             ],
                             md=4,
@@ -695,6 +712,10 @@ def _baseline_controls_card() -> dbc.Card:
                                     options=method_options,
                                     value="asls",
                                 ),
+                                html.Small(
+                                    id="dta-baseline-method-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
                             ],
                             md=12,
                         ),
@@ -713,6 +734,10 @@ def _baseline_controls_card() -> dbc.Card:
                                     step=1e5,
                                     value=1e6,
                                 ),
+                                html.Small(
+                                    id="dta-baseline-lam-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
                             ],
                             md=6,
                         ),
@@ -726,6 +751,10 @@ def _baseline_controls_card() -> dbc.Card:
                                     max=0.5,
                                     step=0.005,
                                     value=0.01,
+                                ),
+                                html.Small(
+                                    id="dta-baseline-p-hint",
+                                    className="form-text text-muted d-block mt-1",
                                 ),
                             ],
                             md=6,
@@ -761,19 +790,31 @@ def _peak_controls_card() -> dbc.Card:
                 dbc.Row(
                     [
                         dbc.Col(
-                            dbc.Checkbox(
-                                id="dta-peak-detect-exo",
-                                label=" ",
-                                value=True,
-                            ),
+                            [
+                                dbc.Checkbox(
+                                    id="dta-peak-detect-exo",
+                                    label=" ",
+                                    value=True,
+                                ),
+                                html.Small(
+                                    id="dta-peak-detect-exo-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
+                            ],
                             md=6,
                         ),
                         dbc.Col(
-                            dbc.Checkbox(
-                                id="dta-peak-detect-endo",
-                                label=" ",
-                                value=True,
-                            ),
+                            [
+                                dbc.Checkbox(
+                                    id="dta-peak-detect-endo",
+                                    label=" ",
+                                    value=True,
+                                ),
+                                html.Small(
+                                    id="dta-peak-detect-endo-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
+                            ],
                             md=6,
                         ),
                     ],
@@ -791,6 +832,10 @@ def _peak_controls_card() -> dbc.Card:
                                     step=0.005,
                                     value=0.0,
                                 ),
+                                html.Small(
+                                    id="dta-peak-prominence-hint",
+                                    className="form-text text-muted d-block mt-1",
+                                ),
                             ],
                             md=6,
                         ),
@@ -803,6 +848,10 @@ def _peak_controls_card() -> dbc.Card:
                                     min=1,
                                     step=1,
                                     value=1,
+                                ),
+                                html.Small(
+                                    id="dta-peak-distance-hint",
+                                    className="form-text text-muted d-block mt-1",
                                 ),
                             ],
                             md=6,
@@ -899,7 +948,156 @@ def _processing_draft_stores() -> list:
         dcc.Store(id="dta-processing-undo", data=[]),
         dcc.Store(id="dta-processing-redo", data=[]),
         dcc.Store(id="dta-figure-captured", data={}),
+        dcc.Store(id="dta-preset-refresh", data=0),
     ]
+
+
+_DTA_PRESET_ANALYSIS_TYPE = "DTA"
+
+
+def _preset_controls_card() -> dbc.Card:
+    """Processing-preset panel for the DTA page (Phase 3b).
+
+    Exposes preset save / apply / delete against the backend ``/presets/DTA``
+    endpoints. Apply restores the saved ``workflow_template_id`` + ``processing``
+    sections onto the active draft while pushing the previous draft onto the
+    shared undo stack, so an accidental apply can be reverted with the Undo
+    button that already lives inside the Processing tab.
+    """
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5(id="dta-preset-card-title", className="card-title mb-1"),
+                html.Small(
+                    id="dta-preset-help",
+                    className="form-text text-muted d-block mb-2",
+                ),
+                html.Div(id="dta-preset-caption", className="small text-muted mb-2"),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label(
+                                    id="dta-preset-select-label",
+                                    html_for="dta-preset-select",
+                                ),
+                                dbc.Select(
+                                    id="dta-preset-select",
+                                    options=[],
+                                    value=None,
+                                ),
+                            ],
+                            md=12,
+                        ),
+                    ],
+                    className="mb-2",
+                ),
+                dbc.ButtonGroup(
+                    [
+                        dbc.Button(
+                            id="dta-preset-apply-btn",
+                            color="primary",
+                            size="sm",
+                            disabled=True,
+                        ),
+                        dbc.Button(
+                            id="dta-preset-delete-btn",
+                            color="secondary",
+                            size="sm",
+                            outline=True,
+                            disabled=True,
+                        ),
+                    ],
+                    className="mb-3",
+                ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dbc.Label(
+                                    id="dta-preset-save-name-label",
+                                    html_for="dta-preset-save-name",
+                                ),
+                                dbc.Input(
+                                    id="dta-preset-save-name",
+                                    type="text",
+                                    value="",
+                                    maxLength=80,
+                                ),
+                            ],
+                            md=12,
+                        ),
+                    ],
+                    className="mb-2",
+                ),
+                dbc.Button(
+                    id="dta-preset-save-btn",
+                    color="primary",
+                    size="sm",
+                    className="mb-2",
+                ),
+                html.Div(id="dta-preset-status", className="small text-muted"),
+            ]
+        ),
+        className="mb-3",
+    )
+
+
+def _dta_left_column_tabs() -> dbc.Tabs:
+    """Stepwise Setup / Processing / Run tabs for the DTA left column (Phase 3a).
+
+    All existing card-builder output IDs remain mounted — ``dbc.Tab`` children are
+    eagerly rendered in the DOM, so existing callbacks bound to element IDs inside
+    these cards continue to fire without changes.
+    """
+    return dbc.Tabs(
+        [
+            dbc.Tab(
+                [
+                    dataset_selection_card(
+                        "dta-dataset-selector-area",
+                        card_title_id="dta-dataset-card-title",
+                    ),
+                    workflow_template_card(
+                        "dta-template-select",
+                        "dta-template-description",
+                        [],
+                        "dta.general",
+                        card_title_id="dta-workflow-card-title",
+                    ),
+                ],
+                tab_id="dta-tab-setup",
+                label_class_name="ta-tab-label",
+                id="dta-tab-setup-shell",
+            ),
+            dbc.Tab(
+                [
+                    _preset_controls_card(),
+                    _smoothing_controls_card(),
+                    _baseline_controls_card(),
+                    _peak_controls_card(),
+                ],
+                tab_id="dta-tab-processing",
+                label_class_name="ta-tab-label",
+                id="dta-tab-processing-shell",
+            ),
+            dbc.Tab(
+                [
+                    execute_card(
+                        "dta-run-status",
+                        "dta-run-btn",
+                        card_title_id="dta-execute-card-title",
+                    ),
+                ],
+                tab_id="dta-tab-run",
+                label_class_name="ta-tab-label",
+                id="dta-tab-run-shell",
+            ),
+        ],
+        id="dta-left-tabs",
+        active_tab="dta-tab-setup",
+        className="mb-3",
+    )
 
 
 layout = html.Div(
@@ -910,24 +1108,12 @@ layout = html.Div(
         dbc.Row(
             [
                 dbc.Col(
-                    [
-                        dataset_selection_card("dta-dataset-selector-area", card_title_id="dta-dataset-card-title"),
-                        workflow_template_card(
-                            "dta-template-select",
-                            "dta-template-description",
-                            [],
-                            "dta.general",
-                            card_title_id="dta-workflow-card-title",
-                        ),
-                        _smoothing_controls_card(),
-                        _baseline_controls_card(),
-                        _peak_controls_card(),
-                        execute_card("dta-run-status", "dta-run-btn", card_title_id="dta-execute-card-title"),
-                    ],
+                    [_dta_left_column_tabs()],
                     md=4,
                 ),
                 dbc.Col(
                     [
+                        result_placeholder_card("dta-result-dataset-summary"),
                         result_placeholder_card("dta-result-metrics"),
                         result_placeholder_card("dta-result-figure"),
                         result_placeholder_card("dta-result-peak-cards"),
@@ -979,6 +1165,233 @@ def render_dta_locale_chrome(locale_data, template_id):
         tid,
         desc,
     )
+
+
+@callback(
+    Output("dta-tab-setup-shell", "label"),
+    Output("dta-tab-processing-shell", "label"),
+    Output("dta-tab-run-shell", "label"),
+    Input("ui-locale", "data"),
+)
+def render_dta_tab_chrome(locale_data):
+    """Localize the three DTA stepwise tab labels (Phase 3a).
+
+    Reuses the ``dash.analysis.dta.tab.*`` bundle entries so TR / EN flip in sync
+    with every other DTA chrome callback.
+    """
+    loc = _loc(locale_data)
+    return (
+        translate_ui(loc, "dash.analysis.dta.tab.setup"),
+        translate_ui(loc, "dash.analysis.dta.tab.processing"),
+        translate_ui(loc, "dash.analysis.dta.tab.run"),
+    )
+
+
+@callback(
+    Output("dta-preset-card-title", "children"),
+    Output("dta-preset-select-label", "children"),
+    Output("dta-preset-select", "placeholder"),
+    Output("dta-preset-apply-btn", "children"),
+    Output("dta-preset-delete-btn", "children"),
+    Output("dta-preset-save-name-label", "children"),
+    Output("dta-preset-save-name", "placeholder"),
+    Output("dta-preset-save-btn", "children"),
+    Output("dta-preset-help", "children"),
+    Input("ui-locale", "data"),
+)
+def render_dta_preset_chrome(locale_data):
+    """Localize the DTA preset panel chrome (Phase 3b)."""
+    loc = _loc(locale_data)
+    return (
+        translate_ui(loc, "dash.analysis.dta.presets.title"),
+        translate_ui(loc, "dash.analysis.dta.presets.select_label"),
+        translate_ui(loc, "dash.analysis.dta.presets.select_placeholder"),
+        translate_ui(loc, "dash.analysis.dta.presets.apply_btn"),
+        translate_ui(loc, "dash.analysis.dta.presets.delete_btn"),
+        translate_ui(loc, "dash.analysis.dta.presets.save_name_label"),
+        translate_ui(loc, "dash.analysis.dta.presets.save_name_placeholder"),
+        translate_ui(loc, "dash.analysis.dta.presets.save_btn"),
+        translate_ui(loc, "dash.analysis.dta.presets.help.overview"),
+    )
+
+
+@callback(
+    Output("dta-preset-select", "options"),
+    Output("dta-preset-caption", "children"),
+    Input("dta-preset-refresh", "data"),
+    Input("ui-locale", "data"),
+)
+def refresh_dta_preset_options(refresh_token, locale_data):
+    """Populate the DTA preset dropdown + count caption on load and after save/delete."""
+    from dash_app import api_client
+
+    loc = _loc(locale_data)
+    try:
+        payload = api_client.list_analysis_presets(_DTA_PRESET_ANALYSIS_TYPE)
+    except Exception as exc:  # noqa: BLE001
+        message = translate_ui(loc, "dash.analysis.dta.presets.list_failed").format(error=str(exc))
+        return [], message
+
+    presets = payload.get("presets") or []
+    options = [
+        {"label": item.get("preset_name", ""), "value": item.get("preset_name", "")}
+        for item in presets
+        if isinstance(item, dict) and item.get("preset_name")
+    ]
+    caption = translate_ui(loc, "dash.analysis.dta.presets.caption").format(
+        analysis_type=payload.get("analysis_type", _DTA_PRESET_ANALYSIS_TYPE),
+        count=int(payload.get("count", len(options)) or 0),
+        max_count=int(payload.get("max_count", 10) or 10),
+    )
+    return options, caption
+
+
+@callback(
+    Output("dta-preset-apply-btn", "disabled"),
+    Output("dta-preset-delete-btn", "disabled"),
+    Input("dta-preset-select", "value"),
+)
+def toggle_dta_preset_action_buttons(selected_name):
+    """Disable Apply/Delete until the user picks a preset from the dropdown."""
+    has_selection = bool(str(selected_name or "").strip())
+    return (not has_selection, not has_selection)
+
+
+@callback(
+    Output("dta-processing-draft", "data", allow_duplicate=True),
+    Output("dta-processing-undo", "data", allow_duplicate=True),
+    Output("dta-processing-redo", "data", allow_duplicate=True),
+    Output("dta-template-select", "value", allow_duplicate=True),
+    Output("dta-preset-status", "children", allow_duplicate=True),
+    Input("dta-preset-apply-btn", "n_clicks"),
+    State("dta-preset-select", "value"),
+    State("dta-processing-draft", "data"),
+    State("dta-processing-undo", "data"),
+    State("ui-locale", "data"),
+    prevent_initial_call=True,
+)
+def apply_dta_preset(n_clicks, selected_name, draft, undo, locale_data):
+    """Load the selected preset, push current draft onto undo, and apply its sections."""
+    from dash_app import api_client
+
+    loc = _loc(locale_data)
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    name = str(selected_name or "").strip()
+    if not name:
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            translate_ui(loc, "dash.analysis.dta.presets.select_required"),
+        )
+    try:
+        payload = api_client.load_analysis_preset(_DTA_PRESET_ANALYSIS_TYPE, name)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            translate_ui(loc, "dash.analysis.dta.presets.apply_failed").format(error=str(exc)),
+        )
+
+    processing = dict(payload.get("processing") or {})
+    next_draft = copy.deepcopy(draft or _default_processing_draft())
+    for section in ("smoothing", "baseline", "peak_detection"):
+        values = processing.get(section)
+        if isinstance(values, dict):
+            next_draft[section] = copy.deepcopy(values)
+
+    template_id_raw = str(payload.get("workflow_template_id") or "").strip()
+    template_output = template_id_raw if template_id_raw in _DTA_TEMPLATE_IDS else dash.no_update
+
+    next_undo = _push_undo(undo, draft)
+    status = translate_ui(loc, "dash.analysis.dta.presets.applied").format(preset=name)
+    return next_draft, next_undo, [], template_output, status
+
+
+@callback(
+    Output("dta-preset-refresh", "data", allow_duplicate=True),
+    Output("dta-preset-save-name", "value", allow_duplicate=True),
+    Output("dta-preset-status", "children", allow_duplicate=True),
+    Input("dta-preset-save-btn", "n_clicks"),
+    State("dta-preset-save-name", "value"),
+    State("dta-processing-draft", "data"),
+    State("dta-template-select", "value"),
+    State("dta-preset-refresh", "data"),
+    State("ui-locale", "data"),
+    prevent_initial_call=True,
+)
+def save_dta_preset(n_clicks, save_name, draft, template_id, refresh_token, locale_data):
+    """Persist the current draft + template as a new preset (or update an existing one)."""
+    from dash_app import api_client
+
+    loc = _loc(locale_data)
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    name = str(save_name or "").strip()
+    if not name:
+        return (
+            dash.no_update,
+            dash.no_update,
+            translate_ui(loc, "dash.analysis.dta.presets.save_name_required"),
+        )
+    try:
+        response = api_client.save_analysis_preset(
+            _DTA_PRESET_ANALYSIS_TYPE,
+            name,
+            workflow_template_id=str(template_id or "").strip() or None,
+            processing=_overrides_from_draft(draft or {}),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return (
+            dash.no_update,
+            dash.no_update,
+            translate_ui(loc, "dash.analysis.dta.presets.save_failed").format(error=str(exc)),
+        )
+    resolved_template = str(response.get("workflow_template_id") or template_id or "")
+    status = translate_ui(loc, "dash.analysis.dta.presets.saved").format(
+        preset=name, template=resolved_template
+    )
+    return int(refresh_token or 0) + 1, "", status
+
+
+@callback(
+    Output("dta-preset-refresh", "data", allow_duplicate=True),
+    Output("dta-preset-select", "value", allow_duplicate=True),
+    Output("dta-preset-status", "children", allow_duplicate=True),
+    Input("dta-preset-delete-btn", "n_clicks"),
+    State("dta-preset-select", "value"),
+    State("dta-preset-refresh", "data"),
+    State("ui-locale", "data"),
+    prevent_initial_call=True,
+)
+def delete_dta_preset(n_clicks, selected_name, refresh_token, locale_data):
+    """Remove a saved preset and refresh the dropdown."""
+    from dash_app import api_client
+
+    loc = _loc(locale_data)
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    name = str(selected_name or "").strip()
+    if not name:
+        return (
+            dash.no_update,
+            dash.no_update,
+            translate_ui(loc, "dash.analysis.dta.presets.select_required"),
+        )
+    try:
+        api_client.delete_analysis_preset(_DTA_PRESET_ANALYSIS_TYPE, name)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            dash.no_update,
+            dash.no_update,
+            translate_ui(loc, "dash.analysis.dta.presets.delete_failed").format(error=str(exc)),
+        )
+    status = translate_ui(loc, "dash.analysis.dta.presets.deleted").format(preset=name)
+    return int(refresh_token or 0) + 1, None, status
 
 
 @callback(
@@ -1063,6 +1476,7 @@ def run_dta_analysis(
 
 
 @callback(
+    Output("dta-result-dataset-summary", "children"),
     Output("dta-result-metrics", "children"),
     Output("dta-result-peak-cards", "children"),
     Output("dta-result-figure", "children"),
@@ -1077,8 +1491,12 @@ def run_dta_analysis(
 def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
     loc = _loc(locale_data)
     empty_msg = empty_result_msg(locale_data=locale_data)
+    summary_empty = html.P(
+        translate_ui(loc, "dash.analysis.dta.summary.empty"),
+        className="text-muted",
+    )
     if not result_id or not project_id:
-        return empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
+        return summary_empty, empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
 
     from dash_app.api_client import workspace_dataset_detail, workspace_result_detail
 
@@ -1086,7 +1504,7 @@ def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
         detail = workspace_result_detail(project_id, result_id)
     except Exception as exc:
         err = dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_result", error=str(exc)), color="danger")
-        return err, empty_msg, empty_msg, empty_msg, empty_msg
+        return summary_empty, err, empty_msg, empty_msg, empty_msg, empty_msg
 
     summary = detail.get("summary", {})
     result_meta = detail.get("result", {})
@@ -1100,6 +1518,14 @@ def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
             dataset_detail = workspace_dataset_detail(project_id, dataset_key)
         except Exception:
             dataset_detail = {}
+
+    dataset_summary_panel = _build_dta_dataset_summary(
+        dataset_detail,
+        summary,
+        result_meta,
+        loc,
+        locale_data=locale_data,
+    )
 
     peak_count, exo_count, endo_count = _derive_event_metrics(summary, rows)
     sample_name = _resolve_dta_sample_name(summary, result_meta, dataset_detail, locale_data=locale_data)
@@ -1134,7 +1560,105 @@ def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
         locale_data=locale_data,
     )
 
-    return metrics, peak_cards, figure_area, table_area, proc_view
+    return dataset_summary_panel, metrics, peak_cards, figure_area, table_area, proc_view
+
+
+def _format_dataset_metadata_value(value: Any) -> str | None:
+    """Return a trimmed string for metadata values or None when empty."""
+    if value is None:
+        return None
+    if isinstance(value, float):
+        if value != value:  # NaN guard
+            return None
+        text = f"{value:g}"
+    else:
+        text = str(value).strip()
+    return text or None
+
+
+def _build_dta_dataset_summary(
+    dataset_detail: dict,
+    summary: dict,
+    result_meta: dict,
+    loc: str,
+    *,
+    locale_data: str | None = None,
+) -> html.Div:
+    """Render the Streamlit-parity dataset metadata block.
+
+    Mirrors ``ui/dta_page.py::_render_dta_results`` lines 742-750 — shows
+    dataset file name, sample name, sample mass, and heating rate when
+    available. Falls back gracefully when any field is missing.
+    """
+
+    metadata = (dataset_detail or {}).get("metadata") or {}
+    dataset_summary = (dataset_detail or {}).get("dataset") or {}
+    na = translate_ui(loc, "dash.analysis.na")
+
+    dataset_label = (
+        _format_dataset_metadata_value(metadata.get("file_name"))
+        or _format_dataset_metadata_value(dataset_summary.get("display_name"))
+        or _format_dataset_metadata_value(result_meta.get("dataset_key"))
+        or na
+    )
+
+    sample_label = _resolve_dta_sample_name(
+        summary or {}, result_meta or {}, dataset_detail, locale_data=locale_data
+    ) or na
+
+    rows: list[Any] = [
+        html.Dt(
+            translate_ui(loc, "dash.analysis.dta.summary.dataset_label"),
+            className="col-sm-4 text-muted",
+        ),
+        html.Dd(dataset_label, className="col-sm-8 mb-2"),
+        html.Dt(
+            translate_ui(loc, "dash.analysis.dta.summary.sample_label"),
+            className="col-sm-4 text-muted",
+        ),
+        html.Dd(sample_label, className="col-sm-8 mb-2"),
+    ]
+
+    mass_value = _format_dataset_metadata_value(metadata.get("sample_mass"))
+    if mass_value is not None:
+        mass_unit = translate_ui(loc, "dash.analysis.dta.summary.mass_unit")
+        rows.extend(
+            [
+                html.Dt(
+                    translate_ui(loc, "dash.analysis.dta.summary.mass_label"),
+                    className="col-sm-4 text-muted",
+                ),
+                html.Dd(f"{mass_value} {mass_unit}", className="col-sm-8 mb-2"),
+            ]
+        )
+
+    heating_value = _format_dataset_metadata_value(
+        metadata.get("heating_rate")
+        if metadata.get("heating_rate") is not None
+        else dataset_summary.get("heating_rate")
+    )
+    if heating_value is not None:
+        heating_unit = translate_ui(loc, "dash.analysis.dta.summary.heating_rate_unit")
+        rows.extend(
+            [
+                html.Dt(
+                    translate_ui(loc, "dash.analysis.dta.summary.heating_rate_label"),
+                    className="col-sm-4 text-muted",
+                ),
+                html.Dd(f"{heating_value} {heating_unit}", className="col-sm-8 mb-0"),
+            ]
+        )
+
+    return html.Div(
+        [
+            html.H5(
+                translate_ui(loc, "dash.analysis.dta.summary.card_title"),
+                className="mb-3",
+            ),
+            html.Dl(rows, className="row mb-0", id="dta-dataset-summary-dl"),
+        ],
+        id="dta-dataset-summary-body",
+    )
 
 
 def _build_peak_cards(rows: list, loc: str = "en") -> html.Div:
@@ -1431,6 +1955,10 @@ def _smoothing_status_text(draft: dict | None, loc: str) -> str:
     Output("dta-undo-btn", "children"),
     Output("dta-redo-btn", "children"),
     Output("dta-reset-btn", "children"),
+    Output("dta-smooth-method-hint", "children"),
+    Output("dta-smooth-window-hint", "children"),
+    Output("dta-smooth-polyorder-hint", "children"),
+    Output("dta-smooth-sigma-hint", "children"),
     Input("ui-locale", "data"),
 )
 def render_dta_smoothing_chrome(locale_data):
@@ -1450,6 +1978,22 @@ def render_dta_smoothing_chrome(locale_data):
         _t("dash.analysis.dta.undo_btn", "Undo"),
         _t("dash.analysis.dta.redo_btn", "Redo"),
         _t("dash.analysis.dta.reset_btn", "Reset"),
+        _t(
+            "dash.analysis.dta.smoothing.help.method",
+            "Savitzky-Golay preserves peak shape; Moving Average is simple and fast; Gaussian gives the smoothest curve.",
+        ),
+        _t(
+            "dash.analysis.dta.smoothing.help.window",
+            "Number of points averaged. Larger values smooth more but can blur small peaks. Must be odd; try 7-15 for typical DTA traces.",
+        ),
+        _t(
+            "dash.analysis.dta.smoothing.help.polyorder",
+            "Polynomial order for Savitzky-Golay. Higher orders preserve sharp peaks but may re-introduce noise. Usually 2-4.",
+        ),
+        _t(
+            "dash.analysis.dta.smoothing.help.sigma",
+            "Gaussian kernel width. Larger sigma = stronger smoothing. Start from 1.0-3.0 and raise if the baseline is still noisy.",
+        ),
     )
 
 
@@ -1615,6 +2159,9 @@ def _peak_status_text(draft: dict | None, loc: str) -> str:
     Output("dta-baseline-lam-label", "children"),
     Output("dta-baseline-p-label", "children"),
     Output("dta-baseline-apply-btn", "children"),
+    Output("dta-baseline-method-hint", "children"),
+    Output("dta-baseline-lam-hint", "children"),
+    Output("dta-baseline-p-hint", "children"),
     Input("ui-locale", "data"),
 )
 def render_dta_baseline_chrome(locale_data):
@@ -1630,6 +2177,18 @@ def render_dta_baseline_chrome(locale_data):
         _t("dash.analysis.dta.baseline.lam", "Lambda (asls)"),
         _t("dash.analysis.dta.baseline.p", "Asymmetry p (asls)"),
         _t("dash.analysis.dta.baseline.apply_btn", "Apply Baseline"),
+        _t(
+            "dash.analysis.dta.baseline.help.method",
+            "AsLS handles curved drifting baselines; Linear fits a straight line (fast, good for short ranges); Rubberband wraps the signal from below.",
+        ),
+        _t(
+            "dash.analysis.dta.baseline.help.lam",
+            "AsLS baseline stiffness. Higher values (1e7+) keep the baseline flat; lower values (1e4) let it follow peaks — risks absorbing real events.",
+        ),
+        _t(
+            "dash.analysis.dta.baseline.help.p",
+            "AsLS asymmetry. Small values (0.001-0.01) push the baseline below exothermic peaks; use 0.1-0.5 when the baseline should pass above endotherms.",
+        ),
     )
 
 
@@ -1640,6 +2199,10 @@ def render_dta_baseline_chrome(locale_data):
     Output("dta-peak-prominence-label", "children"),
     Output("dta-peak-distance-label", "children"),
     Output("dta-peak-apply-btn", "children"),
+    Output("dta-peak-detect-exo-hint", "children"),
+    Output("dta-peak-detect-endo-hint", "children"),
+    Output("dta-peak-prominence-hint", "children"),
+    Output("dta-peak-distance-hint", "children"),
     Input("ui-locale", "data"),
 )
 def render_dta_peak_chrome(locale_data):
@@ -1656,6 +2219,22 @@ def render_dta_peak_chrome(locale_data):
         _t("dash.analysis.dta.peaks.prominence", "Prominence (0 = auto)"),
         _t("dash.analysis.dta.peaks.distance", "Min Distance (samples)"),
         _t("dash.analysis.dta.peaks.apply_btn", "Apply Peaks"),
+        _t(
+            "dash.analysis.dta.peaks.help.detect_exo",
+            "Report exothermic peaks (heat-releasing events such as crystallization or oxidation).",
+        ),
+        _t(
+            "dash.analysis.dta.peaks.help.detect_endo",
+            "Report endothermic peaks (heat-absorbing events such as melting or decomposition).",
+        ),
+        _t(
+            "dash.analysis.dta.peaks.help.prominence",
+            "Minimum relative height a peak must stand above its surroundings. 0 = auto-threshold (~5% of signal range). Raise to ignore noise; lower to catch subtle events.",
+        ),
+        _t(
+            "dash.analysis.dta.peaks.help.distance",
+            "Minimum sample separation between adjacent peaks. Raise to merge closely-spaced events into one; lower to keep doublets separate.",
+        ),
     )
 
 

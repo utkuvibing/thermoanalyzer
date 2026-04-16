@@ -1475,3 +1475,837 @@ def test_toggle_literature_compare_button_gates_on_result_id():
     assert mod.toggle_literature_compare_button(None) is True
     assert mod.toggle_literature_compare_button("") is True
     assert mod.toggle_literature_compare_button("dta_42") is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 3a — stepwise dbc.Tabs layout
+# ---------------------------------------------------------------------------
+
+def test_dta_left_column_tabs_structure():
+    """Left column is wrapped in a dbc.Tabs with exactly 3 stepwise tabs."""
+    mod = _import_dta_page()
+    tabs = mod._dta_left_column_tabs()
+
+    assert isinstance(tabs, dbc.Tabs)
+    assert tabs.id == "dta-left-tabs"
+    assert tabs.active_tab == "dta-tab-setup"
+    assert len(tabs.children) == 3
+
+    tab_ids = [tab.tab_id for tab in tabs.children]
+    assert tab_ids == ["dta-tab-setup", "dta-tab-processing", "dta-tab-run"]
+
+    shell_ids = [tab.id for tab in tabs.children]
+    assert shell_ids == [
+        "dta-tab-setup-shell",
+        "dta-tab-processing-shell",
+        "dta-tab-run-shell",
+    ]
+
+
+def test_dta_left_column_tabs_children_mount_expected_card_ids():
+    """Each tab keeps the original card IDs mounted so existing callbacks still wire."""
+    mod = _import_dta_page()
+    tabs = mod._dta_left_column_tabs()
+    setup_tab, processing_tab, run_tab = tabs.children
+
+    assert "dta-dataset-card-title" in str(setup_tab)
+    assert "dta-workflow-card-title" in str(setup_tab)
+    assert "dta-template-select" in str(setup_tab)
+
+    assert "dta-smoothing-card-title" in str(processing_tab)
+    assert "dta-baseline-card-title" in str(processing_tab)
+    assert "dta-peak-card-title" in str(processing_tab)
+    assert "dta-smooth-apply-btn" in str(processing_tab)
+    assert "dta-undo-btn" in str(processing_tab)
+
+    assert "dta-execute-card-title" in str(run_tab)
+    assert "dta-run-btn" in str(run_tab)
+    assert "dta-run-status" in str(run_tab)
+
+
+def test_layout_mounts_left_tabs_and_preserves_existing_ids():
+    """Full page layout must still mount every element ID referenced by existing callbacks."""
+    mod = _import_dta_page()
+    layout_str = str(mod.layout)
+
+    for tab_shell in (
+        "dta-left-tabs",
+        "dta-tab-setup-shell",
+        "dta-tab-processing-shell",
+        "dta-tab-run-shell",
+    ):
+        assert tab_shell in layout_str, f"Phase 3a shell missing: {tab_shell}"
+
+    for existing_id in (
+        "dta-dataset-selector-area",
+        "dta-template-select",
+        "dta-smooth-apply-btn",
+        "dta-baseline-apply-btn",
+        "dta-peak-apply-btn",
+        "dta-undo-btn",
+        "dta-redo-btn",
+        "dta-reset-btn",
+        "dta-run-btn",
+        "dta-run-status",
+        "dta-result-metrics",
+        "dta-result-figure",
+        "dta-literature-compare-btn",
+        "dta-figure-captured",
+    ):
+        assert existing_id in layout_str, f"Phase 3a regression — missing element: {existing_id}"
+
+
+def test_render_dta_tab_chrome_returns_tr_and_en_labels():
+    """Tab labels must flip between TR and EN via the ui-locale chrome callback."""
+    mod = _import_dta_page()
+
+    tr_setup, tr_proc, tr_run = mod.render_dta_tab_chrome("tr")
+    en_setup, en_proc, en_run = mod.render_dta_tab_chrome("en")
+
+    assert tr_setup == "Kurulum"
+    assert tr_proc == "İşleme"
+    assert tr_run == "Çalıştır"
+
+    assert en_setup == "Setup"
+    assert en_proc == "Processing"
+    assert en_run == "Run"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3b — processing preset save/load/delete + DTA preset panel
+# ---------------------------------------------------------------------------
+
+def test_dta_preset_card_ids_are_mounted_inside_processing_tab():
+    """Preset card IDs must live inside the Processing tab so the card shows
+    beside smoothing/baseline/peak and shares their undo stack."""
+    mod = _import_dta_page()
+    tabs = mod._dta_left_column_tabs()
+    _, processing_tab, _ = tabs.children
+
+    processing_str = str(processing_tab)
+    for pid in (
+        "dta-preset-card-title",
+        "dta-preset-caption",
+        "dta-preset-select",
+        "dta-preset-apply-btn",
+        "dta-preset-delete-btn",
+        "dta-preset-save-name",
+        "dta-preset-save-btn",
+        "dta-preset-status",
+    ):
+        assert pid in processing_str, f"Phase 3b — preset ID missing from Processing tab: {pid}"
+
+
+def test_dta_preset_refresh_store_is_added_to_processing_draft_stores():
+    """The dta-preset-refresh store must ship with the other processing stores."""
+    mod = _import_dta_page()
+    stores = mod._processing_draft_stores()
+    store_ids = {s.id for s in stores}
+    assert "dta-preset-refresh" in store_ids
+    refresh_store = next(s for s in stores if s.id == "dta-preset-refresh")
+    assert refresh_store.data == 0
+
+
+def test_api_client_list_analysis_presets_forwards_GET_to_typed_route(monkeypatch):
+    from dash_app import api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "analysis_type": "DTA",
+                "count": 2,
+                "max_count": 10,
+                "presets": [
+                    {
+                        "analysis_type": "DTA",
+                        "preset_name": "alpha",
+                        "workflow_template_id": "dta.general",
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                        "updated_at": "2026-01-01T00:00:00+00:00",
+                    }
+                ],
+            }
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def get(self, url):
+            captured["url"] = url
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    result = api_client.list_analysis_presets("DTA")
+    assert captured["url"] == "/presets/DTA"
+    assert result["count"] == 2
+    assert result["presets"][0]["preset_name"] == "alpha"
+
+
+def test_api_client_save_analysis_preset_forwards_POST_with_payload(monkeypatch):
+    from dash_app import api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "analysis_type": "DTA",
+                "preset_name": "beta",
+                "workflow_template_id": "dta.general",
+                "updated_at": "2026-04-16T00:00:00+00:00",
+            }
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def post(self, url, json=None):  # noqa: A002 - match httpx signature
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    result = api_client.save_analysis_preset(
+        "DTA",
+        "beta",
+        workflow_template_id="dta.general",
+        processing={"smoothing": {"method": "savgol"}},
+    )
+    assert captured["url"] == "/presets/DTA"
+    assert captured["json"] == {
+        "preset_name": "beta",
+        "workflow_template_id": "dta.general",
+        "processing": {"smoothing": {"method": "savgol"}},
+    }
+    assert result["preset_name"] == "beta"
+
+
+def test_api_client_load_analysis_preset_forwards_GET_by_name(monkeypatch):
+    from dash_app import api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "analysis_type": "DTA",
+                "preset_name": "gamma",
+                "workflow_template_id": "dta.thermal_events",
+                "processing": {
+                    "workflow_template_id": "dta.thermal_events",
+                    "smoothing": {"method": "savgol", "window_length": 15, "polyorder": 3},
+                },
+            }
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def get(self, url):
+            captured["url"] = url
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    result = api_client.load_analysis_preset("DTA", "gamma")
+    assert captured["url"] == "/presets/DTA/gamma"
+    assert result["workflow_template_id"] == "dta.thermal_events"
+    assert result["processing"]["smoothing"]["window_length"] == 15
+
+
+def test_api_client_delete_analysis_preset_forwards_DELETE(monkeypatch):
+    from dash_app import api_client
+
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"analysis_type": "DTA", "preset_name": "delta", "deleted": True}
+
+        def raise_for_status(self):
+            return None
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def delete(self, url):
+            captured["url"] = url
+            return _FakeResponse()
+
+    monkeypatch.setattr(api_client, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(api_client, "_raise_with_detail", lambda _r: None)
+
+    result = api_client.delete_analysis_preset("DTA", "delta")
+    assert captured["url"] == "/presets/DTA/delta"
+    assert result["deleted"] is True
+
+
+def test_apply_dta_preset_pushes_undo_and_updates_draft_and_template(monkeypatch):
+    """Apply must push the previous draft onto the undo stack, replay the saved
+    sections onto the new draft, and restore the saved workflow template."""
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+
+    loaded_payload = {
+        "analysis_type": "DTA",
+        "preset_name": "my-preset",
+        "workflow_template_id": "dta.thermal_events",
+        "processing": {
+            "workflow_template_id": "dta.thermal_events",
+            "smoothing": {"method": "savgol", "window_length": 21, "polyorder": 3},
+            "baseline": {"method": "asls", "lam": 2e7, "p": 0.001},
+            "peak_detection": {"min_prominence": 0.02, "min_distance_c": 7.0},
+        },
+    }
+    monkeypatch.setattr(
+        api_client,
+        "load_analysis_preset",
+        lambda analysis_type, preset_name: loaded_payload,
+    )
+
+    initial_draft = mod._default_processing_draft()
+    initial_undo: list = []
+
+    next_draft, next_undo, next_redo, template_output, status = mod.apply_dta_preset(
+        1,
+        "my-preset",
+        initial_draft,
+        initial_undo,
+        "en",
+    )
+
+    assert next_draft["smoothing"]["window_length"] == 21
+    assert next_draft["baseline"]["lam"] == 2e7
+    assert next_draft["peak_detection"]["min_distance_c"] == 7.0
+    assert len(next_undo) == 1
+    assert next_undo[0] == initial_draft
+    assert next_redo == []
+    assert template_output == "dta.thermal_events"
+    assert "my-preset" in str(status)
+
+
+def test_apply_dta_preset_ignores_unknown_workflow_template(monkeypatch):
+    """If the saved preset carries a template id that is no longer valid the
+    callback must keep the current workflow-select value (dash.no_update)."""
+    import dash as _dash
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+
+    monkeypatch.setattr(
+        api_client,
+        "load_analysis_preset",
+        lambda _t, _n: {
+            "workflow_template_id": "dta.deprecated",
+            "processing": {"smoothing": {"method": "savgol", "window_length": 11, "polyorder": 3}},
+        },
+    )
+
+    _draft, _undo, _redo, template_output, _status = mod.apply_dta_preset(
+        1, "ghost", mod._default_processing_draft(), [], "en"
+    )
+    assert template_output is _dash.no_update
+
+
+def test_refresh_dta_preset_options_populates_dropdown_and_caption(monkeypatch):
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+    monkeypatch.setattr(
+        api_client,
+        "list_analysis_presets",
+        lambda _t: {
+            "analysis_type": "DTA",
+            "count": 2,
+            "max_count": 10,
+            "presets": [
+                {"preset_name": "alpha", "workflow_template_id": "dta.general"},
+                {"preset_name": "beta", "workflow_template_id": "dta.thermal_events"},
+            ],
+        },
+    )
+
+    options, caption = mod.refresh_dta_preset_options(0, "en")
+    values = [o["value"] for o in options]
+    assert values == ["alpha", "beta"]
+    assert "2/10" in caption
+    assert "DTA" in caption
+
+
+def test_refresh_dta_preset_options_reports_backend_error(monkeypatch):
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+
+    def _boom(_t):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(api_client, "list_analysis_presets", _boom)
+
+    options, caption = mod.refresh_dta_preset_options(0, "en")
+    assert options == []
+    assert "offline" in str(caption)
+
+
+def test_render_dta_preset_chrome_flips_tr_and_en():
+    mod = _import_dta_page()
+
+    tr = mod.render_dta_preset_chrome("tr")
+    en = mod.render_dta_preset_chrome("en")
+
+    assert tr[0] == "İşleme Presetleri"
+    assert en[0] == "Processing Presets"
+    assert tr[3] == "Preseti uygula"
+    assert en[3] == "Apply Preset"
+    assert tr[7] == "Mevcut ayarları kaydet"
+    assert en[7] == "Save Current Settings"
+    # Overview help hint is the last output and must flip locale too.
+    assert "preset" in tr[8].lower()
+    assert "preset" in en[8].lower()
+    assert "10" in tr[8]
+    assert "10" in en[8]
+
+
+def test_toggle_dta_preset_action_buttons_disables_on_empty_selection():
+    mod = _import_dta_page()
+    assert mod.toggle_dta_preset_action_buttons(None) == (True, True)
+    assert mod.toggle_dta_preset_action_buttons("") == (True, True)
+    assert mod.toggle_dta_preset_action_buttons("   ") == (True, True)
+    assert mod.toggle_dta_preset_action_buttons("alpha") == (False, False)
+
+
+def test_save_dta_preset_forwards_overrides_and_returns_refresh_bump(monkeypatch):
+    """Regression: the save callback must actually execute end-to-end.
+
+    Previously referenced an undefined ``_combined_processing_overrides`` and
+    raised ``NameError: name '_combined_processing_overrides' is not defined``
+    the moment the Save button was clicked. This test exercises the callback
+    body with a mocked ``api_client.save_analysis_preset`` so any similar
+    undefined-symbol regression is caught before it ships.
+    """
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+    captured: dict = {}
+
+    def _fake_save(analysis_type, preset_name, *, workflow_template_id, processing):
+        captured["analysis_type"] = analysis_type
+        captured["preset_name"] = preset_name
+        captured["workflow_template_id"] = workflow_template_id
+        captured["processing"] = processing
+        return {
+            "analysis_type": analysis_type,
+            "preset_name": preset_name,
+            "workflow_template_id": workflow_template_id or "",
+            "updated_at": "2026-04-16T00:00:00+00:00",
+        }
+
+    monkeypatch.setattr(api_client, "save_analysis_preset", _fake_save)
+
+    draft = mod._default_processing_draft()
+    draft["smoothing"] = {"method": "savgol", "window_length": 21, "polyorder": 3}
+
+    next_refresh, cleared_name, status = mod.save_dta_preset(
+        1,
+        "my-preset",
+        draft,
+        "dta.general",
+        3,
+        "en",
+    )
+
+    assert next_refresh == 4
+    assert cleared_name == ""
+    assert "my-preset" in str(status)
+    assert captured["analysis_type"] == "DTA"
+    assert captured["preset_name"] == "my-preset"
+    assert captured["workflow_template_id"] == "dta.general"
+    assert captured["processing"]["smoothing"]["window_length"] == 21
+    assert "baseline" in captured["processing"]
+    assert "peak_detection" in captured["processing"]
+
+
+def test_save_dta_preset_reports_backend_failure_without_bumping_refresh(monkeypatch):
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("409 Conflict: limit reached")
+
+    monkeypatch.setattr(api_client, "save_analysis_preset", _boom)
+
+    refresh_out, name_out, status = mod.save_dta_preset(
+        1,
+        "my-preset",
+        mod._default_processing_draft(),
+        "dta.general",
+        2,
+        "en",
+    )
+
+    import dash as _dash
+
+    assert refresh_out is _dash.no_update
+    assert name_out is _dash.no_update
+    assert "409" in str(status) or "limit" in str(status).lower()
+
+
+def test_dta_processing_controls_mount_inline_help_hints():
+    """Every user-tunable DTA processing control must carry a locale-bound hint.
+
+    Ensures the inline ``form-text`` small-elements are wired so users can read
+    what each setting does without leaving the page.
+    """
+    mod = _import_dta_page()
+    layout_str = str(mod.layout)
+    for hint_id in (
+        "dta-smooth-method-hint",
+        "dta-smooth-window-hint",
+        "dta-smooth-polyorder-hint",
+        "dta-smooth-sigma-hint",
+        "dta-baseline-method-hint",
+        "dta-baseline-lam-hint",
+        "dta-baseline-p-hint",
+        "dta-peak-detect-exo-hint",
+        "dta-peak-detect-endo-hint",
+        "dta-peak-prominence-hint",
+        "dta-peak-distance-hint",
+        "dta-preset-help",
+    ):
+        assert hint_id in layout_str, f"help hint missing from layout: {hint_id}"
+
+
+def test_render_dta_smoothing_chrome_emits_help_hints_tr_and_en():
+    """Smoothing chrome must now return 13 outputs (9 chrome + 4 hints) and flip locale."""
+    mod = _import_dta_page()
+
+    tr = mod.render_dta_smoothing_chrome("tr")
+    en = mod.render_dta_smoothing_chrome("en")
+
+    assert len(tr) == 13 and len(en) == 13
+    assert "Savitzky-Golay" in tr[9] and "Savitzky-Golay" in en[9]
+    assert "tek" in tr[10].lower()
+    assert "odd" in en[10].lower()
+    assert "polinom" in tr[11].lower() or "Savitzky" in tr[11]
+    assert "polynomial" in en[11].lower() or "Savitzky" in en[11]
+    assert "sigma" in tr[12].lower()
+    assert "sigma" in en[12].lower()
+
+
+def test_render_dta_baseline_chrome_emits_help_hints_tr_and_en():
+    mod = _import_dta_page()
+
+    tr = mod.render_dta_baseline_chrome("tr")
+    en = mod.render_dta_baseline_chrome("en")
+
+    assert len(tr) == 8 and len(en) == 8
+    assert "AsLS" in tr[5] or "AsLS" in en[5]
+    assert "1e7" in tr[6] and "1e7" in en[6]
+    assert "0.001" in tr[7] and "0.001" in en[7]
+
+
+def test_render_dta_peak_chrome_emits_help_hints_tr_and_en():
+    mod = _import_dta_page()
+
+    tr = mod.render_dta_peak_chrome("tr")
+    en = mod.render_dta_peak_chrome("en")
+
+    assert len(tr) == 10 and len(en) == 10
+    assert "ekzotermik" in tr[6].lower()
+    assert "exothermic" in en[6].lower()
+    assert "endotermik" in tr[7].lower()
+    assert "endothermic" in en[7].lower()
+    assert "otomatik" in tr[8].lower() or "%5" in tr[8]
+    assert "auto" in en[8].lower() or "5%" in en[8]
+    assert "mesafe" in tr[9].lower() or "örnek" in tr[9].lower()
+    assert "separation" in en[9].lower() or "sample" in en[9].lower()
+
+
+def test_delete_dta_preset_bumps_refresh_and_clears_selection(monkeypatch):
+    from dash_app import api_client
+
+    mod = _import_dta_page()
+    calls: dict = {}
+
+    def _fake_delete(analysis_type, preset_name):
+        calls["analysis_type"] = analysis_type
+        calls["preset_name"] = preset_name
+        return {"analysis_type": analysis_type, "preset_name": preset_name, "deleted": True}
+
+    monkeypatch.setattr(api_client, "delete_analysis_preset", _fake_delete)
+
+    refresh_out, selection_out, status = mod.delete_dta_preset(
+        1, "gone", 7, "en"
+    )
+    assert refresh_out == 8
+    assert selection_out is None
+    assert "gone" in str(status)
+    assert calls["analysis_type"] == "DTA"
+    assert calls["preset_name"] == "gone"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3c — richer results summary (dataset metadata parity)
+# ---------------------------------------------------------------------------
+
+def test_layout_mounts_dataset_summary_placeholder_before_metrics():
+    """Phase 3c — the new dataset summary card must sit above the event metrics."""
+    mod = _import_dta_page()
+    layout_str = str(mod.layout)
+
+    assert "dta-result-dataset-summary" in layout_str, (
+        "Phase 3c — missing dataset summary placeholder"
+    )
+    assert (
+        layout_str.index("dta-result-dataset-summary")
+        < layout_str.index("dta-result-metrics")
+    ), "Phase 3c — dataset summary must render above the metrics row"
+
+
+def test_format_dataset_metadata_value_handles_empty_and_numeric():
+    mod = _import_dta_page()
+
+    assert mod._format_dataset_metadata_value(None) is None
+    assert mod._format_dataset_metadata_value("  ") is None
+    assert mod._format_dataset_metadata_value("DTA_sample.csv") == "DTA_sample.csv"
+    assert mod._format_dataset_metadata_value(12.5) == "12.5"
+    assert mod._format_dataset_metadata_value(float("nan")) is None
+
+
+def test_build_dta_dataset_summary_en_shows_all_fields_when_present():
+    mod = _import_dta_page()
+
+    dataset_detail = {
+        "dataset": {"display_name": "Sample A", "heating_rate": 10.0},
+        "metadata": {
+            "file_name": "sample_a.csv",
+            "sample_name": "Sample A",
+            "sample_mass": 12.3,
+            "heating_rate": 10.0,
+        },
+    }
+    summary = {"sample_name": "Sample A"}
+    result_meta = {"dataset_key": "ds-1"}
+
+    panel = mod._build_dta_dataset_summary(
+        dataset_detail, summary, result_meta, loc="en", locale_data="en"
+    )
+    text = str(panel)
+
+    assert "Analysis Summary" in text
+    assert "sample_a.csv" in text
+    assert "Sample A" in text
+    assert "12.3 mg" in text
+    assert "10 °C/min" in text
+
+
+def test_build_dta_dataset_summary_tr_translates_labels_and_units():
+    mod = _import_dta_page()
+
+    dataset_detail = {
+        "dataset": {"display_name": "Örnek A"},
+        "metadata": {
+            "file_name": "ornek_a.csv",
+            "sample_name": "Örnek A",
+            "sample_mass": 7.8,
+            "heating_rate": 5,
+        },
+    }
+    panel = mod._build_dta_dataset_summary(
+        dataset_detail,
+        {"sample_name": "Örnek A"},
+        {"dataset_key": "ds-tr"},
+        loc="tr",
+        locale_data="tr",
+    )
+    text = str(panel)
+
+    assert "Analiz Özeti" in text
+    assert "Veri Seti" in text
+    assert "Numune" in text
+    assert "Kütle" in text
+    assert "Isıtma Hızı" in text
+    assert "7.8 mg" in text
+    assert "°C/dk" in text
+
+
+def test_build_dta_dataset_summary_omits_missing_mass_and_heating_rate():
+    mod = _import_dta_page()
+
+    dataset_detail = {
+        "dataset": {"display_name": "Sample B"},
+        "metadata": {"file_name": "sample_b.csv", "sample_name": "Sample B"},
+    }
+    panel = mod._build_dta_dataset_summary(
+        dataset_detail,
+        {"sample_name": "Sample B"},
+        {"dataset_key": "ds-2"},
+        loc="en",
+        locale_data="en",
+    )
+    text = str(panel)
+
+    assert "sample_b.csv" in text
+    assert "Sample B" in text
+    # Mass/heating labels must be skipped entirely when unavailable.
+    assert "Mass" not in text
+    assert "Heating Rate" not in text
+
+
+def test_build_dta_dataset_summary_falls_back_to_dataset_key():
+    mod = _import_dta_page()
+
+    panel = mod._build_dta_dataset_summary(
+        {}, {}, {"dataset_key": "orphan-key"}, loc="en", locale_data="en"
+    )
+    text = str(panel)
+    # When metadata is absent, the dataset label must fall back to the key.
+    assert "orphan-key" in text
+
+
+def test_display_result_empty_state_returns_six_panels():
+    """Phase 3c — display_result now emits six panels, the first being the
+    dataset summary empty message rather than the generic result placeholder."""
+    mod = _import_dta_page()
+
+    panels = mod.display_result(None, 0, "light", "en", None)
+    assert len(panels) == 6
+
+    summary_text = str(panels[0])
+    assert "No results yet" in summary_text
+
+
+def test_display_result_empty_state_tr_locale_uses_translated_empty_text():
+    mod = _import_dta_page()
+
+    panels = mod.display_result(None, 0, "light", "tr", None)
+    assert len(panels) == 6
+    assert "Sonuç yok" in str(panels[0])
+
+
+def test_display_result_surfaces_dataset_metadata_on_success(monkeypatch):
+    """When the backend returns a full detail payload, the dataset summary
+    panel must carry filename, sample, mass and heating rate — mirroring
+    Streamlit's _render_dta_results header."""
+    mod = _import_dta_page()
+    from dash_app import api_client
+
+    fake_detail = {
+        "result": {"dataset_key": "ds-ok"},
+        "summary": {
+            "sample_name": "Sample Phase3c",
+            "peak_count": 1,
+            "exotherm_count": 1,
+            "endotherm_count": 0,
+        },
+        "processing": {
+            "workflow_template_label": "DTA General",
+            "workflow_template_version": "1",
+            "signal_pipeline": {
+                "smoothing": {},
+                "baseline": {"method": "asls"},
+            },
+            "analysis_steps": {"peak_detection": {"method": "auto"}},
+            "method_context": {"sign_convention_label": "Exo Up"},
+        },
+        "rows": [
+            {
+                "direction": "exotherm",
+                "peak_temperature": 250.0,
+                "onset_temperature": 240.0,
+                "endset_temperature": 260.0,
+                "area": 1.0,
+                "fwhm": 5.0,
+                "height": 0.2,
+            }
+        ],
+    }
+    fake_dataset_detail = {
+        "dataset": {
+            "display_name": "Sample Phase3c",
+            "heating_rate": 10.0,
+        },
+        "metadata": {
+            "file_name": "phase3c.csv",
+            "sample_name": "Sample Phase3c",
+            "sample_mass": 15.6,
+            "heating_rate": 10.0,
+        },
+    }
+
+    monkeypatch.setattr(
+        api_client,
+        "workspace_result_detail",
+        lambda project_id, result_id: fake_detail,
+    )
+    monkeypatch.setattr(
+        api_client,
+        "workspace_dataset_detail",
+        lambda project_id, dataset_key: fake_dataset_detail,
+    )
+
+    panels = mod.display_result("result-1", 1, "light", "en", "project-1")
+    assert len(panels) == 6
+
+    summary_panel = str(panels[0])
+    assert "Analysis Summary" in summary_panel
+    assert "phase3c.csv" in summary_panel
+    assert "Sample Phase3c" in summary_panel
+    assert "15.6 mg" in summary_panel
+    assert "10 °C/min" in summary_panel
+
+
+def test_display_result_backend_error_preserves_empty_dataset_summary(monkeypatch):
+    """A backend failure must not drop the dataset summary panel — it stays
+    with the localized empty message while the error bubbles up on metrics."""
+    mod = _import_dta_page()
+    from dash_app import api_client
+
+    def _boom(project_id, result_id):
+        raise RuntimeError("backend offline")
+
+    monkeypatch.setattr(api_client, "workspace_result_detail", _boom)
+
+    panels = mod.display_result("result-x", 1, "light", "en", "project-1")
+    assert len(panels) == 6
+    assert "No results yet" in str(panels[0])
+    assert "backend offline" in str(panels[1])

@@ -64,6 +64,12 @@ from backend.models import (
     LibrarySyncResponse,
     LiteratureCompareRequest,
     LiteratureCompareResponse,
+    PresetDeleteResponse,
+    PresetListResponse,
+    PresetLoadResponse,
+    PresetSaveRequest,
+    PresetSaveResponse,
+    PresetSummary,
     ProjectLoadRequest,
     ProjectLoadResponse,
     ProjectSaveRequest,
@@ -799,6 +805,99 @@ def create_app(
             result_id=result_id,
             figure_key=label,
             figure_keys=keys,
+        )
+
+    @app.get("/presets/{analysis_type}", response_model=PresetListResponse)
+    def presets_list(
+        analysis_type: str,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> PresetListResponse:
+        _require_token(api_token, x_ta_token)
+        from core.preset_store import (
+            MAX_PRESETS_PER_ANALYSIS,
+            PresetStoreError,
+            count_presets,
+            list_presets,
+        )
+
+        try:
+            items = list_presets(analysis_type)
+            count = count_presets(analysis_type)
+        except PresetStoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return PresetListResponse(
+            analysis_type=analysis_type.strip().upper(),
+            count=count,
+            max_count=MAX_PRESETS_PER_ANALYSIS,
+            presets=[PresetSummary(**row) for row in items],
+        )
+
+    @app.post("/presets/{analysis_type}", response_model=PresetSaveResponse)
+    def presets_save(
+        analysis_type: str,
+        request: PresetSaveRequest,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> PresetSaveResponse:
+        _require_token(api_token, x_ta_token)
+        from core.preset_store import PresetLimitError, PresetStoreError, save_preset
+
+        payload = {
+            "workflow_template_id": request.workflow_template_id,
+            "processing": dict(request.processing or {}),
+        }
+        try:
+            result = save_preset(analysis_type, request.preset_name, payload)
+        except PresetLimitError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PresetStoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return PresetSaveResponse(**result)
+
+    @app.get("/presets/{analysis_type}/{preset_name}", response_model=PresetLoadResponse)
+    def presets_load(
+        analysis_type: str,
+        preset_name: str,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> PresetLoadResponse:
+        _require_token(api_token, x_ta_token)
+        from core.preset_store import PresetStoreError, load_preset
+
+        try:
+            payload = load_preset(analysis_type, preset_name)
+        except PresetStoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if payload is None:
+            raise HTTPException(status_code=404, detail=f"Preset not found: {preset_name}")
+
+        return PresetLoadResponse(
+            analysis_type=analysis_type.strip().upper(),
+            preset_name=preset_name.strip(),
+            workflow_template_id=str(payload.get("workflow_template_id") or ""),
+            processing=dict(payload.get("processing") or {}),
+        )
+
+    @app.delete("/presets/{analysis_type}/{preset_name}", response_model=PresetDeleteResponse)
+    def presets_delete(
+        analysis_type: str,
+        preset_name: str,
+        x_ta_token: str | None = Header(default=None, alias="X-TA-Token"),
+    ) -> PresetDeleteResponse:
+        _require_token(api_token, x_ta_token)
+        from core.preset_store import PresetStoreError, delete_preset
+
+        try:
+            deleted = delete_preset(analysis_type, preset_name)
+        except PresetStoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Preset not found: {preset_name}")
+
+        return PresetDeleteResponse(
+            analysis_type=analysis_type.strip().upper(),
+            preset_name=preset_name.strip(),
+            deleted=True,
         )
 
     @app.get("/workspace/{project_id}/compare", response_model=CompareWorkspaceResponse)
