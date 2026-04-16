@@ -4,7 +4,7 @@
 
 **Title:** Dash DTA — smoothing param overrides + undo/redo scaffold (Phase 1 parity slice)
 
-**Status (handoff 2026-04-16):** **Complete (local)** — implemented + tested; not yet committed. Phase 2 (baseline + peak controls, literature compare, figure capture) is the next slice.
+**Status (handoff 2026-04-16):** **Complete — committed + pushed** as `040f31d` on `origin/web-dash-plotly-migration`. Phase 2 (baseline + peak controls, literature compare, figure capture) is the next slice; rewrite this file when the user sends the Phase 2 prompt.
 
 ## Goal
 
@@ -41,7 +41,7 @@ Prove the per-step parameter override channel end-to-end for Dash DTA with the s
   - **Backend sanity (adjacent):** `python -m pytest tests/test_backend_api.py tests/test_backend_modality_dispatch.py tests/test_backend_startup.py -q --tb=short` → **pass** (34 passed, 2 skipped).
 - [x] **`.ai/DECISIONS.md`** — one entry for the override approach (see that file).
 - [x] **`.ai/SESSION.md`** updated for carryover / next step.
-- [ ] **Commit / push** — deferred to user; diffs staged locally but not committed per workflow rule "Only create commits when requested by the user."
+- [x] **Commit / push** — committed + pushed as `040f31d` on `origin/web-dash-plotly-migration` on user request (2026-04-16); scope limited to the 9 Phase 1 files, unrelated tracked-file drift kept out of the commit.
 
 ## Quick checklist
 
