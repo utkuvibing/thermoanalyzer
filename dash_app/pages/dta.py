@@ -37,17 +37,26 @@ from dash_app.components.analysis_page import (
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
 from dash_app.theme import apply_figure_theme
+from utils.i18n import normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/dta", title="DTA Analysis - MaterialScope")
+
+_DTA_TEMPLATE_IDS = ["dta.general", "dta.thermal_events"]
+_DTA_ELIGIBLE_TYPES = {"DTA", "UNKNOWN"}
 
 _DTA_WORKFLOW_TEMPLATES = [
     {"id": "dta.general", "label": "General DTA"},
     {"id": "dta.thermal_events", "label": "Thermal Event Screening"},
 ]
-
 _TEMPLATE_OPTIONS = [{"label": t["label"], "value": t["id"]} for t in _DTA_WORKFLOW_TEMPLATES]
-
-_DTA_ELIGIBLE_TYPES = {"DTA", "UNKNOWN"}
+_TEMPLATE_DESCRIPTIONS = {
+    "dta.general": (
+        "General DTA: Savitzky-Golay smoothing, ASLS baseline, bidirectional peak detection (exothermic + endothermic)."
+    ),
+    "dta.thermal_events": (
+        "Thermal Event Screening: Wider smoothing window, more permissive peak detection for complex thermal histories."
+    ),
+}
 
 _DIRECTION_COLORS = {
     "exo": "#DC2626",
@@ -68,9 +77,13 @@ _DIRECTION_GUIDE_COLORS = {
     "endotherm": "rgba(37, 99, 235, 0.22)",
 }
 
-_ANNOTATION_MIN_SEP = 15.0  # degC -- suppress label when peaks are too close
+_ANNOTATION_MIN_SEP = 15.0
 _PRIMARY_EVENT_LIMIT = 4
 _EMPTY_SAMPLE_TOKENS = {"", "unknown", "n/a", "na", "none", "null", "unnamed"}
+
+
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
 
 
 def _clean_sample_token(value) -> str | None:
@@ -89,13 +102,15 @@ def _normalize_direction(value) -> str:
     return token
 
 
-def _direction_label(direction: str) -> str:
+def _direction_label(direction: str, loc: str) -> str:
     normalized = _normalize_direction(direction)
     if normalized == "exotherm":
-        return "Exo"
+        return translate_ui(loc, "dash.analysis.dta.direction.exo")
     if normalized == "endotherm":
-        return "Endo"
-    return normalized.title() or "Unknown"
+        return translate_ui(loc, "dash.analysis.dta.direction.endo")
+    if not normalized or normalized == "unknown":
+        return translate_ui(loc, "dash.analysis.dta.direction.unknown")
+    return str(direction).strip().title() or translate_ui(loc, "dash.analysis.dta.direction.unknown")
 
 
 def _coerce_float(value) -> float | None:
@@ -135,7 +150,13 @@ def _derive_event_metrics(summary: dict, rows: list[dict]) -> tuple[int, int, in
     return peak_count, exo_count, endo_count
 
 
-def _resolve_dta_sample_name(summary: dict, result_meta: dict, dataset_detail: dict | None = None) -> str:
+def _resolve_dta_sample_name(
+    summary: dict,
+    result_meta: dict,
+    dataset_detail: dict | None = None,
+    *,
+    locale_data: str | None = None,
+) -> str:
     dataset_detail = dataset_detail or {}
     dataset_summary = dataset_detail.get("dataset", {}) or {}
     metadata = dataset_detail.get("metadata", {}) or {}
@@ -150,7 +171,7 @@ def _resolve_dta_sample_name(summary: dict, result_meta: dict, dataset_detail: d
     )
     normalized_summary = dict(summary or {})
     normalized_summary["sample_name"] = _clean_sample_token(normalized_summary.get("sample_name"))
-    return resolve_sample_name(normalized_summary, result_meta or {}, fallback_display_name=fallback_display)
+    return resolve_sample_name(normalized_summary, result_meta or {}, fallback_display_name=fallback_display, locale_data=locale_data)
 
 
 def _event_priority(row: dict) -> tuple[float, float, float]:
@@ -209,15 +230,11 @@ def _compute_y_axis_range(*series_collection: list[float]) -> list[float] | None
     return [lower - pad, upper + pad]
 
 
-# ---------------------------------------------------------------------------
-# DTA-specific cards
-# ---------------------------------------------------------------------------
-
-def _peak_card(row: dict, idx: int) -> dbc.Card:
+def _peak_card(row: dict, idx: int, loc: str = "en") -> dbc.Card:
     direction = _normalize_direction(row.get("direction", row.get("peak_type", "unknown")))
     color = _DIRECTION_COLORS.get(direction, "#6B7280")
     icon = _DIRECTION_ICONS.get(direction, "bi-circle")
-    direction_label = _direction_label(direction)
+    direction_label = _direction_label(direction, loc)
 
     pt = row.get("peak_temperature")
     onset = row.get("onset_temperature")
@@ -232,7 +249,7 @@ def _peak_card(row: dict, idx: int) -> dbc.Card:
                 html.Div(
                     [
                         html.I(className=f"bi {icon} me-2", style={"color": color, "fontSize": "1.1rem"}),
-                        html.Strong(f"Peak {idx + 1}", className="me-2"),
+                        html.Strong(translate_ui(loc, "dash.analysis.label.peak_n", n=idx + 1), className="me-2"),
                         html.Span(
                             direction_label,
                             className="badge",
@@ -244,14 +261,32 @@ def _peak_card(row: dict, idx: int) -> dbc.Card:
                 ),
                 dbc.Row(
                     [
-                        dbc.Col([html.Small("Onset", className="text-muted d-block"), html.Span(f"{onset:.1f}" if onset is not None else "--")], md=3),
-                        dbc.Col([html.Small("Endset", className="text-muted d-block"), html.Span(f"{endset:.1f}" if endset is not None else "--")], md=3),
-                        dbc.Col([html.Small("Area", className="text-muted d-block"), html.Span(f"{area:.3f}" if area is not None else "--")], md=3),
                         dbc.Col(
                             [
-                                html.Small("FWHM", className="text-muted d-block"),
+                                html.Small(translate_ui(loc, "dash.analysis.label.onset"), className="text-muted d-block"),
+                                html.Span(f"{onset:.1f}" if onset is not None else "--"),
+                            ],
+                            md=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Small(translate_ui(loc, "dash.analysis.label.endset"), className="text-muted d-block"),
+                                html.Span(f"{endset:.1f}" if endset is not None else "--"),
+                            ],
+                            md=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Small(translate_ui(loc, "dash.analysis.label.area"), className="text-muted d-block"),
+                                html.Span(f"{area:.3f}" if area is not None else "--"),
+                            ],
+                            md=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Small(translate_ui(loc, "dash.analysis.label.fwhm"), className="text-muted d-block"),
                                 html.Span(f"{fwhm:.1f}" if fwhm is not None else "--"),
-                                html.Small(" Height", className="text-muted ms-2"),
+                                html.Small(f" {translate_ui(loc, 'dash.analysis.label.height')}", className="text-muted ms-2"),
                                 html.Span(f"{height:.3f}" if height is not None else "--"),
                             ],
                             md=3,
@@ -265,30 +300,23 @@ def _peak_card(row: dict, idx: int) -> dbc.Card:
     )
 
 
-# ---------------------------------------------------------------------------
-# Layout
-# ---------------------------------------------------------------------------
-
 layout = html.Div(
     analysis_page_stores("dta-refresh", "dta-latest-result-id")
     + [
-        page_header(
-            "DTA Analysis",
-            "Select a DTA-eligible dataset, choose a workflow template, and run differential thermal analysis.",
-            badge="Analysis",
-        ),
+        html.Div(id="dta-hero-slot"),
         dbc.Row(
             [
                 dbc.Col(
                     [
-                        dataset_selection_card("dta-dataset-selector-area"),
+                        dataset_selection_card("dta-dataset-selector-area", card_title_id="dta-dataset-card-title"),
                         workflow_template_card(
                             "dta-template-select",
                             "dta-template-description",
-                            _TEMPLATE_OPTIONS,
+                            [],
                             "dta.general",
+                            card_title_id="dta-workflow-card-title",
                         ),
-                        execute_card("dta-run-status", "dta-run-btn", "Run DTA Analysis"),
+                        execute_card("dta-run-status", "dta-run-btn", card_title_id="dta-execute-card-title"),
                     ],
                     md=4,
                 ),
@@ -307,18 +335,43 @@ layout = html.Div(
     ]
 )
 
-_TEMPLATE_DESCRIPTIONS = {
-    "dta.general": "General DTA: Savitzky-Golay smoothing, ASLS baseline, bidirectional peak detection (exothermic + endothermic).",
-    "dta.thermal_events": "Thermal Event Screening: Wider smoothing window, more permissive peak detection for complex thermal histories.",
-}
-
 
 @callback(
+    Output("dta-hero-slot", "children"),
+    Output("dta-dataset-card-title", "children"),
+    Output("dta-workflow-card-title", "children"),
+    Output("dta-execute-card-title", "children"),
+    Output("dta-run-btn", "children"),
+    Output("dta-template-select", "options"),
+    Output("dta-template-select", "value"),
     Output("dta-template-description", "children"),
+    Input("ui-locale", "data"),
     Input("dta-template-select", "value"),
 )
-def update_template_description(template_id):
-    return _TEMPLATE_DESCRIPTIONS.get(template_id, "DTA analysis workflow.")
+def render_dta_locale_chrome(locale_data, template_id):
+    loc = _loc(locale_data)
+    hero = page_header(
+        translate_ui(loc, "dash.analysis.dta.title"),
+        translate_ui(loc, "dash.analysis.dta.caption"),
+        badge=translate_ui(loc, "dash.analysis.badge"),
+    )
+    opts = [{"label": translate_ui(loc, f"dash.analysis.dta.template.{tid}.label"), "value": tid} for tid in _DTA_TEMPLATE_IDS]
+    valid = {o["value"] for o in opts}
+    tid = template_id if template_id in valid else "dta.general"
+    desc_key = f"dash.analysis.dta.template.{tid}.desc"
+    desc = translate_ui(loc, desc_key)
+    if desc == desc_key:
+        desc = translate_ui(loc, "dash.analysis.dta.workflow_fallback")
+    return (
+        hero,
+        translate_ui(loc, "dash.analysis.dataset_selection_title"),
+        translate_ui(loc, "dash.analysis.workflow_template_title"),
+        translate_ui(loc, "dash.analysis.execute_title"),
+        translate_ui(loc, "dash.analysis.dta.run_btn"),
+        opts,
+        tid,
+        desc,
+    )
 
 
 @callback(
@@ -326,26 +379,29 @@ def update_template_description(template_id):
     Output("dta-run-btn", "disabled"),
     Input("project-id", "data"),
     Input("dta-refresh", "data"),
+    Input("ui-locale", "data"),
 )
-def load_eligible_datasets(project_id, _refresh):
+def load_eligible_datasets(project_id, _refresh, locale_data):
+    loc = _loc(locale_data)
     if not project_id:
-        return html.P("No workspace active. Create one first.", className="text-muted"), True
+        return html.P(translate_ui(loc, "dash.analysis.workspace_inactive"), className="text-muted"), True
 
     from dash_app.api_client import workspace_datasets
 
     try:
         payload = workspace_datasets(project_id)
     except Exception as exc:
-        return dbc.Alert(f"Error loading datasets: {exc}", color="danger"), True
+        return dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_datasets", error=str(exc)), color="danger"), True
 
     all_datasets = payload.get("datasets", [])
     return dataset_selector_block(
         selector_id="dta-dataset-select",
-        empty_msg="Import a DTA file first.",
+        empty_msg=translate_ui(loc, "dash.analysis.dta.empty_import"),
         eligible=eligible_datasets(all_datasets, _DTA_ELIGIBLE_TYPES),
         all_datasets=all_datasets,
         eligible_types=_DTA_ELIGIBLE_TYPES,
         active_dataset=payload.get("active_dataset"),
+        locale_data=locale_data,
     )
 
 
@@ -360,9 +416,11 @@ def load_eligible_datasets(project_id, _refresh):
     State("dta-template-select", "value"),
     State("dta-refresh", "data"),
     State("workspace-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def run_dta_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val, global_refresh):
+def run_dta_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val, global_refresh, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id or not dataset_key:
         raise dash.exceptions.PreventUpdate
 
@@ -376,9 +434,9 @@ def run_dta_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val
             workflow_template_id=template_id,
         )
     except Exception as exc:
-        return dbc.Alert(f"Analysis failed: {exc}", color="danger"), dash.no_update, dash.no_update, dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.analysis.analysis_failed", error=str(exc)), color="danger"), dash.no_update, dash.no_update, dash.no_update
 
-    alert, saved, result_id = interpret_run_result(result)
+    alert, saved, result_id = interpret_run_result(result, locale_data=locale_data)
     refresh = (refresh_val or 0) + 1
     if saved:
         return alert, refresh, result_id, (global_refresh or 0) + 1
@@ -394,10 +452,12 @@ def run_dta_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val
     Input("dta-latest-result-id", "data"),
     Input("dta-refresh", "data"),
     Input("ui-theme", "data"),
+    Input("ui-locale", "data"),
     State("project-id", "data"),
 )
-def display_result(result_id, _refresh, ui_theme, project_id):
-    empty_msg = empty_result_msg()
+def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
+    loc = _loc(locale_data)
+    empty_msg = empty_result_msg(locale_data=locale_data)
     if not result_id or not project_id:
         return empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
 
@@ -406,7 +466,7 @@ def display_result(result_id, _refresh, ui_theme, project_id):
     try:
         detail = workspace_result_detail(project_id, result_id)
     except Exception as exc:
-        err = dbc.Alert(f"Error loading result: {exc}", color="danger")
+        err = dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_result", error=str(exc)), color="danger")
         return err, empty_msg, empty_msg, empty_msg, empty_msg
 
     summary = detail.get("summary", {})
@@ -422,62 +482,65 @@ def display_result(result_id, _refresh, ui_theme, project_id):
         except Exception:
             dataset_detail = {}
 
-    # --- Metrics row ---
     peak_count, exo_count, endo_count = _derive_event_metrics(summary, rows)
-    sample_name = _resolve_dta_sample_name(summary, result_meta, dataset_detail)
+    sample_name = _resolve_dta_sample_name(summary, result_meta, dataset_detail, locale_data=locale_data)
 
-    metrics = metrics_row([
-        ("Events", str(peak_count)),
-        ("Exothermic", str(exo_count)),
-        ("Endothermic", str(endo_count)),
-        ("Sample", sample_name),
-    ])
+    metrics = metrics_row(
+        [
+            ("dash.analysis.metric.events", str(peak_count)),
+            ("dash.analysis.metric.exothermic", str(exo_count)),
+            ("dash.analysis.metric.endothermic", str(endo_count)),
+            ("dash.analysis.metric.sample", sample_name),
+        ],
+        locale_data=locale_data,
+    )
 
-    # --- Peak cards ---
-    peak_cards = _build_peak_cards(rows)
+    peak_cards = _build_peak_cards(rows, loc)
 
-    # --- Figure with smoothed/baseline/corrected overlay ---
     figure_area = empty_msg
     if dataset_key:
-        figure_area = _build_figure(project_id, dataset_key, sample_name, rows, ui_theme)
+        figure_area = _build_figure(project_id, dataset_key, sample_name, rows, ui_theme, loc, locale_data)
 
-    # --- Peak table ---
-    table_area = _build_peak_table(rows)
+    table_area = _build_peak_table(rows, loc)
 
-    # --- Processing info ---
     method_context = processing.get("method_context", {})
+    na = translate_ui(loc, "dash.analysis.na")
     proc_view = processing_details_section(
         processing,
         extra_lines=[
-            html.P(f"Baseline: {processing.get('signal_pipeline', {}).get('baseline', {})}"),
-            html.P(f"Peak Detection: {processing.get('analysis_steps', {}).get('peak_detection', {})}"),
-            html.P(f"Sign Convention: {method_context.get('sign_convention_label', 'N/A')}", className="mb-0"),
+            html.P(translate_ui(loc, "dash.analysis.dta.baseline", detail=processing.get("signal_pipeline", {}).get("baseline", {}))),
+            html.P(translate_ui(loc, "dash.analysis.dta.peak_detection", detail=processing.get("analysis_steps", {}).get("peak_detection", {}))),
+            html.P(translate_ui(loc, "dash.analysis.dta.sign_convention", detail=method_context.get("sign_convention_label", na)), className="mb-0"),
         ],
+        locale_data=locale_data,
     )
 
     return metrics, peak_cards, figure_area, table_area, proc_view
 
 
-# ---------------------------------------------------------------------------
-# DTA-specific builders
-# ---------------------------------------------------------------------------
-
-def _build_peak_cards(rows: list) -> html.Div:
+def _build_peak_cards(rows: list, loc: str = "en") -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("Key Thermal Events", className="mb-3"), html.P("No thermal events detected.", className="text-muted")]
+            [
+                html.H5(translate_ui(loc, "dash.analysis.section.key_thermal_events"), className="mb-3"),
+                html.P(translate_ui(loc, "dash.analysis.state.no_thermal_events"), className="text-muted"),
+            ]
         )
 
     primary_rows, secondary_rows = _split_primary_events(rows)
     cards = [
-        html.H5("Key Thermal Events", className="mb-2"),
+        html.H5(translate_ui(loc, "dash.analysis.section.key_thermal_events"), className="mb-2"),
         html.P(
-            f"Showing {len(primary_rows)} event card(s) with the strongest resolved signatures. "
-            f"The full event table below keeps all {len(rows)} event(s).",
+            translate_ui(
+                loc,
+                "dash.analysis.dta.events_cards_intro",
+                shown=len(primary_rows),
+                total=len(rows),
+            ),
             className="text-muted small mb-3",
         ),
         dbc.Row(
-            [dbc.Col(_peak_card(row, idx), md=6) for idx, row in enumerate(primary_rows)],
+            [dbc.Col(_peak_card(row, idx, loc), md=6) for idx, row in enumerate(primary_rows)],
             className="g-3",
         ),
     ]
@@ -486,7 +549,7 @@ def _build_peak_cards(rows: list) -> html.Div:
         cards.append(
             html.Details(
                 [
-                    html.Summary(f"Show {len(secondary_rows)} additional event(s)", className="small"),
+                    html.Summary(translate_ui(loc, "dash.analysis.dta.show_more_events", n=len(secondary_rows)), className="small"),
                     html.Div(
                         dataset_table(
                             secondary_rows,
@@ -502,7 +565,23 @@ def _build_peak_cards(rows: list) -> html.Div:
     return html.Div(cards)
 
 
-def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows: list, ui_theme: str | None) -> html.Div:
+def _primary_trace_name(corrected: list, smoothed: list, raw_signal: list, loc: str) -> tuple[str, str]:
+    if corrected:
+        return translate_ui(loc, "dash.analysis.figure.legend_dta_primary_corrected"), "#047857"
+    if smoothed:
+        return translate_ui(loc, "dash.analysis.figure.legend_dta_primary_smoothed"), "#0E7490"
+    return translate_ui(loc, "dash.analysis.figure.legend_dta_primary_raw"), "#475569"
+
+
+def _build_figure(
+    project_id: str,
+    dataset_key: str,
+    sample_name: str,
+    peak_rows: list,
+    ui_theme: str | None,
+    loc: str = "en",
+    locale_data: str | None = None,
+) -> html.Div:
     from dash_app.api_client import analysis_state_curves
 
     try:
@@ -516,17 +595,22 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
     baseline = _series_for_temperature(curves.get("baseline", []), temperature)
     corrected = _series_for_temperature(curves.get("corrected", []), temperature)
 
+    _ld = locale_data if locale_data is not None else loc
     if not temperature:
-        return no_data_figure_msg()
+        return no_data_figure_msg(locale_data=_ld)
 
     primary_signal = corrected or smoothed or raw_signal
     if not primary_signal:
-        return no_data_figure_msg("No processed DTA signal is available for plotting.")
+        return no_data_figure_msg(text=translate_ui(loc, "dash.analysis.dta.no_plot_signal"), locale_data=_ld)
 
     fig = go.Figure()
-    primary_name = "Corrected Signal" if corrected else ("Smoothed Signal" if smoothed else "Raw Signal")
-    primary_color = "#047857" if corrected else ("#0E7490" if smoothed else "#475569")
+    primary_name, primary_color = _primary_trace_name(corrected, smoothed, raw_signal, loc)
     y_range = _compute_y_axis_range(primary_signal, baseline, smoothed if corrected else [], raw_signal if not (corrected or smoothed) else [])
+
+    legend_raw = translate_ui(loc, "dash.analysis.figure.legend_raw_signal")
+    legend_smooth = translate_ui(loc, "dash.analysis.figure.legend_smoothed")
+    legend_base = translate_ui(loc, "dash.analysis.figure.legend_baseline")
+    legend_primary_smoothed = translate_ui(loc, "dash.analysis.figure.legend_dta_primary_smoothed")
 
     if raw_signal:
         fig.add_trace(
@@ -534,19 +618,19 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
                 x=temperature,
                 y=raw_signal,
                 mode="lines",
-                name="Raw Signal",
-                line=dict(color="#94A3B8", width=1.0 if primary_name != "Raw Signal" else 1.8),
-                opacity=0.24 if primary_name != "Raw Signal" else 0.9,
+                name=legend_raw,
+                line=dict(color="#94A3B8", width=1.0 if primary_name != legend_raw else 1.8),
+                opacity=0.24 if primary_name != legend_raw else 0.9,
             )
         )
 
-    if smoothed and primary_name != "Smoothed Signal":
+    if smoothed and primary_name != legend_primary_smoothed:
         fig.add_trace(
             go.Scatter(
                 x=temperature,
                 y=smoothed,
                 mode="lines",
-                name="Smoothed",
+                name=legend_smooth,
                 line=dict(color="#0891B2", width=1.5),
                 opacity=0.9,
             )
@@ -558,7 +642,7 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
                 x=temperature,
                 y=baseline,
                 mode="lines",
-                name="Baseline",
+                name=legend_base,
                 line=dict(color="#64748B", width=1.0, dash="dot"),
                 opacity=0.8,
             )
@@ -590,14 +674,14 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
             fig.add_vline(
                 x=onset,
                 line=dict(color=guide_color, width=1, dash="dot"),
-                annotation_text=f"On {onset:.1f}" if annotate_guides else None,
+                annotation_text=translate_ui(loc, "dash.analysis.figure.annot_on", v=f"{onset:.1f}") if annotate_guides else None,
                 annotation_position="top left",
             )
         if endset is not None:
             fig.add_vline(
                 x=endset,
                 line=dict(color=guide_color, width=1, dash="dot"),
-                annotation_text=f"End {endset:.1f}" if annotate_guides else None,
+                annotation_text=translate_ui(loc, "dash.analysis.figure.annot_end", v=f"{endset:.1f}") if annotate_guides else None,
                 annotation_position="top left",
             )
 
@@ -625,7 +709,7 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
                 text=[text_str],
                 textposition="top center",
                 textfont=dict(size=9, color=color),
-                name=f"{_direction_label(direction)} {pt:.1f} C",
+                name=f"{_direction_label(direction, loc)} {pt:.1f} C",
                 showlegend=False,
             )
         )
@@ -633,9 +717,9 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
             annotated_temps.append(pt)
 
     fig.update_layout(
-        title=f"DTA - {sample_name}",
-        xaxis_title="Temperature (C)",
-        yaxis_title="Delta-T (a.u.)",
+        title=translate_ui(loc, "dash.analysis.figure.title_dta", name=sample_name),
+        xaxis_title=translate_ui(loc, "dash.analysis.figure.axis_temperature_c"),
+        yaxis_title=translate_ui(loc, "dash.analysis.figure.axis_delta_t"),
         hovermode="x unified",
         margin=dict(l=56, r=24, t=56, b=48),
         height=560,
@@ -646,10 +730,13 @@ def _build_figure(project_id: str, dataset_key: str, sample_name: str, peak_rows
     return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True}, className="ta-plot")
 
 
-def _build_peak_table(rows: list) -> html.Div:
+def _build_peak_table(rows: list, loc: str = "en") -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("All Event Details", className="mb-3"), html.P("No event data.", className="text-muted")]
+            [
+                html.H5(translate_ui(loc, "dash.analysis.section.all_event_details"), className="mb-3"),
+                html.P(translate_ui(loc, "dash.analysis.state.no_event_data"), className="text-muted"),
+            ]
         )
 
     columns = [
@@ -663,7 +750,7 @@ def _build_peak_table(rows: list) -> html.Div:
     ]
     return html.Div(
         [
-            html.H5("All Event Details", className="mb-3"),
+            html.H5(translate_ui(loc, "dash.analysis.section.all_event_details"), className="mb-3"),
             dataset_table(rows, columns, table_id="dta-peaks-table"),
         ]
     )

@@ -8,6 +8,15 @@ import dash_bootstrap_components as dbc
 
 def create_dash_app(*, requests_pathname_prefix: str = "/") -> dash.Dash:
     """Create and return the Dash application instance."""
+    # Unit tests may ``import dash_app.pages.*`` with a throwaway Dash app, which registers
+    # pages under ``dash_app.pages.<name>``. The real app loads the same files via
+    # ``pages_folder`` as ``pages.<name>``, which would duplicate routes — clear stale entries.
+    import dash._pages as _dash_pages
+
+    for _key in list(_dash_pages.PAGE_REGISTRY.keys()):
+        if isinstance(_key, str) and _key.startswith("dash_app.pages."):
+            del _dash_pages.PAGE_REGISTRY[_key]
+
     app = dash.Dash(
         __name__,
         use_pages=True,

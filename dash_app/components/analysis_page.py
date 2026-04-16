@@ -12,6 +12,18 @@ from typing import Any
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from utils.i18n import normalize_ui_locale, translate_ui
+
+
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
+
+
+def _metric_label(locale_data: str | None, label_key_or_text: str) -> str:
+    if label_key_or_text.startswith("dash."):
+        return translate_ui(_loc(locale_data), label_key_or_text)
+    return label_key_or_text
+
 
 # ---------------------------------------------------------------------------
 # Metric card
@@ -26,17 +38,29 @@ def metric_card(label: str, value: str) -> dbc.Card:
     )
 
 
-def metrics_row(pairs: list[tuple[str, str]], *, heading: str = "Result Summary") -> html.Div:
+def metrics_row(
+    pairs: list[tuple[str, str]],
+    *,
+    heading: str | None = None,
+    locale_data: str | None = None,
+) -> html.Div:
     """Row of metric cards with a heading.
 
     Parameters
     ----------
-    pairs : list of (label, value) tuples
-    heading : section title
+    pairs : list of (label_key, value) tuples
+        *label_key* is either a ``dash.analysis.*`` translation key or a literal label string.
+    heading : optional literal heading; if omitted, uses translated Result Summary.
+    locale_data : ``ui-locale`` store value for translation.
     """
-    cards = [dbc.Col(metric_card(label, value), md=max(3, 12 // max(len(pairs), 1))) for label, value in pairs]
+    loc = _loc(locale_data)
+    resolved_heading = heading if heading is not None else translate_ui(loc, "dash.analysis.result_summary")
+    cards = [
+        dbc.Col(metric_card(_metric_label(locale_data, label), value), md=max(3, 12 // max(len(pairs), 1)))
+        for label, value in pairs
+    ]
     return html.Div(
-        [html.H5(heading, className="mb-3"), dbc.Row(cards, className="g-3")]
+        [html.H5(resolved_heading, className="mb-3"), dbc.Row(cards, className="g-3")]
     )
 
 
@@ -68,6 +92,7 @@ def dataset_selector_block(
     all_datasets: list[dict],
     eligible_types: set[str],
     active_dataset: str | None = None,
+    locale_data: str | None = None,
 ) -> tuple[html.Div, bool]:
     """Build the dataset selector area and disabled state.
 
@@ -77,9 +102,11 @@ def dataset_selector_block(
         *children* is the content for the ``<id>-dataset-selector-area`` div.
         *disabled* is the run button disabled state.
     """
+    loc = _loc(locale_data)
     if not eligible:
         type_labels = ", ".join(sorted(eligible_types))
-        return html.P(f"No eligible datasets found ({type_labels}). {empty_msg}", className="text-muted"), True
+        text = translate_ui(loc, "dash.analysis.no_eligible_prefix", types=type_labels, empty=empty_msg)
+        return html.P(text, className="text-muted"), True
 
     options = dataset_options(eligible)
     default_value = None
@@ -95,7 +122,13 @@ def dataset_selector_block(
     )
     type_labels = ", ".join(sorted(eligible_types))
     info = html.P(
-        f"{len(eligible)} of {len(all_datasets)} datasets are eligible (types: {type_labels}).",
+        translate_ui(
+            loc,
+            "dash.analysis.eligible_count",
+            eligible=len(eligible),
+            total=len(all_datasets),
+            types=type_labels,
+        ),
         className="text-muted small mt-2",
     )
     return html.Div([selector, info]), False
@@ -105,12 +138,12 @@ def dataset_selector_block(
 # Layout building blocks
 # ---------------------------------------------------------------------------
 
-def dataset_selection_card(selector_area_id: str) -> dbc.Card:
+def dataset_selection_card(selector_area_id: str, *, card_title_id: str) -> dbc.Card:
     """Card with a placeholder div for the dataset selector."""
     return dbc.Card(
         dbc.CardBody(
             [
-                html.H5("Dataset Selection", className="mb-3"),
+                html.H5(id=card_title_id, children="", className="mb-3"),
                 html.Div(id=selector_area_id),
             ]
         ),
@@ -123,12 +156,14 @@ def workflow_template_card(
     description_id: str,
     options: list[dict],
     default_value: str,
+    *,
+    card_title_id: str,
 ) -> dbc.Card:
     """Card with a workflow-template ``dbc.Select`` and description."""
     return dbc.Card(
         dbc.CardBody(
             [
-                html.H5("Workflow Template", className="mb-3"),
+                html.H5(id=card_title_id, children="", className="mb-3"),
                 dbc.Select(id=select_id, options=options, value=default_value),
                 html.P("", className="text-muted small mt-2", id=description_id),
             ]
@@ -137,18 +172,14 @@ def workflow_template_card(
     )
 
 
-def execute_card(
-    status_id: str,
-    button_id: str,
-    button_label: str = "Run Analysis",
-) -> dbc.Card:
-    """Card with run-status area and execute button."""
+def execute_card(status_id: str, button_id: str, *, card_title_id: str) -> dbc.Card:
+    """Card with run-status area and execute button (label filled via locale callback)."""
     return dbc.Card(
         dbc.CardBody(
             [
-                html.H5("Execute", className="mb-3"),
+                html.H5(id=card_title_id, children="", className="mb-3"),
                 html.Div(id=status_id),
-                dbc.Button(button_label, id=button_id, color="primary", className="w-100", disabled=True),
+                dbc.Button("", id=button_id, color="primary", className="w-100", disabled=True),
             ]
         ),
         className="mb-4",
@@ -172,7 +203,7 @@ def analysis_page_stores(refresh_id: str, latest_result_id: str) -> list[dcc.Sto
 # Execute callback helpers
 # ---------------------------------------------------------------------------
 
-def interpret_run_result(result: dict[str, Any]) -> tuple[Any, bool, str | None]:
+def interpret_run_result(result: dict[str, Any], *, locale_data: str | None = None) -> tuple[Any, bool, str | None]:
     """Interpret an ``analysis_run`` API response.
 
     Returns
@@ -182,6 +213,7 @@ def interpret_run_result(result: dict[str, Any]) -> tuple[Any, bool, str | None]
         *saved* : True when the result was persisted.
         *result_id* : the saved result id (None if not saved).
     """
+    loc = _loc(locale_data)
     status = result.get("execution_status", "unknown")
     result_id = result.get("result_id")
     failure = result.get("failure_reason")
@@ -189,18 +221,28 @@ def interpret_run_result(result: dict[str, Any]) -> tuple[Any, bool, str | None]
 
     if status == "saved" and result_id:
         alert = dbc.Alert(
-            f"Analysis saved (result: {result_id}). "
-            f"Validation: {validation.get('status', 'N/A')}, "
-            f"warnings: {validation.get('warning_count', 0)}.",
+            translate_ui(
+                loc,
+                "dash.analysis.interpret_saved",
+                rid=result_id,
+                vstatus=validation.get("status", translate_ui(loc, "dash.analysis.na")),
+                warnings=validation.get("warning_count", 0),
+            ),
             color="success",
         )
         return alert, True, result_id
 
     if status == "blocked":
-        alert = dbc.Alert(f"Analysis blocked: {failure}", color="warning")
+        alert = dbc.Alert(
+            translate_ui(loc, "dash.analysis.interpret_blocked", reason=failure or translate_ui(loc, "dash.analysis.na")),
+            color="warning",
+        )
         return alert, False, None
 
-    alert = dbc.Alert(f"Analysis failed: {failure or 'Unknown error'}", color="danger")
+    alert = dbc.Alert(
+        translate_ui(loc, "dash.analysis.interpret_failed", reason=failure or translate_ui(loc, "dash.analysis.na")),
+        color="danger",
+    )
     return alert, False, None
 
 
@@ -208,7 +250,12 @@ def interpret_run_result(result: dict[str, Any]) -> tuple[Any, bool, str | None]
 # Processing details
 # ---------------------------------------------------------------------------
 
-def processing_details_section(processing: dict, *, extra_lines: list[html.P] | None = None) -> html.Div:
+def processing_details_section(
+    processing: dict,
+    *,
+    extra_lines: list[html.P] | None = None,
+    locale_data: str | None = None,
+) -> html.Div:
     """Render processing details shared by all modality pages.
 
     Parameters
@@ -217,14 +264,28 @@ def processing_details_section(processing: dict, *, extra_lines: list[html.P] | 
         The ``processing`` payload from the result detail response.
     extra_lines : list of html.P, optional
         Modality-specific lines appended after the shared ones.
+    locale_data : ``ui-locale`` store value for translation.
     """
+    loc = _loc(locale_data)
     signal_pipeline = processing.get("signal_pipeline", {})
-    analysis_steps = processing.get("analysis_steps", {})
 
     lines: list[Any] = [
-        html.H5("Processing Details", className="mb-3"),
-        html.P(f"Workflow: {processing.get('workflow_template_label', 'N/A')} (v{processing.get('workflow_template_version', '?')})"),
-        html.P(f"Smoothing: {signal_pipeline.get('smoothing', {})}"),
+        html.H5(translate_ui(loc, "dash.analysis.processing_title"), className="mb-3"),
+        html.P(
+            translate_ui(
+                loc,
+                "dash.analysis.processing_workflow",
+                label=processing.get("workflow_template_label", translate_ui(loc, "dash.analysis.na")),
+                version=processing.get("workflow_template_version", "?"),
+            )
+        ),
+        html.P(
+            translate_ui(
+                loc,
+                "dash.analysis.processing_smoothing",
+                detail=signal_pipeline.get("smoothing", {}),
+            )
+        ),
     ]
 
     if extra_lines:
@@ -237,12 +298,16 @@ def processing_details_section(processing: dict, *, extra_lines: list[html.P] | 
 # Empty state helpers
 # ---------------------------------------------------------------------------
 
-def empty_result_msg(text: str = "Run an analysis to see results here.") -> html.P:
-    return html.P(text, className="text-muted")
+def empty_result_msg(*, text: str | None = None, locale_data: str | None = None) -> html.P:
+    if text is not None:
+        return html.P(text, className="text-muted")
+    return html.P(translate_ui(_loc(locale_data), "dash.analysis.empty_run_result"), className="text-muted")
 
 
-def no_data_figure_msg(text: str = "No data available for plotting.") -> html.P:
-    return html.P(text, className="text-muted")
+def no_data_figure_msg(*, text: str | None = None, locale_data: str | None = None) -> html.P:
+    if text is not None:
+        return html.P(text, className="text-muted")
+    return html.P(translate_ui(_loc(locale_data), "dash.analysis.empty_figure"), className="text-muted")
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +319,7 @@ def resolve_sample_name(
     result_meta: dict,
     *,
     fallback_display_name: str | None = None,
+    locale_data: str | None = None,
 ) -> str:
     """Resolve the best available sample name for display.
 
@@ -261,11 +327,9 @@ def resolve_sample_name(
       1. ``summary["sample_name"]`` -- set from dataset metadata during analysis
       2. ``fallback_display_name`` -- typically from the dataset list's display_name
       3. ``result_meta["dataset_key"]`` -- the raw key, with extension stripped
-      4. ``"N/A"`` -- last resort
-
-    This prevents the display from showing ``None`` or raw filenames
-    when the dataset or project metadata already contains a usable name.
+      4. Translated ``dash.analysis.na`` -- last resort
     """
+    loc = _loc(locale_data)
     name = summary.get("sample_name")
     if name and str(name).strip():
         return str(name).strip()
@@ -275,7 +339,6 @@ def resolve_sample_name(
 
     dataset_key = result_meta.get("dataset_key") or ""
     if dataset_key:
-        # Strip common data-file extensions for a cleaner label
         for ext in (".csv", ".txt", ".dat", ".xls", ".xlsx"):
             if dataset_key.lower().endswith(ext):
                 dataset_key = dataset_key[: -len(ext)]
@@ -283,4 +346,4 @@ def resolve_sample_name(
         if dataset_key.strip():
             return dataset_key.strip()
 
-    return "N/A"
+    return translate_ui(loc, "dash.analysis.na")

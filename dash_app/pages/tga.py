@@ -35,33 +35,20 @@ from dash_app.components.analysis_page import (
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
 from dash_app.theme import PLOT_THEME, apply_figure_theme, normalize_ui_theme
+from utils.i18n import normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/tga", title="TGA Analysis - MaterialScope")
 
-_TGA_WORKFLOW_TEMPLATES = [
-    {"id": "tga.general", "label": "General TGA"},
-    {"id": "tga.single_step_decomposition", "label": "Single-Step Decomposition"},
-    {"id": "tga.multi_step_decomposition", "label": "Multi-Step Decomposition"},
-]
-
-_TEMPLATE_OPTIONS = [{"label": t["label"], "value": t["id"]} for t in _TGA_WORKFLOW_TEMPLATES]
-
+_TGA_TEMPLATE_IDS = ["tga.general", "tga.single_step_decomposition", "tga.multi_step_decomposition"]
+_TGA_UNIT_MODE_IDS = ["auto", "percent", "absolute_mass"]
 _TGA_ELIGIBLE_TYPES = {"TGA", "UNKNOWN"}
 
-_TGA_UNIT_MODES = [
-    {"id": "auto", "label": "Auto"},
-    {"id": "percent", "label": "Percent (%)"},
-    {"id": "absolute_mass", "label": "Absolute Mass (mg)"},
-]
 
-_UNIT_MODE_OPTIONS = [{"label": m["label"], "value": m["id"]} for m in _TGA_UNIT_MODES]
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
 
 
-# ---------------------------------------------------------------------------
-# TGA-specific cards
-# ---------------------------------------------------------------------------
-
-def _step_card(step: dict, idx: int) -> dbc.Card:
+def _step_card(step: dict, idx: int, loc: str) -> dbc.Card:
     onset = step.get("onset_temperature")
     midpoint = step.get("midpoint_temperature")
     endset = step.get("endset_temperature")
@@ -74,7 +61,7 @@ def _step_card(step: dict, idx: int) -> dbc.Card:
                 html.Div(
                     [
                         html.I(className="bi bi-arrow-down-circle me-2", style={"color": "#059669", "fontSize": "1.1rem"}),
-                        html.Strong(f"Step {idx + 1}", className="me-2"),
+                        html.Strong(translate_ui(loc, "dash.analysis.label.step_n", n=idx + 1), className="me-2"),
                         html.Span(
                             f"{mass_loss:.2f} %" if mass_loss is not None else "--",
                             className="badge",
@@ -85,14 +72,32 @@ def _step_card(step: dict, idx: int) -> dbc.Card:
                 ),
                 dbc.Row(
                     [
-                        dbc.Col([html.Small("Onset", className="text-muted d-block"), html.Span(f"{onset:.1f} C" if onset is not None else "--")], md=3),
-                        dbc.Col([html.Small("Midpoint", className="text-muted d-block"), html.Span(f"{midpoint:.1f} C" if midpoint is not None else "--")], md=3),
-                        dbc.Col([html.Small("Endset", className="text-muted d-block"), html.Span(f"{endset:.1f} C" if endset is not None else "--")], md=3),
                         dbc.Col(
                             [
-                                html.Small("Mass Loss", className="text-muted d-block"),
+                                html.Small(translate_ui(loc, "dash.analysis.label.onset"), className="text-muted d-block"),
+                                html.Span(f"{onset:.1f} C" if onset is not None else "--"),
+                            ],
+                            md=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Small(translate_ui(loc, "dash.analysis.label.midpoint"), className="text-muted d-block"),
+                                html.Span(f"{midpoint:.1f} C" if midpoint is not None else "--"),
+                            ],
+                            md=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Small(translate_ui(loc, "dash.analysis.label.endset"), className="text-muted d-block"),
+                                html.Span(f"{endset:.1f} C" if endset is not None else "--"),
+                            ],
+                            md=3,
+                        ),
+                        dbc.Col(
+                            [
+                                html.Small(translate_ui(loc, "dash.analysis.label.mass_loss"), className="text-muted d-block"),
                                 html.Span(f"{mass_loss:.2f} %" if mass_loss is not None else "--"),
-                                html.Small(" Residual", className="text-muted ms-1"),
+                                html.Small(f" {translate_ui(loc, 'dash.analysis.label.residual')}", className="text-muted ms-1"),
                                 html.Span(f"{residual:.1f} %" if residual is not None else "--"),
                             ],
                             md=3,
@@ -101,8 +106,9 @@ def _step_card(step: dict, idx: int) -> dbc.Card:
                     className="g-2",
                 ),
                 *(
-                    [html.P(f"Mass loss: {mass_loss_mg:.3f} mg", className="text-muted small mb-0 mt-1")]
-                    if mass_loss_mg is not None else []
+                    [html.P(translate_ui(loc, "dash.analysis.tga.mass_loss_mg", v=mass_loss_mg), className="text-muted small mb-0 mt-1")]
+                    if mass_loss_mg is not None
+                    else []
                 ),
             ]
         ),
@@ -110,54 +116,37 @@ def _step_card(step: dict, idx: int) -> dbc.Card:
     )
 
 
-# ---------------------------------------------------------------------------
-# TGA-specific: unit mode card
-# ---------------------------------------------------------------------------
-
 def _unit_mode_card() -> dbc.Card:
     return dbc.Card(
         dbc.CardBody(
             [
-                html.H5("Unit Mode", className="mb-3"),
-                dbc.Select(id="tga-unit-mode-select", options=_UNIT_MODE_OPTIONS, value="auto"),
-                html.P(
-                    "Auto: infer from signal range and unit metadata. "
-                    "Percent: signal is mass %. "
-                    "Absolute Mass: signal is mg, will be converted to %.",
-                    className="text-muted small mt-2",
-                    id="tga-unit-mode-description",
-                ),
+                html.H5(id="tga-unit-card-title", children="", className="mb-3"),
+                dbc.Select(id="tga-unit-mode-select", options=[], value="auto"),
+                html.P("", className="text-muted small mt-2", id="tga-unit-mode-description"),
             ]
         ),
         className="mb-4",
     )
 
 
-# ---------------------------------------------------------------------------
-# Layout
-# ---------------------------------------------------------------------------
-
 layout = html.Div(
     analysis_page_stores("tga-refresh", "tga-latest-result-id")
     + [
-        page_header(
-            "TGA Analysis",
-            "Select a TGA-eligible dataset, choose unit mode and workflow template, and run thermogravimetric analysis.",
-            badge="Analysis",
-        ),
+        html.Div(id="tga-hero-slot"),
         dbc.Row(
             [
                 dbc.Col(
                     [
-                        dataset_selection_card("tga-dataset-selector-area"),
+                        dataset_selection_card("tga-dataset-selector-area", card_title_id="tga-dataset-card-title"),
                         _unit_mode_card(),
                         workflow_template_card(
                             "tga-template-select",
                             "tga-template-description",
-                            _TEMPLATE_OPTIONS,
+                            [],
                             "tga.general",
+                            card_title_id="tga-workflow-card-title",
                         ),
-                        execute_card("tga-run-status", "tga-run-btn", "Run TGA Analysis"),
+                        execute_card("tga-run-status", "tga-run-btn", card_title_id="tga-execute-card-title"),
                     ],
                     md=4,
                 ),
@@ -176,33 +165,70 @@ layout = html.Div(
     ]
 )
 
-_TEMPLATE_DESCRIPTIONS = {
-    "tga.general": "General TGA: Savitzky-Golay smoothing, DTG computation, step detection via DTG peak finding.",
-    "tga.single_step_decomposition": "Single-Step Decomposition: Standard smoothing, DTG peak detection for a single mass-loss event.",
-    "tga.multi_step_decomposition": "Multi-Step Decomposition: Wider smoothing window, lower mass-loss threshold for multiple overlapping steps.",
-}
-
-_UNIT_MODE_DESCRIPTIONS = {
-    "auto": "Auto: infer from signal range and unit metadata. Best for most cases.",
-    "percent": "Percent: signal is mass %. Use when data is already normalized to 100%.",
-    "absolute_mass": "Absolute Mass: signal is in mg. Will be converted to % using initial mass reference.",
-}
-
 
 @callback(
+    Output("tga-hero-slot", "children"),
+    Output("tga-dataset-card-title", "children"),
+    Output("tga-unit-card-title", "children"),
+    Output("tga-workflow-card-title", "children"),
+    Output("tga-execute-card-title", "children"),
+    Output("tga-run-btn", "children"),
+    Output("tga-template-select", "options"),
+    Output("tga-template-select", "value"),
     Output("tga-template-description", "children"),
+    Output("tga-unit-mode-select", "options"),
+    Output("tga-unit-mode-select", "value"),
+    Input("ui-locale", "data"),
     Input("tga-template-select", "value"),
+    Input("tga-unit-mode-select", "value"),
 )
-def update_template_description(template_id):
-    return _TEMPLATE_DESCRIPTIONS.get(template_id, "TGA analysis workflow.")
+def render_tga_locale_chrome(locale_data, template_id, unit_mode):
+    loc = _loc(locale_data)
+    hero = page_header(
+        translate_ui(loc, "dash.analysis.tga.title"),
+        translate_ui(loc, "dash.analysis.tga.caption"),
+        badge=translate_ui(loc, "dash.analysis.badge"),
+    )
+    opts = [{"label": translate_ui(loc, f"dash.analysis.tga.template.{tid}.label"), "value": tid} for tid in _TGA_TEMPLATE_IDS]
+    valid_t = {o["value"] for o in opts}
+    tid = template_id if template_id in valid_t else "tga.general"
+    desc_key = f"dash.analysis.tga.template.{tid}.desc"
+    desc = translate_ui(loc, desc_key)
+    if desc == desc_key:
+        desc = translate_ui(loc, "dash.analysis.tga.workflow_fallback")
+
+    unit_opts = [{"label": translate_ui(loc, f"dash.analysis.tga.unit.{m}.label"), "value": m} for m in _TGA_UNIT_MODE_IDS]
+    valid_u = {o["value"] for o in unit_opts}
+    uval = unit_mode if unit_mode in valid_u else "auto"
+
+    return (
+        hero,
+        translate_ui(loc, "dash.analysis.dataset_selection_title"),
+        translate_ui(loc, "dash.analysis.unit_mode_title"),
+        translate_ui(loc, "dash.analysis.workflow_template_title"),
+        translate_ui(loc, "dash.analysis.execute_title"),
+        translate_ui(loc, "dash.analysis.tga.run_btn"),
+        opts,
+        tid,
+        desc,
+        unit_opts,
+        uval,
+    )
 
 
 @callback(
     Output("tga-unit-mode-description", "children"),
+    Input("ui-locale", "data"),
     Input("tga-unit-mode-select", "value"),
 )
-def update_unit_mode_description(unit_mode):
-    return _UNIT_MODE_DESCRIPTIONS.get(unit_mode, "TGA unit mode.")
+def update_tga_unit_mode_description(locale_data, unit_mode):
+    loc = _loc(locale_data)
+    mid = unit_mode or "auto"
+    key = f"dash.analysis.tga.unit.{mid}.desc"
+    text = translate_ui(loc, key)
+    if text == key:
+        text = translate_ui(loc, "dash.analysis.tga.unit.fallback")
+    return text
 
 
 @callback(
@@ -210,26 +236,29 @@ def update_unit_mode_description(unit_mode):
     Output("tga-run-btn", "disabled"),
     Input("project-id", "data"),
     Input("tga-refresh", "data"),
+    Input("ui-locale", "data"),
 )
-def load_eligible_datasets(project_id, _refresh):
+def load_eligible_datasets(project_id, _refresh, locale_data):
+    loc = _loc(locale_data)
     if not project_id:
-        return html.P("No workspace active. Create one first.", className="text-muted"), True
+        return html.P(translate_ui(loc, "dash.analysis.workspace_inactive"), className="text-muted"), True
 
     from dash_app.api_client import workspace_datasets
 
     try:
         payload = workspace_datasets(project_id)
     except Exception as exc:
-        return dbc.Alert(f"Error loading datasets: {exc}", color="danger"), True
+        return dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_datasets", error=str(exc)), color="danger"), True
 
     all_datasets = payload.get("datasets", [])
     return dataset_selector_block(
         selector_id="tga-dataset-select",
-        empty_msg="Import a TGA file first.",
+        empty_msg=translate_ui(loc, "dash.analysis.tga.empty_import"),
         eligible=eligible_datasets(all_datasets, _TGA_ELIGIBLE_TYPES),
         all_datasets=all_datasets,
         eligible_types=_TGA_ELIGIBLE_TYPES,
         active_dataset=payload.get("active_dataset"),
+        locale_data=locale_data,
     )
 
 
@@ -245,9 +274,11 @@ def load_eligible_datasets(project_id, _refresh):
     State("tga-unit-mode-select", "value"),
     State("tga-refresh", "data"),
     State("workspace-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def run_tga_analysis(n_clicks, project_id, dataset_key, template_id, unit_mode, refresh_val, global_refresh):
+def run_tga_analysis(n_clicks, project_id, dataset_key, template_id, unit_mode, refresh_val, global_refresh, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id or not dataset_key:
         raise dash.exceptions.PreventUpdate
 
@@ -262,9 +293,9 @@ def run_tga_analysis(n_clicks, project_id, dataset_key, template_id, unit_mode, 
             unit_mode=unit_mode if unit_mode and unit_mode != "auto" else None,
         )
     except Exception as exc:
-        return dbc.Alert(f"Analysis failed: {exc}", color="danger"), dash.no_update, dash.no_update, dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.analysis.analysis_failed", error=str(exc)), color="danger"), dash.no_update, dash.no_update, dash.no_update
 
-    alert, saved, result_id = interpret_run_result(result)
+    alert, saved, result_id = interpret_run_result(result, locale_data=locale_data)
     refresh = (refresh_val or 0) + 1
     if saved:
         return alert, refresh, result_id, (global_refresh or 0) + 1
@@ -280,10 +311,12 @@ def run_tga_analysis(n_clicks, project_id, dataset_key, template_id, unit_mode, 
     Input("tga-latest-result-id", "data"),
     Input("tga-refresh", "data"),
     Input("ui-theme", "data"),
+    Input("ui-locale", "data"),
     State("project-id", "data"),
 )
-def display_result(result_id, _refresh, ui_theme, project_id):
-    empty_msg = empty_result_msg()
+def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
+    loc = _loc(locale_data)
+    empty_msg = empty_result_msg(locale_data=locale_data)
     if not result_id or not project_id:
         return empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
 
@@ -292,7 +325,7 @@ def display_result(result_id, _refresh, ui_theme, project_id):
     try:
         detail = workspace_result_detail(project_id, result_id)
     except Exception as exc:
-        err = dbc.Alert(f"Error loading result: {exc}", color="danger")
+        err = dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_result", error=str(exc)), color="danger")
         return err, empty_msg, empty_msg, empty_msg, empty_msg
 
     summary = detail.get("summary", {})
@@ -300,67 +333,73 @@ def display_result(result_id, _refresh, ui_theme, project_id):
     processing = detail.get("processing", {})
     rows = detail.get("rows_preview", [])
 
-    # --- Metrics row ---
     step_count = summary.get("step_count", 0)
     total_mass_loss = summary.get("total_mass_loss_percent")
     residue = summary.get("residue_percent")
-    sample_name = resolve_sample_name(summary, result_meta)
+    sample_name = resolve_sample_name(summary, result_meta, locale_data=locale_data)
+    na = translate_ui(loc, "dash.analysis.na")
 
-    total_loss_str = f"{total_mass_loss:.2f} %" if total_mass_loss is not None else "N/A"
-    residue_str = f"{residue:.1f} %" if residue is not None else "N/A"
+    total_loss_str = f"{total_mass_loss:.2f} %" if total_mass_loss is not None else na
+    residue_str = f"{residue:.1f} %" if residue is not None else na
 
-    metrics = metrics_row([
-        ("Steps", str(step_count)),
-        ("Total Mass Loss", total_loss_str),
-        ("Residue", residue_str),
-        ("Sample", sample_name),
-    ])
+    metrics = metrics_row(
+        [
+            ("dash.analysis.metric.steps", str(step_count)),
+            ("dash.analysis.metric.total_mass_loss", total_loss_str),
+            ("dash.analysis.metric.residue", residue_str),
+            ("dash.analysis.metric.sample", sample_name),
+        ],
+        locale_data=locale_data,
+    )
 
-    # --- Step cards ---
-    step_cards = _build_step_cards(rows)
+    step_cards = _build_step_cards(rows, loc)
 
-    # --- Figure with mass vs temperature and DTG overlay ---
     dataset_key = result_meta.get("dataset_key")
     figure_area = empty_msg
     if dataset_key:
-        figure_area = _build_figure(project_id, dataset_key, summary, rows, ui_theme)
+        figure_area = _build_figure(project_id, dataset_key, summary, rows, ui_theme, loc)
 
-    # --- Step table ---
-    table_area = _build_step_table(rows)
+    table_area = _build_step_table(rows, loc)
 
-    # --- Processing info ---
     method_context = processing.get("method_context", {})
-    unit_label = method_context.get("tga_unit_mode_resolved_label", method_context.get("tga_unit_mode_label", "N/A"))
-    unit_inference = method_context.get("tga_unit_inference_basis", "N/A")
+    unit_label = method_context.get("tga_unit_mode_resolved_label", method_context.get("tga_unit_mode_label", na))
+    unit_inference = method_context.get("tga_unit_inference_basis", na)
     proc_view = processing_details_section(
         processing,
         extra_lines=[
-            html.P(f"Step Detection: {processing.get('analysis_steps', {}).get('step_detection', {})}"),
-            html.P(f"Unit Mode: {unit_label} (basis: {unit_inference})"),
-            html.P(f"Calibration: {method_context.get('calibration_state', 'N/A')}", className="mb-0"),
+            html.P(translate_ui(loc, "dash.analysis.tga.step_detection", detail=processing.get("analysis_steps", {}).get("step_detection", {}))),
+            html.P(
+                translate_ui(
+                    loc,
+                    "dash.analysis.tga.unit_mode_line",
+                    label=unit_label,
+                    basis=unit_inference,
+                )
+            ),
+            html.P(translate_ui(loc, "dash.analysis.tga.calibration", detail=method_context.get("calibration_state", na)), className="mb-0"),
         ],
+        locale_data=locale_data,
     )
 
     return metrics, step_cards, figure_area, table_area, proc_view
 
 
-# ---------------------------------------------------------------------------
-# TGA-specific builders
-# ---------------------------------------------------------------------------
-
-def _build_step_cards(rows: list) -> html.Div:
+def _build_step_cards(rows: list, loc: str) -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("Detected Steps", className="mb-3"), html.P("No steps detected.", className="text-muted")]
+            [
+                html.H5(translate_ui(loc, "dash.analysis.section.detected_steps"), className="mb-3"),
+                html.P(translate_ui(loc, "dash.analysis.state.no_steps"), className="text-muted"),
+            ]
         )
 
-    cards = [html.H5("Detected Steps", className="mb-3")]
+    cards = [html.H5(translate_ui(loc, "dash.analysis.section.detected_steps"), className="mb-3")]
     for idx, row in enumerate(rows):
-        cards.append(_step_card(row, idx))
+        cards.append(_step_card(row, idx, loc))
     return html.Div(cards)
 
 
-def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: list, ui_theme: str | None) -> html.Div:
+def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: list, ui_theme: str | None, loc: str) -> html.Div:
     from dash_app.api_client import analysis_state_curves
 
     try:
@@ -376,9 +415,9 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: l
     has_dtg = curves.get("has_dtg")
 
     if not temperature:
-        return no_data_figure_msg()
+        return no_data_figure_msg(locale_data=loc)
 
-    sample_name = resolve_sample_name(summary, {}, fallback_display_name=dataset_key)
+    sample_name = resolve_sample_name(summary, {}, fallback_display_name=dataset_key, locale_data=loc)
 
     fig = go.Figure()
 
@@ -386,27 +425,39 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: l
     raw_width = 1.0 if has_smoothed else 1.5
     fig.add_trace(
         go.Scatter(
-            x=temperature, y=raw_signal, mode="lines", name="Raw Mass",
-            line=dict(color="#94A3B8", width=raw_width), opacity=raw_alpha,
+            x=temperature,
+            y=raw_signal,
+            mode="lines",
+            name=translate_ui(loc, "dash.analysis.figure.legend_raw_mass"),
+            line=dict(color="#94A3B8", width=raw_width),
+            opacity=raw_alpha,
         )
     )
 
     if smoothed and len(smoothed) == len(temperature):
         fig.add_trace(
-            go.Scatter(x=temperature, y=smoothed, mode="lines", name="Smoothed Mass", line=dict(color="#0E7490", width=1.5))
+            go.Scatter(
+                x=temperature,
+                y=smoothed,
+                mode="lines",
+                name=translate_ui(loc, "dash.analysis.figure.legend_smoothed_mass"),
+                line=dict(color="#0E7490", width=1.5),
+            )
         )
 
     if dtg and len(dtg) == len(temperature):
         fig.add_trace(
             go.Scatter(
-                x=temperature, y=dtg, mode="lines", name="DTG (dm/dT)",
-                line=dict(color="#DC2626", width=1.2), yaxis="y2",
+                x=temperature,
+                y=dtg,
+                mode="lines",
+                name=translate_ui(loc, "dash.analysis.figure.legend_dtg"),
+                line=dict(color="#DC2626", width=1.2),
+                yaxis="y2",
             )
         )
 
-    # Step markers: always show midpoint diamond; suppress text when
-    # too many steps crowd each other
-    _ANNOTATION_MIN_SEP = 15.0  # C
+    _ANNOTATION_MIN_SEP = 15.0
     annotated_temps: list[float] = []
 
     for row in step_rows:
@@ -417,18 +468,20 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: l
             text_str = f"{midpoint:.1f}" if not too_close else ""
             fig.add_trace(
                 go.Scatter(
-                    x=[temperature[idx]], y=[raw_signal[idx]], mode="markers+text",
+                    x=[temperature[idx]],
+                    y=[raw_signal[idx]],
+                    mode="markers+text",
                     marker=dict(size=10, color="#059669", symbol="diamond"),
-                    text=[text_str], textposition="bottom center",
+                    text=[text_str],
+                    textposition="bottom center",
                     textfont=dict(size=9, color="#059669"),
-                    name=f"Step mid {midpoint:.1f} C", showlegend=False,
+                    name=translate_ui(loc, "dash.analysis.figure.step_mid", v=f"{midpoint:.1f}"),
+                    showlegend=False,
                 )
             )
             if text_str:
                 annotated_temps.append(midpoint)
 
-    # Onset/endset vertical lines: draw as thin guides without annotation
-    # text when many steps are present; only annotate when sparse enough
     n_steps = len(step_rows)
     annotate_onset_endset = n_steps <= 4
 
@@ -436,21 +489,27 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: l
         onset = row.get("onset_temperature")
         endset = row.get("endset_temperature")
         if onset is not None:
-            ann_text = f"On {onset:.1f}" if annotate_onset_endset else ""
-            fig.add_vline(x=onset, line=dict(color="#F59E0B", width=1, dash="dot"),
-                          annotation_text=ann_text or None,
-                          annotation_position="top left")
+            ann_text = translate_ui(loc, "dash.analysis.figure.annot_on", v=f"{onset:.1f}") if annotate_onset_endset else ""
+            fig.add_vline(
+                x=onset,
+                line=dict(color="#F59E0B", width=1, dash="dot"),
+                annotation_text=ann_text or None,
+                annotation_position="top left",
+            )
         if endset is not None:
-            ann_text = f"End {endset:.1f}" if annotate_onset_endset else ""
-            fig.add_vline(x=endset, line=dict(color="#F59E0B", width=1, dash="dot"),
-                          annotation_text=ann_text or None,
-                          annotation_position="top left")
+            ann_text = translate_ui(loc, "dash.analysis.figure.annot_end", v=f"{endset:.1f}") if annotate_onset_endset else ""
+            fig.add_vline(
+                x=endset,
+                line=dict(color="#F59E0B", width=1, dash="dot"),
+                annotation_text=ann_text or None,
+                annotation_position="top left",
+            )
 
     fig.update_layout(
-        title=f"TGA - {sample_name}",
-        xaxis_title="Temperature (C)",
-        yaxis_title="Mass (%)",
-        yaxis2=dict(title="DTG (%/C)", overlaying="y", side="right", showgrid=False) if has_dtg else {},
+        title=translate_ui(loc, "dash.analysis.figure.title_tga", name=sample_name),
+        xaxis_title=translate_ui(loc, "dash.analysis.figure.axis_temperature_c"),
+        yaxis_title=translate_ui(loc, "dash.analysis.figure.axis_mass_pct"),
+        yaxis2=dict(title=translate_ui(loc, "dash.analysis.figure.axis_dtg"), overlaying="y", side="right", showgrid=False) if has_dtg else {},
         margin=dict(l=56, r=56, t=56, b=48),
         height=480,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -460,7 +519,7 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: l
         ink = PLOT_THEME[normalize_ui_theme(ui_theme)]["text"]
         fig.update_layout(
             yaxis2=dict(
-                title=dict(text="DTG (%/C)", font=dict(color=ink)),
+                title=dict(text=translate_ui(loc, "dash.analysis.figure.axis_dtg"), font=dict(color=ink)),
                 overlaying="y",
                 side="right",
                 showgrid=False,
@@ -470,9 +529,14 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, step_rows: l
     return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True}, className="ta-plot")
 
 
-def _build_step_table(rows: list) -> html.Div:
+def _build_step_table(rows: list, loc: str) -> html.Div:
     if not rows:
-        return html.Div([html.H5("Step Data Table", className="mb-3"), html.P("No step data.", className="text-muted")])
+        return html.Div(
+            [
+                html.H5(translate_ui(loc, "dash.analysis.section.step_table"), className="mb-3"),
+                html.P(translate_ui(loc, "dash.analysis.state.no_step_data"), className="text-muted"),
+            ]
+        )
 
     columns = [
         "onset_temperature",
@@ -484,7 +548,7 @@ def _build_step_table(rows: list) -> html.Div:
     ]
     return html.Div(
         [
-            html.H5("Step Data Table", className="mb-3"),
+            html.H5(translate_ui(loc, "dash.analysis.section.step_table"), className="mb-3"),
             dataset_table(rows, columns, table_id="tga-steps-table"),
         ]
     )

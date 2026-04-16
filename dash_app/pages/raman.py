@@ -27,15 +27,17 @@ from dash_app.components.analysis_page import (
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
 from dash_app.theme import PLOT_THEME, normalize_ui_theme
+from utils.i18n import normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/raman", title="RAMAN Analysis - MaterialScope")
 
+_RAMAN_TEMPLATE_IDS = ["raman.general", "raman.polymorph_screening"]
+_RAMAN_ELIGIBLE_TYPES = {"RAMAN", "UNKNOWN"}
 _RAMAN_WORKFLOW_TEMPLATES = [
     {"id": "raman.general", "label": "General Raman"},
     {"id": "raman.polymorph_screening", "label": "Polymorph Screening"},
 ]
 _TEMPLATE_OPTIONS = [{"label": t["label"], "value": t["id"]} for t in _RAMAN_WORKFLOW_TEMPLATES]
-_RAMAN_ELIGIBLE_TYPES = {"RAMAN", "UNKNOWN"}
 
 _CONFIDENCE_COLORS = {
     "high_confidence": "#059669",
@@ -55,11 +57,34 @@ _RAMAN_FIGURE_COLORS = {
 }
 
 
-def _match_card(row: dict, idx: int) -> dbc.Card:
+def _loc(locale_data: str | None) -> str:
+    return normalize_ui_locale(locale_data)
+
+
+def _confidence_band_label(loc: str, band: str) -> str:
+    token = str(band or "no_match").lower().replace(" ", "_")
+    key = f"dash.analysis.confidence.{token}"
+    text = translate_ui(loc, key)
+    if text == key:
+        return str(band).replace("_", " ").title()
+    return text
+
+
+def _match_status_label(loc: str, raw: str | None) -> str:
+    token = str(raw or "no_match").lower().replace(" ", "_")
+    key = f"dash.analysis.match_status.{token}"
+    text = translate_ui(loc, key)
+    if text == key:
+        s = str(raw or "").replace("_", " ").strip()
+        return s.title() if s else translate_ui(loc, "dash.analysis.na")
+    return text
+
+
+def _match_card(row: dict, idx: int, loc: str) -> dbc.Card:
     score = row.get("normalized_score", 0.0)
     band = str(row.get("confidence_band", "no_match")).lower()
     color = _CONFIDENCE_COLORS.get(band, "#6B7280")
-    candidate_name = row.get("candidate_name", "Unknown")
+    candidate_name = row.get("candidate_name", translate_ui(loc, "dash.analysis.unknown_candidate"))
     provider = row.get("library_provider", "")
     evidence = row.get("evidence", {})
 
@@ -69,9 +94,9 @@ def _match_card(row: dict, idx: int) -> dbc.Card:
                 html.Div(
                     [
                         html.I(className="bi bi-soundwave me-2", style={"color": color, "fontSize": "1.1rem"}),
-                        html.Strong(f"Match {idx + 1}", className="me-2"),
+                        html.Strong(translate_ui(loc, "dash.analysis.label.match_n", n=idx + 1), className="me-2"),
                         html.Span(
-                            band.replace("_", " ").title(),
+                            _confidence_band_label(loc, band),
                             className="badge",
                             style={"backgroundColor": color, "color": "white", "fontSize": "0.75rem"},
                         ),
@@ -81,16 +106,16 @@ def _match_card(row: dict, idx: int) -> dbc.Card:
                 dbc.Row(
                     [
                         dbc.Col(
-                            [html.Small("Candidate", className="text-muted d-block"), html.Span(candidate_name)],
+                            [html.Small(translate_ui(loc, "dash.analysis.label.candidate"), className="text-muted d-block"), html.Span(candidate_name)],
                             md=5,
                         ),
                         dbc.Col(
-                            [html.Small("Score", className="text-muted d-block"), html.Span(f"{score:.4f}")],
+                            [html.Small(translate_ui(loc, "dash.analysis.label.score"), className="text-muted d-block"), html.Span(f"{score:.4f}")],
                             md=2,
                         ),
                         dbc.Col(
                             [
-                                html.Small("Peak Overlap", className="text-muted d-block"),
+                                html.Small(translate_ui(loc, "dash.analysis.label.peak_overlap"), className="text-muted d-block"),
                                 html.Span(
                                     f"{evidence.get('shared_peak_count', '--')}/{evidence.get('observed_peak_count', '--')}"
                                 ),
@@ -98,7 +123,7 @@ def _match_card(row: dict, idx: int) -> dbc.Card:
                             md=2,
                         ),
                         dbc.Col(
-                            [html.Small("Provider", className="text-muted d-block"), html.Span(provider or "--")],
+                            [html.Small(translate_ui(loc, "dash.analysis.label.provider"), className="text-muted d-block"), html.Span(provider or "--")],
                             md=3,
                         ),
                     ],
@@ -113,23 +138,20 @@ def _match_card(row: dict, idx: int) -> dbc.Card:
 layout = html.Div(
     analysis_page_stores("raman-refresh", "raman-latest-result-id")
     + [
-        page_header(
-            "RAMAN Analysis",
-            "Select a RAMAN-eligible dataset, choose a workflow template, and run spectral matching.",
-            badge="Analysis",
-        ),
+        html.Div(id="raman-hero-slot"),
         dbc.Row(
             [
                 dbc.Col(
                     [
-                        dataset_selection_card("raman-dataset-selector-area"),
+                        dataset_selection_card("raman-dataset-selector-area", card_title_id="raman-dataset-card-title"),
                         workflow_template_card(
                             "raman-template-select",
                             "raman-template-description",
-                            _TEMPLATE_OPTIONS,
+                            [],
                             "raman.general",
+                            card_title_id="raman-workflow-card-title",
                         ),
-                        execute_card("raman-run-status", "raman-run-btn", "Run RAMAN Analysis"),
+                        execute_card("raman-run-status", "raman-run-btn", card_title_id="raman-execute-card-title"),
                     ],
                     md=4,
                 ),
@@ -148,18 +170,43 @@ layout = html.Div(
     ]
 )
 
-_TEMPLATE_DESCRIPTIONS = {
-    "raman.general": "General Raman: Moving-average smoothing, linear baseline, SNV normalization, cosine similarity matching.",
-    "raman.polymorph_screening": "Polymorph Screening: Shorter smoothing window, denser peak extraction, Pearson-focused matching.",
-}
-
 
 @callback(
+    Output("raman-hero-slot", "children"),
+    Output("raman-dataset-card-title", "children"),
+    Output("raman-workflow-card-title", "children"),
+    Output("raman-execute-card-title", "children"),
+    Output("raman-run-btn", "children"),
+    Output("raman-template-select", "options"),
+    Output("raman-template-select", "value"),
     Output("raman-template-description", "children"),
+    Input("ui-locale", "data"),
     Input("raman-template-select", "value"),
 )
-def update_template_description(template_id):
-    return _TEMPLATE_DESCRIPTIONS.get(template_id, "RAMAN analysis workflow.")
+def render_raman_locale_chrome(locale_data, template_id):
+    loc = _loc(locale_data)
+    hero = page_header(
+        translate_ui(loc, "dash.analysis.raman.title"),
+        translate_ui(loc, "dash.analysis.raman.caption"),
+        badge=translate_ui(loc, "dash.analysis.badge"),
+    )
+    opts = [{"label": translate_ui(loc, f"dash.analysis.raman.template.{tid}.label"), "value": tid} for tid in _RAMAN_TEMPLATE_IDS]
+    valid = {o["value"] for o in opts}
+    tid = template_id if template_id in valid else "raman.general"
+    desc_key = f"dash.analysis.raman.template.{tid}.desc"
+    desc = translate_ui(loc, desc_key)
+    if desc == desc_key:
+        desc = translate_ui(loc, "dash.analysis.raman.workflow_fallback")
+    return (
+        hero,
+        translate_ui(loc, "dash.analysis.dataset_selection_title"),
+        translate_ui(loc, "dash.analysis.workflow_template_title"),
+        translate_ui(loc, "dash.analysis.execute_title"),
+        translate_ui(loc, "dash.analysis.raman.run_btn"),
+        opts,
+        tid,
+        desc,
+    )
 
 
 @callback(
@@ -167,26 +214,29 @@ def update_template_description(template_id):
     Output("raman-run-btn", "disabled"),
     Input("project-id", "data"),
     Input("raman-refresh", "data"),
+    Input("ui-locale", "data"),
 )
-def load_eligible_datasets(project_id, _refresh):
+def load_eligible_datasets(project_id, _refresh, locale_data):
+    loc = _loc(locale_data)
     if not project_id:
-        return html.P("No workspace active. Create one first.", className="text-muted"), True
+        return html.P(translate_ui(loc, "dash.analysis.workspace_inactive"), className="text-muted"), True
 
     from dash_app.api_client import workspace_datasets
 
     try:
         payload = workspace_datasets(project_id)
     except Exception as exc:
-        return dbc.Alert(f"Error loading datasets: {exc}", color="danger"), True
+        return dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_datasets", error=str(exc)), color="danger"), True
 
     all_datasets = payload.get("datasets", [])
     return dataset_selector_block(
         selector_id="raman-dataset-select",
-        empty_msg="Import a RAMAN file first.",
+        empty_msg=translate_ui(loc, "dash.analysis.raman.empty_import"),
         eligible=eligible_datasets(all_datasets, _RAMAN_ELIGIBLE_TYPES),
         all_datasets=all_datasets,
         eligible_types=_RAMAN_ELIGIBLE_TYPES,
         active_dataset=payload.get("active_dataset"),
+        locale_data=locale_data,
     )
 
 
@@ -201,9 +251,11 @@ def load_eligible_datasets(project_id, _refresh):
     State("raman-template-select", "value"),
     State("raman-refresh", "data"),
     State("workspace-refresh", "data"),
+    State("ui-locale", "data"),
     prevent_initial_call=True,
 )
-def run_raman_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val, global_refresh):
+def run_raman_analysis(n_clicks, project_id, dataset_key, template_id, refresh_val, global_refresh, locale_data):
+    loc = _loc(locale_data)
     if not n_clicks or not project_id or not dataset_key:
         raise dash.exceptions.PreventUpdate
 
@@ -217,9 +269,9 @@ def run_raman_analysis(n_clicks, project_id, dataset_key, template_id, refresh_v
             workflow_template_id=template_id,
         )
     except Exception as exc:
-        return dbc.Alert(f"Analysis failed: {exc}", color="danger"), dash.no_update, dash.no_update, dash.no_update
+        return dbc.Alert(translate_ui(loc, "dash.analysis.analysis_failed", error=str(exc)), color="danger"), dash.no_update, dash.no_update, dash.no_update
 
-    alert, saved, result_id = interpret_run_result(result)
+    alert, saved, result_id = interpret_run_result(result, locale_data=locale_data)
     refresh = (refresh_val or 0) + 1
     if saved:
         return alert, refresh, result_id, (global_refresh or 0) + 1
@@ -235,10 +287,12 @@ def run_raman_analysis(n_clicks, project_id, dataset_key, template_id, refresh_v
     Input("raman-latest-result-id", "data"),
     Input("raman-refresh", "data"),
     Input("ui-theme", "data"),
+    Input("ui-locale", "data"),
     State("project-id", "data"),
 )
-def display_result(result_id, _refresh, ui_theme, project_id):
-    empty_msg = empty_result_msg()
+def display_result(result_id, _refresh, ui_theme, locale_data, project_id):
+    loc = _loc(locale_data)
+    empty_msg = empty_result_msg(locale_data=locale_data)
     if not result_id or not project_id:
         return empty_msg, empty_msg, empty_msg, empty_msg, empty_msg
 
@@ -247,7 +301,7 @@ def display_result(result_id, _refresh, ui_theme, project_id):
     try:
         detail = workspace_result_detail(project_id, result_id)
     except Exception as exc:
-        err = dbc.Alert(f"Error loading result: {exc}", color="danger")
+        err = dbc.Alert(translate_ui(loc, "dash.analysis.error_loading_result", error=str(exc)), color="danger")
         return err, empty_msg, empty_msg, empty_msg, empty_msg
 
     summary = detail.get("summary", {})
@@ -256,59 +310,69 @@ def display_result(result_id, _refresh, ui_theme, project_id):
     rows = detail.get("rows_preview", [])
 
     peak_count = summary.get("peak_count", 0)
-    match_status = str(summary.get("match_status", "no_match")).replace("_", " ").title()
+    match_status = _match_status_label(loc, summary.get("match_status"))
     top_score = summary.get("top_match_score", 0.0)
-    sample_name = resolve_sample_name(summary, result_meta)
-    top_score_str = f"{top_score:.4f}" if top_score else "N/A"
+    sample_name = resolve_sample_name(summary, result_meta, locale_data=locale_data)
+    na = translate_ui(loc, "dash.analysis.na")
+    top_score_str = f"{top_score:.4f}" if top_score else na
 
     metrics = metrics_row(
         [
-            ("Peaks", str(peak_count)),
-            ("Match Status", match_status),
-            ("Top Score", top_score_str),
-            ("Sample", sample_name),
-        ]
+            ("dash.analysis.metric.peaks", str(peak_count)),
+            ("dash.analysis.metric.match_status", match_status),
+            ("dash.analysis.metric.top_score", top_score_str),
+            ("dash.analysis.metric.sample", sample_name),
+        ],
+        locale_data=locale_data,
     )
 
-    match_cards = _build_match_cards(rows, summary.get("top_match_name"))
+    match_cards = _build_match_cards(rows, summary.get("top_match_name"), loc)
 
     dataset_key = result_meta.get("dataset_key")
     figure_area = empty_msg
     if dataset_key:
-        figure_area = _build_figure(project_id, dataset_key, summary, ui_theme)
+        figure_area = _build_figure(project_id, dataset_key, summary, ui_theme, loc)
 
-    table_area = _build_match_table(rows)
+    table_area = _build_match_table(rows, loc)
 
     method_context = processing.get("method_context", {})
     proc_view = processing_details_section(
         processing,
         extra_lines=[
-            html.P(f"Baseline: {processing.get('signal_pipeline', {}).get('baseline', {})}"),
-            html.P(f"Normalization: {processing.get('signal_pipeline', {}).get('normalization', {})}"),
-            html.P(f"Peak Detection: {processing.get('analysis_steps', {}).get('peak_detection', {})}"),
-            html.P(f"Similarity Matching: {processing.get('analysis_steps', {}).get('similarity_matching', {})}"),
+            html.P(translate_ui(loc, "dash.analysis.raman.baseline", detail=processing.get("signal_pipeline", {}).get("baseline", {}))),
+            html.P(translate_ui(loc, "dash.analysis.raman.normalization", detail=processing.get("signal_pipeline", {}).get("normalization", {}))),
+            html.P(translate_ui(loc, "dash.analysis.raman.peak_detection", detail=processing.get("analysis_steps", {}).get("peak_detection", {}))),
+            html.P(translate_ui(loc, "dash.analysis.raman.similarity_matching", detail=processing.get("analysis_steps", {}).get("similarity_matching", {}))),
             html.P(
-                f"Library: {method_context.get('library_access_mode', 'N/A')} "
-                f"(source: {method_context.get('library_result_source', 'N/A')})",
+                translate_ui(
+                    loc,
+                    "dash.analysis.raman.library",
+                    mode=method_context.get("library_access_mode", na),
+                    source=method_context.get("library_result_source", na),
+                ),
                 className="mb-0",
             ),
         ],
+        locale_data=locale_data,
     )
 
     return metrics, match_cards, figure_area, table_area, proc_view
 
 
-def _build_match_cards(rows: list, top_match_name: str | None) -> html.Div:
+def _build_match_cards(rows: list, top_match_name: str | None = None, loc: str = "en") -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("Library Matches", className="mb-3"), html.P("No library matches found.", className="text-muted")]
+            [
+                html.H5(translate_ui(loc, "dash.analysis.section.library_matches"), className="mb-3"),
+                html.P(translate_ui(loc, "dash.analysis.state.no_library_matches"), className="text-muted"),
+            ]
         )
 
-    cards = [html.H5("Library Matches", className="mb-3")]
+    cards = [html.H5(translate_ui(loc, "dash.analysis.section.library_matches"), className="mb-3")]
     if top_match_name:
-        cards.append(html.P(f"Top match: {top_match_name}", className="mb-3"))
+        cards.append(html.P(translate_ui(loc, "dash.analysis.raman.top_match", name=top_match_name), className="mb-3"))
     for idx, row in enumerate(rows):
-        cards.append(_match_card(row, idx))
+        cards.append(_match_card(row, idx, loc))
     return html.Div(cards)
 
 
@@ -337,7 +401,7 @@ def _y_axis_range(*series: list | None) -> list[float] | None:
     return [y_min - padding, y_max + padding]
 
 
-def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: str | None) -> html.Div:
+def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: str | None, loc: str = "en") -> html.Div:
     from dash_app.api_client import analysis_state_curves
 
     try:
@@ -352,9 +416,9 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
     corrected = curves.get("corrected", [])
 
     if not raman_shift:
-        return no_data_figure_msg()
+        return no_data_figure_msg(locale_data=loc)
 
-    sample_name = resolve_sample_name(summary, {}, fallback_display_name=dataset_key)
+    sample_name = resolve_sample_name(summary, {}, fallback_display_name=dataset_key, locale_data=loc)
     tone = normalize_ui_theme(ui_theme)
     pt = PLOT_THEME[tone]
     muted = "#66645E" if tone == "light" else "#9E9A93"
@@ -366,7 +430,10 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
     has_baseline = bool(baseline and len(baseline) == len(raman_shift))
     has_overlay = has_smoothed or has_corrected or has_baseline
     dominant_signal = corrected if has_corrected else smoothed if has_smoothed else raw_signal
-    dominant_name = "Query Spectrum" if has_corrected else "Smoothed Spectrum" if has_smoothed else "Imported Spectrum"
+    legend_query = translate_ui(loc, "dash.analysis.figure.legend_query_spectrum")
+    legend_smooth = translate_ui(loc, "dash.analysis.figure.legend_smoothed_spectrum")
+    legend_imported = translate_ui(loc, "dash.analysis.figure.legend_imported_spectrum")
+    dominant_name = legend_query if has_corrected else legend_smooth if has_smoothed else legend_imported
     y_range = _y_axis_range(dominant_signal, raw_signal, smoothed, baseline)
 
     fig = go.Figure()
@@ -377,7 +444,7 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
                 x=raman_shift,
                 y=baseline,
                 mode="lines",
-                name="Estimated Baseline",
+                name=translate_ui(loc, "dash.analysis.figure.legend_estimated_baseline"),
                 line=dict(color=_RAMAN_FIGURE_COLORS["baseline"], width=1.3, dash="dash"),
                 opacity=0.7,
             )
@@ -389,7 +456,7 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
                 x=raman_shift,
                 y=raw_signal,
                 mode="lines",
-                name="Imported Spectrum",
+                name=legend_imported,
                 line=dict(color=_RAMAN_FIGURE_COLORS["raw"], width=1.6),
                 opacity=0.45 if has_overlay else 0.95,
             )
@@ -401,7 +468,7 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
                 x=raman_shift,
                 y=smoothed,
                 mode="lines",
-                name="Smoothed Spectrum",
+                name=legend_smooth,
                 line=dict(color=_RAMAN_FIGURE_COLORS["smoothed"], width=2.0),
                 opacity=0.9 if has_corrected else 1.0,
             )
@@ -413,18 +480,19 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
                 x=raman_shift,
                 y=corrected,
                 mode="lines",
-                name="Query Spectrum",
+                name=legend_query,
                 line=dict(color=_RAMAN_FIGURE_COLORS["query"], width=3.2),
             )
         )
 
+    title_main = translate_ui(loc, "dash.analysis.figure.title_raman_main")
     fig.update_layout(
-        title=("RAMAN Query Spectrum" f"<br><span style='font-size:0.82em;color:{muted}'>{sample_name}</span>"),
+        title=(f"{title_main}<br><span style='font-size:0.82em;color:{muted}'>{sample_name}</span>"),
         paper_bgcolor=pt["paper_bg"],
         plot_bgcolor=pt["plot_bg"],
         hovermode="x unified",
-        xaxis_title="Raman Shift (cm^-1)",
-        yaxis_title="Intensity (a.u.)",
+        xaxis_title=translate_ui(loc, "dash.analysis.figure.axis_raman_shift"),
+        yaxis_title=translate_ui(loc, "dash.analysis.figure.axis_intensity_au"),
         xaxis=dict(
             showgrid=True,
             gridcolor=pt["grid"],
@@ -459,16 +527,19 @@ def _build_figure(project_id: str, dataset_key: str, summary: dict, ui_theme: st
         ),
         hoverlabel=dict(bgcolor=hover_bg, font=dict(color=hover_fg)),
     )
-    if fig.data and dominant_name != "Query Spectrum":
+    if fig.data and dominant_name != legend_query:
         fig.data[-1].name = dominant_name
     fig.update_layout(template=pt["template"])
     return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True}, className="ta-plot")
 
 
-def _build_match_table(rows: list) -> html.Div:
+def _build_match_table(rows: list, loc: str = "en") -> html.Div:
     if not rows:
         return html.Div(
-            [html.H5("Match Data Table", className="mb-3"), html.P("No match data.", className="text-muted")]
+            [
+                html.H5(translate_ui(loc, "dash.analysis.section.match_data_table"), className="mb-3"),
+                html.P(translate_ui(loc, "dash.analysis.state.no_match_data"), className="text-muted"),
+            ]
         )
 
     columns = [
@@ -482,7 +553,7 @@ def _build_match_table(rows: list) -> html.Div:
     ]
     return html.Div(
         [
-            html.H5("Match Data Table", className="mb-3"),
+            html.H5(translate_ui(loc, "dash.analysis.section.match_data_table"), className="mb-3"),
             dataset_table(rows, columns, table_id="raman-matches-table"),
         ]
     )
