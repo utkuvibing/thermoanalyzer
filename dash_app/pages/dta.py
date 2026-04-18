@@ -82,6 +82,7 @@ _DIRECTION_GUIDE_COLORS = {
 
 _ANNOTATION_MIN_SEP = 15.0
 _PRIMARY_EVENT_LIMIT = 4
+_DTA_VIEW_MODES = ("result", "debug")
 _EMPTY_SAMPLE_TOKENS = {"", "unknown", "n/a", "na", "none", "null", "unnamed"}
 
 # Smoothing defaults mirror core/batch_runner._DTA_TEMPLATE_DEFAULTS["dta.general"]
@@ -503,6 +504,116 @@ def _compute_y_axis_range(*series_collection: list[float]) -> list[float] | None
     else:
         pad = span * 0.12
     return [lower - pad, upper + pad]
+
+
+def _temperature_label(loc: str) -> str:
+    return "Sıcaklık (°C)" if normalize_ui_locale(loc) == "tr" else "Temperature (°C)"
+
+
+def _format_temp_c(value: float | None) -> str:
+    parsed = _coerce_float(value)
+    if parsed is None:
+        return "--"
+    return f"{parsed:.1f}°C"
+
+
+def _signal_label(loc: str) -> str:
+    return "ΔT (a.b.)" if normalize_ui_locale(loc) == "tr" else "ΔT (a.u.)"
+
+
+def _format_signal(value: float | None) -> str:
+    parsed = _coerce_float(value)
+    if parsed is None:
+        return "--"
+    return f"{parsed:.4f}"
+
+
+def _trace_hover_template(trace_label: str, loc: str) -> str:
+    temp_label = _temperature_label(loc)
+    signal_label = _signal_label(loc)
+    return (
+        f"{trace_label}"
+        f"<br>{temp_label}: %{{x:.1f}}°C"
+        f"<br>{signal_label}: %{{y:.4f}}"
+        "<extra></extra>"
+    )
+
+
+def _event_hover_html(row: dict, direction_label: str, signal_value: float | None, loc: str) -> str:
+    onset_label = "Başlangıç" if normalize_ui_locale(loc) == "tr" else "Onset"
+    endset_label = "Bitiş" if normalize_ui_locale(loc) == "tr" else "Endset"
+    area_label = translate_ui(loc, "dash.analysis.label.area")
+    height_label = translate_ui(loc, "dash.analysis.label.height")
+    fwhm_label = translate_ui(loc, "dash.analysis.label.fwhm")
+    signal_label = _signal_label(loc)
+    return (
+        f"{direction_label} event"
+        f"<br>{_temperature_label(loc)}: {_format_temp_c(row.get('peak_temperature'))}"
+        f"<br>{onset_label}: {_format_temp_c(row.get('onset_temperature'))}"
+        f"<br>{endset_label}: {_format_temp_c(row.get('endset_temperature'))}"
+        f"<br>{area_label}: {_format_signal(row.get('area'))}"
+        f"<br>{height_label}: {_format_signal(row.get('height'))}"
+        f"<br>{fwhm_label}: {_format_signal(row.get('fwhm'))}°C"
+        f"<br>{signal_label}: {_format_signal(signal_value)}"
+        "<extra></extra>"
+    )
+
+
+def _event_text_label(
+    row: dict,
+    *,
+    direction_label: str,
+    pt: float,
+    is_primary: bool,
+    min_sep: float,
+    annotated_temps: list[float],
+    mode: str,
+) -> str:
+    if mode == "debug":
+        return ""
+    if not is_primary:
+        return ""
+    if any(abs(pt - t) < min_sep for t in annotated_temps):
+        return ""
+    normalized_direction = _normalize_direction(row.get("direction", row.get("peak_type", "unknown")))
+    short_direction = "Endo" if normalized_direction == "endotherm" else "Exo"
+    return f"{short_direction} {_format_temp_c(pt)}"
+
+
+def _build_event_guides(fig: go.Figure, rows: list[dict], *, loc: str, mode: str) -> None:
+    if not rows:
+        return
+    sorted_rows = _sort_events_by_temperature(rows)
+    if mode == "result":
+        return
+
+    placed_annotations: list[float] = []
+    annotation_min_sep = _ANNOTATION_MIN_SEP
+    for row in sorted_rows:
+        direction = _normalize_direction(row.get("direction", row.get("peak_type")))
+        guide_color = _DIRECTION_GUIDE_COLORS.get(direction, "rgba(100, 116, 139, 0.18)")
+        onset = _coerce_float(row.get("onset_temperature"))
+        endset = _coerce_float(row.get("endset_temperature"))
+        if onset is not None:
+            show_onset_label = all(abs(onset - t) >= annotation_min_sep for t in placed_annotations)
+            fig.add_vline(
+                x=onset,
+                line=dict(color=guide_color, width=1, dash="dot"),
+                annotation_text=translate_ui(loc, "dash.analysis.figure.annot_on", v=f"{onset:.1f}") if show_onset_label else None,
+                annotation_position="top left",
+            )
+            if show_onset_label:
+                placed_annotations.append(onset)
+        if endset is not None:
+            show_endset_label = all(abs(endset - t) >= annotation_min_sep for t in placed_annotations)
+            fig.add_vline(
+                x=endset,
+                line=dict(color=guide_color, width=1, dash="dot"),
+                annotation_text=translate_ui(loc, "dash.analysis.figure.annot_end", v=f"{endset:.1f}") if show_endset_label else None,
+                annotation_position="top left",
+            )
+            if show_endset_label:
+                placed_annotations.append(endset)
 
 
 def _peak_card(row: dict, idx: int, loc: str = "en") -> dbc.Card:
@@ -1980,6 +2091,7 @@ def _build_dta_go_figure(
     peak_rows: list,
     ui_theme: str | None,
     loc: str = "en",
+    view_mode: str = "result",
 ) -> go.Figure | None:
     """Build the DTA Plotly figure, or return None when data is missing.
 
@@ -1992,6 +2104,9 @@ def _build_dta_go_figure(
         curves = analysis_state_curves(project_id, "DTA", dataset_key)
     except Exception:
         curves = {}
+
+    if view_mode not in _DTA_VIEW_MODES:
+        view_mode = "result"
 
     temperature = curves.get("temperature", [])
     raw_signal = _series_for_temperature(curves.get("raw_signal", []), temperature)
@@ -2024,6 +2139,7 @@ def _build_dta_go_figure(
                 name=legend_raw,
                 line=dict(color="#94A3B8", width=1.0 if primary_name != legend_raw else 1.8),
                 opacity=0.24 if primary_name != legend_raw else 0.9,
+                hovertemplate=_trace_hover_template(legend_raw, loc),
             )
         )
 
@@ -2036,6 +2152,7 @@ def _build_dta_go_figure(
                 name=legend_smooth,
                 line=dict(color="#0891B2", width=1.5),
                 opacity=0.9,
+                hovertemplate=_trace_hover_template(legend_smooth, loc),
             )
         )
 
@@ -2048,6 +2165,7 @@ def _build_dta_go_figure(
                 name=legend_base,
                 line=dict(color="#64748B", width=1.0, dash="dot"),
                 opacity=0.8,
+                hovertemplate=_trace_hover_template(legend_base, loc),
             )
         )
 
@@ -2059,45 +2177,35 @@ def _build_dta_go_figure(
             name=primary_name,
             line=dict(color=primary_color, width=2.8),
             opacity=1.0,
+            hovertemplate=_trace_hover_template(primary_name, loc),
         )
     )
 
     primary_rows, _secondary_rows = _split_primary_events(peak_rows, limit=min(_PRIMARY_EVENT_LIMIT, len(peak_rows) or 0))
     primary_ids = {id(row) for row in primary_rows}
-    guide_rows = primary_rows if len(peak_rows) > _PRIMARY_EVENT_LIMIT else _sort_events_by_temperature(peak_rows)
-    annotate_guides = len(guide_rows) <= 3
+    guide_rows = primary_rows if len(peak_rows) > _PRIMARY_EVENT_LIMIT else peak_rows
+    _build_event_guides(fig, guide_rows, loc=loc, mode=view_mode)
     annotated_temps: list[float] = []
-
-    for row in guide_rows:
-        direction = _normalize_direction(row.get("direction", row.get("peak_type")))
-        guide_color = _DIRECTION_GUIDE_COLORS.get(direction, "rgba(100, 116, 139, 0.18)")
-        onset = _coerce_float(row.get("onset_temperature"))
-        endset = _coerce_float(row.get("endset_temperature"))
-        if onset is not None:
-            fig.add_vline(
-                x=onset,
-                line=dict(color=guide_color, width=1, dash="dot"),
-                annotation_text=translate_ui(loc, "dash.analysis.figure.annot_on", v=f"{onset:.1f}") if annotate_guides else None,
-                annotation_position="top left",
-            )
-        if endset is not None:
-            fig.add_vline(
-                x=endset,
-                line=dict(color=guide_color, width=1, dash="dot"),
-                annotation_text=translate_ui(loc, "dash.analysis.figure.annot_end", v=f"{endset:.1f}") if annotate_guides else None,
-                annotation_position="top left",
-            )
 
     for row in _sort_events_by_temperature(peak_rows):
         pt = _coerce_float(row.get("peak_temperature"))
         if pt is None or not temperature:
             continue
         direction = _normalize_direction(row.get("direction", row.get("peak_type", "unknown")))
+        direction_label = _direction_label(direction, loc)
         color = _DIRECTION_COLORS.get(direction, "#B45309")
         idx = min(range(len(temperature)), key=lambda i: abs(temperature[i] - pt))
-        too_close = any(abs(pt - t) < _ANNOTATION_MIN_SEP for t in annotated_temps)
         is_primary = id(row) in primary_ids
-        text_str = f"{pt:.1f}" if is_primary and not too_close else ""
+        text_str = _event_text_label(
+            row,
+            direction_label=direction_label,
+            pt=pt,
+            is_primary=is_primary,
+            min_sep=_ANNOTATION_MIN_SEP,
+            annotated_temps=annotated_temps,
+            mode=view_mode,
+        )
+        marker_hover = _event_hover_html(row, direction_label, _coerce_float(primary_signal[idx]), loc)
         fig.add_trace(
             go.Scatter(
                 x=[temperature[idx]],
@@ -2112,8 +2220,9 @@ def _build_dta_go_figure(
                 text=[text_str],
                 textposition="top center",
                 textfont=dict(size=9, color=color),
-                name=f"{_direction_label(direction, loc)} {pt:.1f} C",
+                name=f"{direction_label} {_format_temp_c(pt)}",
                 showlegend=False,
+                hovertemplate=marker_hover,
             )
         )
         if text_str:
@@ -2126,7 +2235,13 @@ def _build_dta_go_figure(
         hovermode="x unified",
         margin=dict(l=56, r=24, t=56, b=48),
         height=560,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(
+            orientation="v" if view_mode == "debug" else "h",
+            yanchor="bottom" if view_mode != "debug" else "top",
+            y=1.02 if view_mode != "debug" else 1.0,
+            xanchor="right",
+            x=1,
+        ),
     )
     apply_figure_theme(fig, ui_theme)
     fig.update_yaxes(range=y_range)
@@ -2141,6 +2256,7 @@ def _build_figure(
     ui_theme: str | None,
     loc: str = "en",
     locale_data: str | None = None,
+    view_mode: str = "result",
 ) -> html.Div:
     _ld = locale_data if locale_data is not None else loc
     from dash_app.api_client import analysis_state_curves
@@ -2152,10 +2268,51 @@ def _build_figure(
     if not curves.get("temperature"):
         return no_data_figure_msg(locale_data=_ld)
 
-    fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc)
+    fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc, view_mode=view_mode)
     if fig is None:
         return no_data_figure_msg(text=translate_ui(loc, "dash.analysis.dta.no_plot_signal"), locale_data=_ld)
-    return dcc.Graph(figure=fig, config={"displaylogo": False, "responsive": True}, className="ta-plot")
+
+    result_graph = dcc.Graph(
+        figure=fig,
+        config={
+            "displaylogo": False,
+            "responsive": True,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
+        className="ta-plot",
+    )
+    if view_mode != "result":
+        return result_graph
+
+    debug_fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc, view_mode="debug")
+    if debug_fig is None:
+        return result_graph
+    debug_graph = dcc.Graph(
+        figure=debug_fig,
+        config={
+            "displaylogo": False,
+            "responsive": True,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
+        className="ta-plot",
+    )
+    debug_title = "Gelişmiş Tanılama Görünümü" if normalize_ui_locale(loc) == "tr" else "Debug / Analysis View"
+    debug_details = html.Details(
+        [
+            html.Summary(
+                [
+                    html.Span(className="ta-details-chevron"),
+                    html.Span(debug_title, className="ms-1"),
+                ],
+                className="ta-details-summary",
+            ),
+            html.Div(debug_graph, className="ta-details-body mt-2"),
+        ],
+        className="ta-ms-details mt-3",
+        open=False,
+        id="dta-debug-figure-details",
+    )
+    return html.Div([result_graph, debug_details])
 
 
 def _build_peak_table(rows: list, loc: str = "en") -> html.Div:
@@ -3230,13 +3387,14 @@ def _capture_dta_figure_png(
     peak_rows: list,
     ui_theme: str | None,
     loc: str,
+    view_mode: str = "result",
 ) -> bytes | None:
     """Build the DTA figure as PNG bytes; return None on any failure.
 
     Uses ``plotly.io.to_image`` (kaleido) and swallows errors so the capture
     callback never breaks the rest of the UI if kaleido is unavailable.
     """
-    fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc)
+    fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc, view_mode=view_mode)
     if fig is None:
         return None
     try:
@@ -3299,7 +3457,7 @@ def capture_dta_figure(result_id, project_id, captured, ui_theme, locale_data):
         dataset_detail = {}
     sample_name = _resolve_dta_sample_name(summary, result_meta, dataset_detail, locale_data=locale_data)
 
-    png_bytes = _capture_dta_figure_png(project_id, dataset_key, sample_name, rows, ui_theme, loc)
+    png_bytes = _capture_dta_figure_png(project_id, dataset_key, sample_name, rows, ui_theme, loc, view_mode="result")
     if not png_bytes:
         captured[result_id] = {"status": "skipped", "reason": "render_failed"}
         return captured

@@ -350,7 +350,7 @@ def test_build_figure_uses_corrected_as_primary_trace(monkeypatch):
         },
     )
 
-    graph = mod._build_figure(
+    figure_panel = mod._build_figure(
         "proj-1",
         "dataset-1",
         "Synthetic DTA Run",
@@ -367,14 +367,21 @@ def test_build_figure_uses_corrected_as_primary_trace(monkeypatch):
         "light",
     )
 
+    assert isinstance(figure_panel, html.Div)
+    panel_children = list(figure_panel.children or [])
+    assert len(panel_children) == 2
+    graph = panel_children[0]
+    debug_details = panel_children[1]
     assert isinstance(graph, dcc.Graph)
+    assert isinstance(debug_details, html.Details)
+    assert getattr(debug_details, "id", "") == "dta-debug-figure-details"
     corrected_trace = next(trace for trace in graph.figure.data if trace.name == "Corrected Signal")
     raw_trace = next(trace for trace in graph.figure.data if trace.name == "Raw Signal")
     assert corrected_trace.line.width == 2.8
     assert raw_trace.opacity < 0.3
     assert graph.figure.layout.height == 560
     assert graph.figure.layout.yaxis.range is not None
-    assert len(graph.figure.layout.shapes) >= 2
+    assert graph.figure.layout.shapes in ((), None)
 
 
 def test_build_figure_handles_missing_primary_signal(monkeypatch):
@@ -403,6 +410,276 @@ def test_build_figure_handles_missing_primary_signal(monkeypatch):
 
     assert isinstance(result, html.P)
     assert "No processed DTA signal is available" in str(result)
+
+
+def test_build_dta_go_figure_default_mode_is_result(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 150.0, 200.0, 250.0],
+            "raw_signal": [0.0, 1.2, -0.3, 0.6],
+            "smoothed": [0.1, 1.0, -0.1, 0.5],
+            "baseline": [0.05, 0.05, 0.05, 0.05],
+            "corrected": [0.05, 0.95, -0.15, 0.45],
+        },
+    )
+
+    peak_rows = [
+        {
+            "direction": "exo",
+            "peak_temperature": 150.0,
+            "onset_temperature": 140.0,
+            "endset_temperature": 165.0,
+            "area": 2.5,
+            "height": 0.8,
+        }
+    ]
+    default_fig = mod._build_dta_go_figure("proj-1", "dataset-1", "Synthetic DTA Run", peak_rows, "light")
+    result_fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="result",
+    )
+
+    assert default_fig is not None
+    assert result_fig is not None
+    default_data = default_fig.to_plotly_json()["data"]
+    result_data = result_fig.to_plotly_json()["data"]
+    assert len(default_data) == len(result_data) == 5
+    assert default_data[3]["name"] == result_data[3]["name"] == "Corrected Signal"
+
+
+def test_build_dta_go_figure_invalid_mode_falls_back_to_result(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 150.0, 200.0, 250.0],
+            "raw_signal": [0.0, 1.2, -0.3, 0.6],
+            "smoothed": [0.1, 1.0, -0.1, 0.5],
+            "baseline": [0.05, 0.05, 0.05, 0.05],
+            "corrected": [0.05, 0.95, -0.15, 0.45],
+        },
+    )
+
+    peak_rows = [
+        {
+            "direction": "exo",
+            "peak_temperature": 150.0,
+            "onset_temperature": 140.0,
+            "endset_temperature": 165.0,
+            "area": 2.5,
+            "height": 0.8,
+        }
+    ]
+    invalid_fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="nonsense",
+    )
+    result_fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="result",
+    )
+
+    assert invalid_fig is not None
+    assert result_fig is not None
+    invalid_data = invalid_fig.to_plotly_json()["data"]
+    result_data = result_fig.to_plotly_json()["data"]
+    assert len(invalid_data) == len(result_data)
+    assert [trace["name"] for trace in invalid_data] == [trace["name"] for trace in result_data]
+    assert invalid_fig.to_plotly_json() == result_fig.to_plotly_json()
+
+
+def test_build_dta_go_figure_result_mode_suppresses_guide_annotation_text(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 150.0, 200.0, 250.0],
+            "raw_signal": [0.0, 1.2, -0.3, 0.6],
+            "smoothed": [0.1, 1.0, -0.1, 0.5],
+            "baseline": [0.05, 0.05, 0.05, 0.05],
+            "corrected": [0.05, 0.95, -0.15, 0.45],
+        },
+    )
+    peak_rows = [
+        {
+            "direction": "exo",
+            "peak_temperature": 150.0,
+            "onset_temperature": 140.0,
+            "endset_temperature": 165.0,
+            "area": 2.5,
+            "height": 0.8,
+            "fwhm": 11.0,
+        }
+    ]
+    fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="result",
+    )
+    assert fig is not None
+    layout_json = fig.to_plotly_json().get("layout", {})
+    annotations = layout_json.get("annotations") or []
+    assert annotations == []
+
+
+def test_build_dta_go_figure_event_marker_labels_are_clean_and_use_degree_symbol(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 120.0, 140.0, 160.0, 180.0],
+            "raw_signal": [0.0, 0.4, 1.1, 0.3, -0.2],
+            "smoothed": [0.0, 0.3, 1.0, 0.4, -0.1],
+            "baseline": [0.05, 0.05, 0.05, 0.05, 0.05],
+            "corrected": [0.0, 0.25, 0.95, 0.35, -0.15],
+        },
+    )
+    peak_rows = [
+        {
+            "direction": "exo",
+            "peak_temperature": 140.0,
+            "onset_temperature": 132.0,
+            "endset_temperature": 148.0,
+            "area": 2.5,
+            "height": 0.8,
+            "fwhm": 11.0,
+        }
+    ]
+    fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="result",
+    )
+    assert fig is not None
+    marker_trace = next(
+        trace for trace in fig.data if str(getattr(trace, "mode", "")) == "markers+text"
+    )
+    text_payload = list(getattr(marker_trace, "text", []) or [])
+    assert text_payload
+    assert any("°C" in str(item) for item in text_payload)
+    assert all(str(item).strip() == "" or "°C" in str(item) for item in text_payload)
+    assert " C" not in str(marker_trace.name)
+    assert "°C" in str(marker_trace.name)
+
+
+def test_build_dta_go_figure_sets_explicit_hovertemplates_for_traces_and_markers(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 150.0, 200.0, 250.0],
+            "raw_signal": [0.0, 1.2, -0.3, 0.6],
+            "smoothed": [0.1, 1.0, -0.1, 0.5],
+            "baseline": [0.05, 0.05, 0.05, 0.05],
+            "corrected": [0.05, 0.95, -0.15, 0.45],
+        },
+    )
+    peak_rows = [
+        {
+            "direction": "exo",
+            "peak_temperature": 150.0,
+            "onset_temperature": 140.0,
+            "endset_temperature": 165.0,
+            "area": 2.5,
+            "height": 0.8,
+            "fwhm": 11.0,
+        }
+    ]
+    fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="result",
+    )
+    assert fig is not None
+    for trace in fig.data:
+        hovertemplate = str(getattr(trace, "hovertemplate", "") or "")
+        assert hovertemplate
+        assert "<extra></extra>" in hovertemplate
+
+
+def test_build_dta_go_figure_debug_mode_adds_restrained_guides(monkeypatch):
+    mod = _import_dta_page()
+    import dash_app.api_client as api_client
+
+    monkeypatch.setattr(
+        api_client,
+        "analysis_state_curves",
+        lambda _project_id, _analysis_type, _dataset_key: {
+            "temperature": [100.0, 120.0, 140.0, 160.0, 180.0, 200.0, 220.0],
+            "raw_signal": [0.0, 0.5, 1.1, 0.2, -0.3, 0.8, 1.0],
+            "smoothed": [0.1, 0.4, 1.0, 0.3, -0.2, 0.7, 0.9],
+            "baseline": [0.05] * 7,
+            "corrected": [0.05, 0.35, 0.95, 0.25, -0.25, 0.65, 0.85],
+        },
+    )
+    peak_rows = [
+        {"direction": "exo", "peak_temperature": 140.0, "onset_temperature": 132.0, "endset_temperature": 149.0},
+        {"direction": "endo", "peak_temperature": 180.0, "onset_temperature": 171.0, "endset_temperature": 189.0},
+    ]
+    result_fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="result",
+    )
+    debug_fig = mod._build_dta_go_figure(
+        "proj-1",
+        "dataset-1",
+        "Synthetic DTA Run",
+        peak_rows,
+        "light",
+        view_mode="debug",
+    )
+    assert result_fig is not None
+    assert debug_fig is not None
+    result_layout = result_fig.to_plotly_json().get("layout", {})
+    debug_layout = debug_fig.to_plotly_json().get("layout", {})
+    result_shapes = result_layout.get("shapes") or []
+    debug_shapes = debug_layout.get("shapes") or []
+    debug_annotations = debug_layout.get("annotations") or []
+    assert result_shapes == []
+    assert len(debug_shapes) >= 2
+    assert len(debug_annotations) <= 4
 
 
 # ---------------------------------------------------------------------------
