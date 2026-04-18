@@ -7,13 +7,18 @@
 - **Project:** MaterialScope
 - **Direction (context):** incremental Streamlit → Dash + Plotly; DTA parity plan in `c:\Users\Utku ŞAHİN\.cursor\plans\dash_dta_parity_audit_292c7597.plan.md` (audit + phased approach + first safe slice).
 - **Branch:** `web-dash-plotly-migration`.
-- **WIP / cautions:** Large set of **unrelated modified** tracked files remains locally from prior sessions (see `git status`); **do not mix** with the next slice unless intentional. Also one deleted file staged in the working tree: `.cursor/rules/materialscope-dash-migration.mdc` (deletion not committed — unrelated). Next slice should start from a clean checkout-equivalent mental model and touch only files scoped to that slice's TASK.md.
-- **Active slice (2026-04-18 — DTA Dash Graph Polish & Refactor):** Plan at `.sisyphus/plans/dta-dash-graph-polish-refactor.md`. Scope: Dash-only DTA figure mode contract (`result`/`debug`), annotation clutter reduction, trace hierarchy polish, capture/report result-mode lock, i18n, expanded tests. Files: `dash_app/pages/dta.py`, `tests/test_dta_dash_page.py`, `utils/i18n.py`. No Streamlit or cross-modality changes.
+- **Active slice (2026-04-18 — Shared figure persistence + branding feedback):** Implemented real runtime fix at shared save pipeline layer.
+- **Touched files:** `backend/app.py`, `core/figure_render.py`, `dash_app/components/analysis_page.py`, `dash_app/pages/dta.py`, `dash_app/pages/export.py`, `tests/test_backend_workflow.py`, `tests/test_analysis_page_components.py`, `tests/test_dta_dash_page.py`, `tests/test_export_dash_page.py`.
+- **Runtime verification completed on live server (`python -m dash_app.server`):**
+  - DTA saved result registered `report_figure_key` and exported DOCX/PDF each contained figure image.
+  - FTIR saved result also registered and exported with figure image.
+  - Project save/load preserved figure count and linkage.
+  - Branding upload callback provided immediate pre-save feedback text and preview payload.
 
 ## Next step
 
-1. **Execute Task 1:** Add `view_mode` contract to `_build_dta_go_figure` and `_build_figure` in `dash_app/pages/dta.py`.
-2. Continue through Tasks 2–8 per plan dependency order.
-3. Run Final Verification Wave (F1–F4) after all implementation tasks complete.
+1. Commit and push this shared persistence + branding feedback slice.
+2. Optional follow-up: add a lightweight integration smoke script for figure persistence in CI-like local checks.
+3. Continue with next Dash polish slice after this branch sync.
 
 **Process defaults:** single thread, **no PM/architect/QA roleplay**, small safe diffs, explicit verification—full detail in **`00-workflow.mdc`**.

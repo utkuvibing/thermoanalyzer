@@ -4,6 +4,36 @@
 
 ---
 
+## 2026-04-18 — Figure persistence moved to shared backend save path
+
+**Decision:** Register a result snapshot figure in shared backend state during saved `/analysis/run` and batch save flows, instead of relying solely on page-specific Dash capture callbacks.
+
+**Reason:** Real app behavior showed visible graphs could still fail to persist for export/project flows when UI capture callbacks were skipped or failed at runtime.
+
+**Consequence / future:** Figure persistence is now modality-agnostic and resilient for saved results. Page-level capture remains useful for richer figure overrides but is no longer the single point of failure.
+
+---
+
+## 2026-04-18 — Shared figure rendering helper with fallback
+
+**Decision:** Introduce `core/figure_render.py` and route Dash capture paths through `render_plotly_figure_png`, with fallback rendering when primary Plotly static export fails.
+
+**Reason:** Runtime renderer availability differs across environments; hard dependency on one render path caused missed registrations.
+
+**Consequence / future:** Capture reliability improves across environments. Future work can tune fallback quality without touching every modality page.
+
+---
+
+## 2026-04-18 — Branding upload gets explicit pre-save pending state
+
+**Decision:** Add a dedicated Dash callback that renders pending logo feedback (`branding-logo-selection`) immediately from upload contents, independent of saved branding state.
+
+**Reason:** Previously the UI only showed backend-persisted logo; users received no confirmation after file selection before clicking Save Branding.
+
+**Consequence / future:** UX now clearly distinguishes "selected but not saved yet" from "currently saved logo". Save flow remains unchanged.
+
+---
+
 ## 2026-04-18 — DTA Dash figure view_mode contract
 
 **Decision:** Introduce an explicit `view_mode` parameter (`"result" | "debug"`) on `_build_dta_go_figure` and `_build_figure` in `dash_app/pages/dta.py`, defaulting to `"result"`. The mode controls trace hierarchy, annotation density, and hover detail. Capture/report paths always force `"result"` regardless of interactive state.

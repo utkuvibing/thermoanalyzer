@@ -1,0 +1,27 @@
+---
+description: Prefer RTK for verbose shell commands
+alwaysApply: true
+---
+
+Use RTK for verbose shell commands in this project.
+
+Prefer:
+- `rtk git status`
+- `rtk git diff`
+- `rtk pytest`
+- `rtk ruff check`
+- `rtk read <file>`
+- `rtk grep "<pattern>" .`
+
+Avoid raw:
+- `git status`
+- `git diff`
+- `pytest`
+- `ruff check`
+- `cat`
+- `grep`
+
+Use raw commands only when:
+- RTK does not apply
+- exact unfiltered output is explicitly needed
+- the RTK command is unavailable or fails

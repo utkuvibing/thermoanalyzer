@@ -2,26 +2,32 @@
 
 **Purpose:** One active migration slice — scope, goal, and acceptance only.
 
-## Status (2026-04-18): DTA Dash Graph Polish & Refactor — in progress
+## Status (2026-04-18): Shared Figure Persistence + Branding Upload Feedback — implemented
 
-**Goal:** Refactor Dash DTA plotting into explicit `result` and `debug` figure modes, defaulting all saved/exported/report figures to polished `result` mode while preserving rich analysis detail in `debug` mode.
+**Goal:** Fix real end-to-end figure persistence for all analysis modalities so saved results, PDF/DOCX export, and project save/load consistently carry figures; add immediate pre-save branding logo selection feedback in Dash export UI.
 
 **In scope**
 
-- `dash_app/pages/dta.py`: add `view_mode` contract to `_build_dta_go_figure` and `_build_figure`; implement result-mode trace hierarchy; implement debug-mode overlays; add `dta-figure-view-mode` UI selector; force result mode in capture path; reduce annotation clutter in result mode; add hover detail.
-- `tests/test_dta_dash_page.py`: add mode matrix tests, annotation anti-clutter tests, capture result-mode enforcement tests.
-- `utils/i18n.py`: add TR/EN keys for figure view mode labels.
+- `backend/app.py`: auto-register result snapshot figure during saved `/analysis/run` and `/workspace/{project_id}/batch/run` flows; ensure artifacts include `figure_keys` and `report_figure_key`.
+- `core/figure_render.py`: centralize Plotly PNG rendering with resilient fallback path.
+- `dash_app/components/analysis_page.py`, `dash_app/pages/dta.py`: route existing Dash capture to shared renderer helper.
+- `dash_app/pages/export.py`: add immediate pre-save branding upload feedback (`branding-logo-selection`) from upload contents.
+- Tests: `tests/test_backend_workflow.py`, `tests/test_analysis_page_components.py`, `tests/test_dta_dash_page.py`, `tests/test_export_dash_page.py`.
 
 **Out of scope**
 
-- `ui/components/plot_builder.py`, `ui/dta_page.py` (Streamlit surface).
-- DTA analysis algorithms, result schema, literature compare semantics, report artifact keys.
-- Generic cross-modality plotting framework.
-- Broad visual experimentation outside hierarchy/readability goals.
+- Analysis algorithms and modality-specific scientific logic.
+- Result schema redesign or export/report contract redesign.
+- Streamlit legacy surface refactors.
+- Localization dictionary expansion for this slice.
 
 **Acceptance**
 
-- `python -m pytest tests/test_dta_dash_page.py -q` passes.
-- `python -m pytest tests/test_dash_workflow_regression.py -q` passes.
-- `python -m pytest tests/test_report_generator.py -k dta -q` passes.
-- DTA result figure tests prove: result/debug mode behavior differs as defined; capture uses result mode.
+- Real running Dash app validation confirms:
+  - saved DTA and FTIR results register figures in shared state,
+  - exported DOCX/PDF include figure images,
+  - project save/load preserves figures and result figure linkage,
+  - branding logo selection shows immediate pre-save feedback.
+- `pytest tests/test_analysis_page_components.py tests/test_export_dash_page.py` passes.
+- `pytest tests/test_backend_workflow.py -k "auto_registers_figure"` passes.
+- `pytest tests/test_dta_dash_page.py -k "capture_dta_figure"` passes.

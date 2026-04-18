@@ -78,3 +78,77 @@ Users **may** see mismatches (missing views, different defaults, divergent plots
 ### Next check
 
 One workflow: document parity with evidence, **or** promote a **narrow** child entry to **Open** with a confirmed repro and file pointers.
+
+---
+
+## BUG-002 — Saved analysis figures missing in exports/project persistence
+
+### Title
+
+Saved results intermittently lacked persisted analysis figures in shared state
+
+### Status
+
+**Closed**
+
+### Symptoms
+
+- Graph visible in Dash analysis page but missing in exported PDF/DOCX.
+- Saved result artifacts lacked reliable figure linkage.
+- Project save/load did not consistently carry figure payloads forward.
+
+### Repro steps
+
+1. Run real Dash app (`python -m dash_app.server`) on branch `web-dash-plotly-migration`.
+2. Execute analysis and save result.
+3. Export report (DOCX/PDF) and inspect figure presence.
+4. Save/load project and check `figure_count` + result artifacts linkage.
+
+### Likely cause
+
+Shared figure persistence depended too heavily on UI capture callback success; backend save path did not guarantee figure registration at result-save time.
+
+### Files involved
+
+- `backend/app.py`
+- `core/figure_render.py`
+- `dash_app/components/analysis_page.py`
+- `dash_app/pages/dta.py`
+
+### Next check
+
+Monitor for regressions in additional modalities during future Dash slices.
+
+---
+
+## BUG-003 — Branding logo upload lacked immediate pre-save feedback
+
+### Title
+
+No immediate UI confirmation after logo selection before Save Branding
+
+### Status
+
+**Closed**
+
+### Symptoms
+
+- Selecting a logo file showed no visible uploaded/selected state until Save Branding completed.
+
+### Repro steps
+
+1. Open Export page branding panel.
+2. Select a logo file in upload control.
+3. Observe no pending selection indicator before saving.
+
+### Likely cause
+
+Preview area was populated only by backend-loaded persisted branding state; no callback rendered pending upload contents.
+
+### Files involved
+
+- `dash_app/pages/export.py`
+
+### Next check
+
+Keep pending/saved branding distinction consistent if additional branding fields get staged UI behavior.
