@@ -1427,3 +1427,121 @@ html[data-theme="dark"] .main-content .ta-quality-alert.alert-warning {
   color: var(--ta-ink) !important;
   border-color: rgba(154, 138, 90, 0.5) !important;
 }
+
+/* -------------------------------------------------------------------------- */
+/* DTA results surface v2 (scoped visual hierarchy polish)                    */
+/* -------------------------------------------------------------------------- */
+
+.main-content .dta-results-surface {
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content .dta-results-surface .dta-result-section {
+  margin-bottom: 1rem;
+}
+
+.main-content .dta-results-surface .dta-result-section:last-child {
+  margin-bottom: 0;
+}
+
+.main-content .dta-results-surface .dta-result-section > .card {
+  margin-bottom: 0 !important;
+  border-radius: 0.45rem;
+}
+
+.main-content .dta-results-surface .dta-result-section .card-body {
+  padding: 1.05rem 1.15rem;
+}
+
+.main-content .dta-results-surface .dta-result-section h5 {
+  font-size: 1.01rem;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+
+.main-content .dta-results-surface .dta-result-context > .card,
+.main-content .dta-results-surface .dta-result-support > .card,
+.main-content .dta-results-surface .dta-result-secondary > .card {
+  border-color: var(--ta-border);
+}
+
+.main-content .dta-results-surface .dta-result-hero > .card {
+  border-color: rgba(102, 100, 94, 0.26);
+}
+
+html[data-theme="dark"] .main-content .dta-results-surface .dta-result-hero > .card {
+  border-color: rgba(158, 154, 147, 0.36);
+}
+
+.main-content .dta-results-surface .dta-figure-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content .dta-results-surface .dta-result-figure-shell {
+  border: 1px solid var(--ta-border);
+  border-radius: 0.5rem;
+  background: var(--ta-panel);
+  padding: 0.7rem 0.8rem 0.35rem;
+  box-shadow: 0 2px 5px rgba(28, 26, 26, 0.05);
+}
+
+html[data-theme="dark"] .main-content .dta-results-surface .dta-result-figure-shell {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+}
+
+.main-content .dta-results-surface .dta-result-graph {
+  min-height: 560px;
+}
+
+.main-content .dta-results-surface .dta-result-debug {
+  margin-top: 0.75rem;
+}
+
+.main-content .dta-results-surface .dta-debug-shell {
+  border-style: dashed;
+  background: var(--ta-panel-strong);
+  padding: 0.55rem 0.8rem;
+}
+
+.main-content .dta-results-surface .dta-debug-shell > .ta-details-summary {
+  color: var(--ta-muted);
+  font-size: 0.88rem;
+  letter-spacing: 0.015em;
+}
+
+.main-content .dta-results-surface .dta-debug-graph {
+  opacity: 0.95;
+}
+
+.main-content .dta-results-surface .dta-meta-term {
+  font-size: 0.79rem;
+  letter-spacing: 0.015em;
+}
+
+.main-content .dta-results-surface .dta-meta-def {
+  margin-bottom: 0.55rem !important;
+}
+
+.main-content .dta-results-surface .dta-meta-value {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 991.98px) {
+  .main-content .dta-results-surface .dta-result-section .card-body {
+    padding: 0.9rem 1rem;
+  }
+
+  .main-content .dta-results-surface .dta-result-figure-shell {
+    padding: 0.55rem 0.55rem 0.2rem;
+  }
+
+  .main-content .dta-results-surface .dta-result-graph {
+    min-height: 500px;
+  }
+}

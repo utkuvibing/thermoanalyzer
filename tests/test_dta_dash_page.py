@@ -368,20 +368,28 @@ def test_build_figure_uses_corrected_as_primary_trace(monkeypatch):
     )
 
     assert isinstance(figure_panel, html.Div)
+    assert "dta-figure-stack" in str(getattr(figure_panel, "className", "") or "")
     panel_children = list(figure_panel.children or [])
     assert len(panel_children) == 2
-    graph = panel_children[0]
-    debug_details = panel_children[1]
+    result_shell = panel_children[0]
+    debug_shell = panel_children[1]
+    assert isinstance(result_shell, html.Div)
+    assert "dta-result-figure-shell" in str(getattr(result_shell, "className", "") or "")
+    graph = result_shell.children
+    assert isinstance(debug_shell, html.Div)
+    assert "dta-result-debug" in str(getattr(debug_shell, "className", "") or "")
+    debug_details = debug_shell.children
     assert isinstance(graph, dcc.Graph)
     assert isinstance(debug_details, html.Details)
     assert getattr(debug_details, "id", "") == "dta-debug-figure-details"
     corrected_trace = next(trace for trace in graph.figure.data if trace.name == "Corrected Signal")
     raw_trace = next(trace for trace in graph.figure.data if trace.name == "Raw Signal")
-    assert corrected_trace.line.width == 2.8
-    assert raw_trace.opacity < 0.3
-    assert graph.figure.layout.height == 560
+    assert corrected_trace.line.width >= 3.0
+    assert raw_trace.opacity <= 0.22
+    assert graph.figure.layout.height == 620
     assert graph.figure.layout.yaxis.range is not None
     assert graph.figure.layout.shapes in ((), None)
+    assert graph.figure.layout.legend.orientation == "h"
 
 
 def test_build_figure_handles_missing_primary_signal(monkeypatch):
@@ -546,6 +554,7 @@ def test_build_dta_go_figure_result_mode_suppresses_guide_annotation_text(monkey
     layout_json = fig.to_plotly_json().get("layout", {})
     annotations = layout_json.get("annotations") or []
     assert annotations == []
+    assert layout_json.get("height") == 620
 
 
 def test_build_dta_go_figure_event_marker_labels_are_clean_and_use_degree_symbol(monkeypatch):
@@ -680,6 +689,8 @@ def test_build_dta_go_figure_debug_mode_adds_restrained_guides(monkeypatch):
     assert result_shapes == []
     assert len(debug_shapes) >= 2
     assert len(debug_annotations) <= 4
+    assert debug_layout.get("height") == 540
+    assert debug_layout.get("legend", {}).get("orientation") == "v"
 
 
 # ---------------------------------------------------------------------------
@@ -2517,6 +2528,14 @@ def test_layout_phase4_quality_and_raw_metadata_between_metrics_and_figure():
     assert layout_str.index("dta-result-raw-metadata") < layout_str.index("dta-result-figure")
 
 
+def test_layout_mounts_dta_scoped_result_surface_classes():
+    mod = _import_dta_page()
+    layout_str = str(mod.layout)
+    assert "dta-results-surface" in layout_str
+    assert "dta-result-section" in layout_str
+    assert "dta-result-hero" in layout_str
+
+
 def test_render_dta_run_shortcut_hints_lists_undo_redo_run():
     mod = _import_dta_page()
     hints_en = mod.render_dta_run_shortcut_hints("en")
@@ -2563,6 +2582,7 @@ def test_build_dta_dataset_summary_en_shows_all_fields_when_present():
     assert "Sample A" in text
     assert "12.3 mg" in text
     assert "10 °C/min" in text
+    assert "dta-meta-value" in text
 
 
 def test_build_dta_dataset_summary_tr_translates_labels_and_units():
@@ -2593,6 +2613,35 @@ def test_build_dta_dataset_summary_tr_translates_labels_and_units():
     assert "Isıtma Hızı" in text
     assert "7.8 mg" in text
     assert "°C/dk" in text
+
+
+def test_build_dta_dataset_summary_wraps_values_in_tooltip_safe_meta_spans():
+    mod = _import_dta_page()
+    dataset_detail = {
+        "dataset": {"display_name": "Synthetic Dataset"},
+        "metadata": {"file_name": "very-long-dataset-file-name-with-many-segments.csv"},
+    }
+    panel = mod._build_dta_dataset_summary(
+        dataset_detail,
+        {"sample_name": "Long Sample Name For DTA"},
+        {"dataset_key": "ds-very-long"},
+        loc="en",
+        locale_data="en",
+    )
+
+    dl = panel.children[1]
+    rows = list(dl.children or [])
+    dataset_dd = rows[1]
+    sample_dd = rows[3]
+    dataset_span = dataset_dd.children
+    sample_span = sample_dd.children
+
+    assert isinstance(dataset_span, html.Span)
+    assert isinstance(sample_span, html.Span)
+    assert "dta-meta-value" in str(getattr(dataset_span, "className", "") or "")
+    assert "dta-meta-value" in str(getattr(sample_span, "className", "") or "")
+    assert getattr(dataset_span, "title", "") == "very-long-dataset-file-name-with-many-segments.csv"
+    assert getattr(sample_span, "title", "") == "Long Sample Name For DTA"
 
 
 def test_build_dta_dataset_summary_omits_missing_mass_and_heating_rate():

@@ -39,7 +39,7 @@ from dash_app.components.analysis_page import (
 )
 from dash_app.components.chrome import page_header
 from dash_app.components.data_preview import dataset_table
-from dash_app.theme import apply_figure_theme
+from dash_app.theme import apply_figure_theme, normalize_ui_theme
 from utils.i18n import normalize_ui_locale, translate_ui
 
 dash.register_page(__name__, path="/dta", title="DTA Analysis - MaterialScope")
@@ -84,6 +84,12 @@ _ANNOTATION_MIN_SEP = 15.0
 _PRIMARY_EVENT_LIMIT = 4
 _DTA_VIEW_MODES = ("result", "debug")
 _EMPTY_SAMPLE_TOKENS = {"", "unknown", "n/a", "na", "none", "null", "unnamed"}
+_DTA_RESULT_CARD_ROLES = {
+    "context": "dta-result-context",
+    "hero": "dta-result-hero",
+    "support": "dta-result-support",
+    "secondary": "dta-result-secondary",
+}
 
 # Smoothing defaults mirror core/batch_runner._DTA_TEMPLATE_DEFAULTS["dta.general"]
 _SMOOTH_METHODS = ("savgol", "moving_average", "gaussian")
@@ -1213,6 +1219,11 @@ def _dta_left_column_tabs() -> dbc.Tabs:
     )
 
 
+def _dta_result_section(child: Any, *, role: str = "support") -> html.Div:
+    role_class = _DTA_RESULT_CARD_ROLES.get(role, _DTA_RESULT_CARD_ROLES["support"])
+    return html.Div(child, className=f"dta-result-section {role_class}")
+
+
 layout = html.Div(
     analysis_page_stores("dta-refresh", "dta-latest-result-id")
     + _processing_draft_stores()
@@ -1226,17 +1237,18 @@ layout = html.Div(
                 ),
                 dbc.Col(
                     [
-                        result_placeholder_card("dta-result-dataset-summary"),
-                        result_placeholder_card("dta-result-metrics"),
-                        result_placeholder_card("dta-result-quality"),
-                        result_placeholder_card("dta-result-raw-metadata"),
-                        result_placeholder_card("dta-result-figure"),
-                        result_placeholder_card("dta-result-peak-cards"),
-                        result_placeholder_card("dta-result-table"),
-                        result_placeholder_card("dta-result-processing"),
-                        _literature_compare_card(),
+                        _dta_result_section(result_placeholder_card("dta-result-dataset-summary"), role="context"),
+                        _dta_result_section(result_placeholder_card("dta-result-metrics"), role="context"),
+                        _dta_result_section(result_placeholder_card("dta-result-quality"), role="support"),
+                        _dta_result_section(result_placeholder_card("dta-result-raw-metadata"), role="support"),
+                        _dta_result_section(result_placeholder_card("dta-result-figure"), role="hero"),
+                        _dta_result_section(result_placeholder_card("dta-result-peak-cards"), role="support"),
+                        _dta_result_section(result_placeholder_card("dta-result-table"), role="support"),
+                        _dta_result_section(result_placeholder_card("dta-result-processing"), role="support"),
+                        _dta_result_section(_literature_compare_card(), role="secondary"),
                     ],
                     md=8,
+                    className="dta-results-surface",
                 ),
             ]
         ),
@@ -1812,17 +1824,20 @@ def _build_dta_dataset_summary(
         summary or {}, result_meta or {}, dataset_detail, locale_data=locale_data
     ) or na
 
+    def _meta_value(value: str) -> html.Span:
+        return html.Span(value, className="dta-meta-value", title=value)
+
     rows: list[Any] = [
         html.Dt(
             translate_ui(loc, "dash.analysis.dta.summary.dataset_label"),
-            className="col-sm-4 text-muted",
+            className="col-sm-4 text-muted dta-meta-term",
         ),
-        html.Dd(dataset_label, className="col-sm-8 mb-2"),
+        html.Dd(_meta_value(dataset_label), className="col-sm-8 mb-2 dta-meta-def"),
         html.Dt(
             translate_ui(loc, "dash.analysis.dta.summary.sample_label"),
-            className="col-sm-4 text-muted",
+            className="col-sm-4 text-muted dta-meta-term",
         ),
-        html.Dd(sample_label, className="col-sm-8 mb-2"),
+        html.Dd(_meta_value(sample_label), className="col-sm-8 mb-2 dta-meta-def"),
     ]
 
     mass_value = _format_dataset_metadata_value(metadata.get("sample_mass"))
@@ -1832,9 +1847,9 @@ def _build_dta_dataset_summary(
             [
                 html.Dt(
                     translate_ui(loc, "dash.analysis.dta.summary.mass_label"),
-                    className="col-sm-4 text-muted",
+                    className="col-sm-4 text-muted dta-meta-term",
                 ),
-                html.Dd(f"{mass_value} {mass_unit}", className="col-sm-8 mb-2"),
+                html.Dd(_meta_value(f"{mass_value} {mass_unit}"), className="col-sm-8 mb-2 dta-meta-def"),
             ]
         )
 
@@ -1849,9 +1864,9 @@ def _build_dta_dataset_summary(
             [
                 html.Dt(
                     translate_ui(loc, "dash.analysis.dta.summary.heating_rate_label"),
-                    className="col-sm-4 text-muted",
+                    className="col-sm-4 text-muted dta-meta-term",
                 ),
-                html.Dd(f"{heating_value} {heating_unit}", className="col-sm-8 mb-0"),
+                html.Dd(_meta_value(f"{heating_value} {heating_unit}"), className="col-sm-8 mb-0 dta-meta-def"),
             ]
         )
 
@@ -2121,6 +2136,8 @@ def _build_dta_go_figure(
     if not primary_signal:
         return None
 
+    is_result = view_mode == "result"
+    is_dark = normalize_ui_theme(ui_theme) == "dark"
     fig = go.Figure()
     primary_name, primary_color = _primary_trace_name(corrected, smoothed, raw_signal, loc)
     y_range = _compute_y_axis_range(primary_signal, baseline, smoothed if corrected else [], raw_signal if not (corrected or smoothed) else [])
@@ -2137,8 +2154,8 @@ def _build_dta_go_figure(
                 y=raw_signal,
                 mode="lines",
                 name=legend_raw,
-                line=dict(color="#94A3B8", width=1.0 if primary_name != legend_raw else 1.8),
-                opacity=0.24 if primary_name != legend_raw else 0.9,
+                line=dict(color="#94A3B8", width=0.95 if primary_name != legend_raw else 1.9),
+                opacity=0.2 if (is_result and primary_name != legend_raw) else (0.88 if primary_name == legend_raw else 0.34),
                 hovertemplate=_trace_hover_template(legend_raw, loc),
             )
         )
@@ -2150,8 +2167,8 @@ def _build_dta_go_figure(
                 y=smoothed,
                 mode="lines",
                 name=legend_smooth,
-                line=dict(color="#0891B2", width=1.5),
-                opacity=0.9,
+                line=dict(color="#0891B2", width=1.4 if is_result else 1.6),
+                opacity=0.66 if is_result else 0.88,
                 hovertemplate=_trace_hover_template(legend_smooth, loc),
             )
         )
@@ -2163,8 +2180,8 @@ def _build_dta_go_figure(
                 y=baseline,
                 mode="lines",
                 name=legend_base,
-                line=dict(color="#64748B", width=1.0, dash="dot"),
-                opacity=0.8,
+                line=dict(color="#64748B", width=1.0 if is_result else 1.1, dash="dot"),
+                opacity=0.44 if is_result else 0.72,
                 hovertemplate=_trace_hover_template(legend_base, loc),
             )
         )
@@ -2175,7 +2192,7 @@ def _build_dta_go_figure(
             y=primary_signal,
             mode="lines",
             name=primary_name,
-            line=dict(color=primary_color, width=2.8),
+            line=dict(color=primary_color, width=3.1 if is_result else 2.8),
             opacity=1.0,
             hovertemplate=_trace_hover_template(primary_name, loc),
         )
@@ -2212,14 +2229,14 @@ def _build_dta_go_figure(
                 y=[primary_signal[idx]],
                 mode="markers+text",
                 marker=dict(
-                    size=11 if is_primary else 8,
+                    size=10 if (is_result and is_primary) else (8 if is_result else (11 if is_primary else 8)),
                     color=color,
                     symbol="diamond",
-                    line=dict(color="white", width=1.2),
+                    line=dict(color="white", width=1.1),
                 ),
                 text=[text_str],
                 textposition="top center",
-                textfont=dict(size=9, color=color),
+                textfont=dict(size=9 if is_result else 8, color=color),
                 name=f"{direction_label} {_format_temp_c(pt)}",
                 showlegend=False,
                 hovertemplate=marker_hover,
@@ -2228,24 +2245,79 @@ def _build_dta_go_figure(
         if text_str:
             annotated_temps.append(pt)
 
+    grid_color = "rgba(61, 59, 56, 0.42)" if is_dark else "rgba(224, 221, 214, 0.72)"
+    axis_line_color = "rgba(61, 59, 56, 0.9)" if is_dark else "rgba(183, 177, 168, 0.95)"
+    tick_color = "rgba(238, 237, 234, 0.9)" if is_dark else "rgba(28, 26, 26, 0.78)"
+    title_size = 19 if is_result else 16
     fig.update_layout(
-        title=translate_ui(loc, "dash.analysis.figure.title_dta", name=sample_name),
+        title=dict(
+            text=translate_ui(loc, "dash.analysis.figure.title_dta", name=sample_name),
+            x=0.01,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            font=dict(size=title_size),
+        ),
         xaxis_title=translate_ui(loc, "dash.analysis.figure.axis_temperature_c"),
         yaxis_title=translate_ui(loc, "dash.analysis.figure.axis_delta_t"),
         hovermode="x unified",
-        margin=dict(l=56, r=24, t=56, b=48),
-        height=560,
+        margin=dict(l=70, r=34, t=96 if is_result else 74, b=64 if is_result else 56),
+        height=620 if is_result else 540,
+        hoverlabel=dict(namelength=-1),
         legend=dict(
             orientation="v" if view_mode == "debug" else "h",
             yanchor="bottom" if view_mode != "debug" else "top",
-            y=1.02 if view_mode != "debug" else 1.0,
-            xanchor="right",
-            x=1,
+            y=1.03 if view_mode != "debug" else 1.0,
+            xanchor="left" if view_mode != "debug" else "right",
+            x=0.0 if view_mode != "debug" else 1.0,
+            traceorder="normal",
+            itemclick="toggleothers" if is_result else "toggle",
         ),
     )
     apply_figure_theme(fig, ui_theme)
-    fig.update_yaxes(range=y_range)
+    fig.update_xaxes(
+        gridcolor=grid_color,
+        showgrid=True,
+        showline=True,
+        linewidth=1,
+        linecolor=axis_line_color,
+        ticks="outside",
+        ticklen=5,
+        tickcolor=axis_line_color,
+        tickfont=dict(size=12, color=tick_color),
+        title_standoff=14,
+    )
+    fig.update_yaxes(
+        range=y_range,
+        gridcolor=grid_color,
+        showgrid=True,
+        showline=True,
+        linewidth=1,
+        linecolor=axis_line_color,
+        ticks="outside",
+        ticklen=5,
+        tickcolor=axis_line_color,
+        tickfont=dict(size=12, color=tick_color),
+        title_standoff=14,
+    )
     return fig
+
+
+def _dta_graph_config(view_mode: str) -> dict[str, Any]:
+    mode = view_mode if view_mode in _DTA_VIEW_MODES else "result"
+    buttons_to_remove = ["lasso2d", "select2d", "toggleSpikelines"]
+    if mode == "result":
+        buttons_to_remove.append("hoverCompareCartesian")
+    return {
+        "displaylogo": False,
+        "responsive": True,
+        "modeBarButtonsToRemove": buttons_to_remove,
+        "toImageButtonOptions": {
+            "format": "png",
+            "filename": "dta-analysis",
+            "scale": 2,
+        },
+    }
 
 
 def _build_figure(
@@ -2274,27 +2346,20 @@ def _build_figure(
 
     result_graph = dcc.Graph(
         figure=fig,
-        config={
-            "displaylogo": False,
-            "responsive": True,
-            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-        },
-        className="ta-plot",
+        config=_dta_graph_config(view_mode),
+        className="ta-plot dta-result-graph",
     )
+    result_shell = html.Div(result_graph, className="dta-result-figure-shell")
     if view_mode != "result":
-        return result_graph
+        return result_shell
 
     debug_fig = _build_dta_go_figure(project_id, dataset_key, sample_name, peak_rows, ui_theme, loc, view_mode="debug")
     if debug_fig is None:
-        return result_graph
+        return result_shell
     debug_graph = dcc.Graph(
         figure=debug_fig,
-        config={
-            "displaylogo": False,
-            "responsive": True,
-            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-        },
-        className="ta-plot",
+        config=_dta_graph_config("debug"),
+        className="ta-plot dta-debug-graph",
     )
     debug_title = "Gelişmiş Tanılama Görünümü" if normalize_ui_locale(loc) == "tr" else "Debug / Analysis View"
     debug_details = html.Details(
@@ -2308,11 +2373,14 @@ def _build_figure(
             ),
             html.Div(debug_graph, className="ta-details-body mt-2"),
         ],
-        className="ta-ms-details mt-3",
+        className="ta-ms-details dta-debug-shell mt-3",
         open=False,
         id="dta-debug-figure-details",
     )
-    return html.Div([result_graph, debug_details])
+    return html.Div(
+        [result_shell, html.Div(debug_details, className="dta-result-debug")],
+        className="dta-figure-stack",
+    )
 
 
 def _build_peak_table(rows: list, loc: str = "en") -> html.Div:
