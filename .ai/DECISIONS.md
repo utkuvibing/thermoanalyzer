@@ -4,6 +4,56 @@
 
 ---
 
+## 2026-04-19 — DSC peak detection defaults use auto-derivation (None) instead of explicit 0.0/1
+
+**Decision:** Set `_DSC_PEAK_DETECTION_DEFAULTS` to `prominence=None, distance=None` and convert user-input 0.0/1 to `None` in `_normalize_peak_detection_values`. Add a batch_runner guard for the DSC path (same pattern as DTA at lines 624-627).
+
+**Reason:** Explicit `prominence=0.0` bypassed the auto-derivation in `find_thermal_peaks` (which only activates when prominence is `None`), causing every tiny signal fluctuation to register as a peak on simple single-event DSC traces.
+
+**Consequence / future:** DTA already uses this pattern. TGA migration should follow the same approach. The `peak_analysis.py` auto-derivation (10% of signal range, n//20 distance) becomes the effective floor for all thermal modalities.
+
+---
+
+## 2026-04-19 — DSC result layout promotes analysis figure above raw metadata
+
+**Decision:** Reorder DSC right-column layout so the main figure appears immediately after quality/validation, with raw metadata demoted to the second-to-last position before literature compare.
+
+**Reason:** The main DSC figure is the primary analysis artifact; burying it below raw metadata made the results surface feel debug-centric rather than analysis-first.
+
+**Consequence / future:** Other modalities (TGA, XRD, FTIR, Raman) should follow the same analysis-first ordering when they get full Dash surfaces.
+
+---
+
+## 2026-04-19 — Raw metadata split into user-facing and technical subsections
+
+**Decision:** Define `_DSC_USER_FACING_METADATA_KEYS` (sample_name, display_name, sample_mass, heating_rate, instrument, vendor, file_name, source_data_hash). Show those directly; demote all other keys into a nested collapsible "Technical details" section.
+
+**Reason:** All-metadata-equal rendering exposed internal/debug fields alongside user-relevant ones, making the panel noisy without adding analytical value.
+
+**Consequence / future:** Same pattern can be applied to DTA, TGA, and other modality pages. The key set should be reviewed when new metadata fields are added.
+
+---
+
+## 2026-04-19 — DSC behavior-first literature fallback queries expanded with broader vocabulary
+
+**Decision:** Expand DSC behavior-first fallback queries from 2-3 to 4+ variants, including "differential scanning calorimetry", direction-specific terms ("endotherm/endothermic", "exotherm/exothermic/crystallization"), and Tg-window variants ("DSC glass transition X C polymer").
+
+**Reason:** When sample_name is absent/generic, the original 2-3 fallback queries had narrow vocabulary and poor recall. `_thermal_search_queries` caps at 5, so ordering by relevance matters.
+
+**Consequence / future:** The 5-query cap means the most relevant queries are used automatically. Future modalities should define similarly broad fallback sets.
+
+---
+
+## 2026-04-19 — Literature compare technical diagnostics include search_mode, subject_trust, and executed queries
+
+**Decision:** Add `search_mode`, `subject_trust`, `query_display_terms`, and `executed_queries` to the collapsible technical details section in `literature_compare_ui.py`. Add `executed_queries: list[str]` field to `LiteratureContext` dataclass.
+
+**Reason:** "No literature found" was a dead end without diagnostic context. Showing which queries were executed and why (search_mode, subject_trust) makes no-result cases actionable instead of opaque.
+
+**Consequence / future:** All modalities using `render_literature_output` benefit automatically. No per-page changes needed.
+
+---
+
 ## 2026-04-18 — Figure persistence moved to shared backend save path
 
 **Decision:** Register a result snapshot figure in shared backend state during saved `/analysis/run` and batch save flows, instead of relying solely on page-specific Dash capture callbacks.

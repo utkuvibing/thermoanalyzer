@@ -4,14 +4,15 @@
 
 ## Carryover
 
-- **Project:** MaterialScope  
-- **Branch:** `web-dash-plotly-migration` (in sync with `origin` for the DSC maturity work).  
-- **Last closed slice:** DSC Dash P0/P1 maturity — merged to branch as **`0ff062c`** (literature compare, shared `literature_compare_ui`, prerun dataset info, baseline window + `dtg`, interpretation polish, tests).  
+- **Project:** MaterialScope
+- **Branch:** `web-dash-plotly-migration` (ahead of `origin` by 1 commit — `7d06d7d`).
+- **Last closed slice:** DSC stabilization & literature recall — committed as **`7d06d7d`** (tighten peak detection defaults, reorder layout, metadata split, expanded literature fallbacks, diagnostics surface, tests).
 - **No open blockers** from that slice.
 
 ## Next step
 
-1. Pick the next backlog slice when ready (TASK empty until a new slice is started).  
-2. Optional hygiene: ignore or clean local `pytest_temp/` if those dirs accumulate from test runs.
+1. Push `7d06d7d` to `origin/web-dash-plotly-migration`.
+2. Pick the next backlog slice when ready (TASK empty until a new slice is started).
+3. Optional hygiene: clean local `pytest_temp/` (2864+ dirs from test runs).
 
 **Process defaults:** **`00-workflow.mdc`**.
