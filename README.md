@@ -6,6 +6,16 @@ The product is designed so users stay inside MaterialScope instead of switching 
 
 The current primary application surface is a Dash + Plotly UI mounted into FastAPI (`python -m dash_app.server`). The Streamlit entrypoint remains available as a legacy/transition path during migration.
 
+### Version (current release line)
+
+| Item | Value |
+|------|--------|
+| **MaterialScope application version** | `2.0` (see `utils/license_manager.APP_VERSION`) |
+| **Bundled FastAPI / backend API version** | `0.1.0` (see `backend.BACKEND_API_VERSION`; exposed on `/version` and health endpoints) |
+| **Active development branch** | `web-dash-plotly-migration` (Dash + Plotly migration and backend integration) |
+
+Use these when reporting bugs, support tickets, or export diagnostics. The API version tracks the HTTP surface; the application version tracks the product build users see in licensing and support workflows.
+
 ---
 
 ## What MaterialScope Covers
@@ -41,11 +51,12 @@ The current primary application surface is a Dash + Plotly UI mounted into FastA
 
 ---
 
-## Dash Migration Status (2026-04)
+## Dash migration status (latest)
 
-- Dash is the default target surface for ongoing modality migration slices.
-- DTA has shipped Phase 4 polish on Dash: quality and raw-metadata cards, expandable processing summary, preset apply/save tab auto-advance, and keyboard shortcuts.
-- Migration remains modality-by-modality to keep blast radius small and verification explicit.
+- Dash + Plotly is the **default** surface for stable modalities; migration continues modality-by-modality to keep verification explicit.
+- **DTA** — Phase 4 polish: quality and raw-metadata cards, expandable processing summary, preset flow, keyboard shortcuts.
+- **DSC** — Full Dash analysis surface aligned with DTA patterns: literature compare, figure capture for reports, export-oriented figure registration with diagnostics (`report_figure_status` / export warnings when figures are missing).
+- Streamlit remains supported for legacy flows until remaining surfaces reach parity.
 
 ---
 
@@ -72,8 +83,8 @@ The current primary application surface is a Dash + Plotly UI mounted into FastA
 - DOCX, PDF, XLSX, and CSV outputs
 - Compact report-style main body with appendix-level technical evidence
 - Scientific reasoning sections by modality
-- Publication-grade figures for UI and export
-- Figure snapshots and report-primary figure selection
+- Publication-grade figures for UI and export; server-side snapshot figures aligned with processed thermal axes
+- Report-primary figure keys, optional **Figure export notes** when PNGs are missing, and per-result capture status for troubleshooting
 - Preserved validation warnings, processing context, and provenance metadata
 
 ### Project workflow
@@ -298,13 +309,12 @@ Local Windows release notes:
 
 ---
 
-## Forward-Looking Futures (Dash-First)
+## Forward-looking work (Dash-first)
 
-- Migrate the next non-DTA modality slice (starting with DSC) using the same Dash result-surface patterns.
-- Reuse DTA's quality/raw-metadata/expandable-processing card architecture across modalities.
-- Continue converging desktop and deployment flows toward Dash-first runtime defaults.
-- Keep Streamlit compatibility until parity and operational confidence are complete.
-- Expand provider coverage and provenance quality in managed cloud-library workflows.
+- Continue modality parity and polish (remaining surfaces and deployment defaults where Dash is not yet primary).
+- Reuse the shared Dash result-surface patterns (quality cards, raw metadata, processing summaries, literature compare, figure capture) across modalities.
+- Converge desktop and container runtimes toward Dash-first defaults; Streamlit remains until parity is complete.
+- Expand managed cloud-library provider coverage and provenance quality.
 
 ---
 
