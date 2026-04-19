@@ -787,6 +787,34 @@ def test_execute_dsc_batch_template_is_deterministic_for_same_input_and_template
     np.testing.assert_allclose(first["state"]["corrected"], second["state"]["corrected"])
 
 
+def test_execute_dsc_batch_normalizes_legacy_distance_one_to_none(thermal_dataset, monkeypatch):
+    """Legacy DSC payloads with distance=1 should auto-derive, not bypass."""
+    from core import dsc_processor
+
+    captured: dict = {}
+
+    original_find = dsc_processor.find_thermal_peaks
+
+    def _spy_find_peaks(temperature, signal, **kwargs):
+        captured["prominence"] = kwargs.get("prominence")
+        captured["distance"] = kwargs.get("distance")
+        return original_find(temperature, signal, **kwargs)
+
+    monkeypatch.setattr(dsc_processor, "find_thermal_peaks", _spy_find_peaks)
+
+    dataset = thermal_dataset.copy()
+    dataset.metadata.update({"vendor": "TestVendor", "display_name": "Legacy DSC"})
+
+    outcome = execute_batch_template(
+        dataset_key="legacy_dsc",
+        dataset=dataset,
+        analysis_type="DSC",
+        workflow_template_id="dsc.general",
+    )
+    assert outcome["status"] == "saved"
+    assert captured["distance"] is None, f"Expected distance=None (auto-derive), got {captured['distance']}"
+
+
 def test_execute_tga_batch_template_is_deterministic_for_same_input_and_template(temperature_range, tga_signal):
     dataset = _make_tga_dataset(temperature_range, tga_signal)
 

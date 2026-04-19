@@ -332,7 +332,7 @@ def _execute_dsc_batch(
     glass_transition = copy.deepcopy((processing.get("analysis_steps") or {}).get("glass_transition") or {})
     if peak_detection.get("prominence") in ("", 0, 0.0, None):
         peak_detection["prominence"] = None
-    if peak_detection.get("distance") in ("", 0, 0.0, None):
+    if peak_detection.get("distance") in ("", 0, 0.0, 1, None):
         peak_detection["distance"] = None
 
     processor = DSCProcessor(

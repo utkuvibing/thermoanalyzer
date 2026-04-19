@@ -1151,6 +1151,7 @@ TRANSLATIONS = {
         "en": "No results yet — quality summary appears after you run an analysis.",
     },
     "dash.analysis.dsc.raw_metadata.card_title": {"tr": "Ham üst veri (metadata)", "en": "Raw dataset metadata"},
+    "dash.analysis.dsc.raw_metadata.technical_details": {"tr": "Teknik detaylar", "en": "Technical details"},
     "dash.analysis.dsc.raw_metadata.empty": {
         "tr": "Üst veri yok veya henüz yüklenmedi.",
         "en": "No metadata loaded yet.",

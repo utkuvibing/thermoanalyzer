@@ -539,3 +539,27 @@ def test_literature_diagnostics_show_fallback_queries():
 
     assert "thermal analysis glass transition polymer" in output_html
     assert "differential scanning calorimetry glass transition" in output_html
+
+
+def test_raw_metadata_technical_details_label_does_not_leak_i18n_key():
+    mod = _import_dsc_page()
+    metadata = {
+        "sample_name": "Polymer A",
+        "import_method": "auto",
+    }
+    panel = mod._build_dsc_raw_metadata_panel(metadata, "en")
+    panel_html = str(panel)
+    assert "Technical details" in panel_html
+    assert "dash.analysis.dsc.raw_metadata.technical_details" not in panel_html
+
+
+def test_raw_metadata_technical_details_label_turkish():
+    mod = _import_dsc_page()
+    metadata = {
+        "sample_name": "Polimer A",
+        "import_method": "auto",
+    }
+    panel = mod._build_dsc_raw_metadata_panel(metadata, "tr")
+    panel_html = str(panel)
+    assert "Teknik detaylar" in panel_html
+    assert "dash.analysis.dsc.raw_metadata.technical_details" not in panel_html
